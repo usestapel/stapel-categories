@@ -88,3 +88,30 @@ class TestCategoryChangedAction:
         subscribe_action("category.changed", lambda event: received.append(event.payload))
         emit("category.changed", {"category_id": 1, "revision": 2})
         assert {"category_id": 1, "revision": 2} in received
+
+    def test_exactly_one_event_per_category_save(self):
+        received = []
+        subscribe_action("category.changed", lambda event: received.append(event.payload))
+
+        category = Category.objects.create(name="Games", slug="games")
+
+        # A single root-category save announces itself exactly once (the
+        # copy_parent_features signal does nothing for a root).
+        mine = [p for p in received if p["category_id"] == category.pk]
+        assert len(mine) == 1
+
+    def test_failing_emit_rolls_back_the_mutation(self, monkeypatch):
+        # The outbox guarantee: emit runs inside save()'s atomic block, so if
+        # it raises the mutation MUST roll back — never a committed row with no
+        # announcement (which would strand every downstream cache).
+        def boom(*args, **kwargs):
+            raise RuntimeError("comm backend down")
+
+        monkeypatch.setattr("stapel_core.comm.emit", boom)
+
+        before = Category.objects.count()
+        with pytest.raises(RuntimeError):
+            Category.objects.create(name="Doomed", slug="doomed")
+
+        assert Category.objects.count() == before
+        assert not Category.objects.filter(slug="doomed").exists()

@@ -329,8 +329,17 @@ def emit_category_changed_on_save(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Feature)
 def emit_category_changed_on_feature_save(sender, instance, **kwargs):
-    """A feature edit changes every category referencing it — emit for each."""
+    """A feature edit changes every category referencing it — emit for each.
+
+    Cost note: this is an N-fanout (N emits + N outbox rows) synchronous in the
+    save's transaction, where N = categories directly referencing this feature.
+    N is bounded by the M2M (``distinct`` guards against duplicate rows), but
+    the inheritance model lets a shared/root feature sit on many categories, so
+    N can be large for a widely-used feature. Over-emitting is safe
+    (invalidation is idempotent); if the fanout ever hurts, batch it behind a
+    single coalescing event rather than dropping invalidations.
+    """
     from .events import publish_category_changed
 
-    for cat in Category.objects.filter(features=instance).only("pk", "revision"):
+    for cat in Category.objects.filter(features=instance).only("pk", "revision").distinct():
         publish_category_changed(cat.pk, cat.revision)
