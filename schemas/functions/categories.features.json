@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "categories.features",
+  "description": "Request the resolved feature definitions (own + inherited) for a category. The result is cacheable by the returned revision; a category.changed event invalidates it.",
+  "type": "object",
+  "required": ["category_id"],
+  "properties": {
+    "category_id": {
+      "type": "integer",
+      "description": "ID of the category whose feature schema to resolve."
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "category.changed",
+  "description": "A category (or a feature belonging to it) was created or mutated. Downstream consumers invalidate any cached categories.features result for this category_id.",
+  "type": "object",
+  "required": ["category_id", "revision"],
+  "properties": {
+    "category_id": {
+      "type": "integer",
+      "description": "ID of the affected category."
+    },
+    "revision": {
+      "type": "integer",
+      "description": "The category's revision after the change (monotonic per model)."
+    }
+  },
+  "additionalProperties": false
+}
