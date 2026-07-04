@@ -43,6 +43,42 @@ class TestFeaturesFunction:
         # own feature first, then inherited parent feature
         assert "storage" in slugs and "color" in slugs
 
+    def test_carries_title_badge_translate_flags(self, db):
+        # These flags MUST cross the comm boundary: stapel-attributes'
+        # dto_to_dao reads them off the FeatureDef to build the title/badge
+        # projections — omitting them yields empty features_title/badges
+        # downstream (listings integration bug).
+        category = Category.objects.create(name="Cars", slug="cars")
+        feature = Feature.objects.create(
+            slug="brand",
+            name="Brand",
+            config={"type": "string"},
+            show_at_title=True,
+            show_as_badge=True,
+            translate="title",
+        )
+        CategoryFeature.objects.create(category=category, feature=feature, order=0)
+
+        fdef = call("categories.features", {"category_id": category.pk})["features"][0]
+        assert fdef["show_at_title"] is True
+        assert fdef["show_as_badge"] is True
+        assert fdef["translate"] == "title"
+
+    def test_flags_feed_attributes_title_projection(self, db):
+        # End-to-end: the resolved payload, run through the attributes engine,
+        # yields a NON-empty title projection because the flags survived.
+        from stapel_attributes import normalize_to_dao
+
+        category = Category.objects.create(name="Phones", slug="phones")
+        feature = Feature.objects.create(
+            slug="color", name="Color", config={"type": "string"}, show_at_title=True
+        )
+        CategoryFeature.objects.create(category=category, feature=feature, order=0)
+
+        configs = call("categories.features", {"category_id": category.pk})["features"]
+        dao = normalize_to_dao(configs, {"color": {"type": "string", "value": "red"}})
+        assert dao["color"]["title"] is True
+
     def test_missing_category_raises_lookup(self, db):
         # call() wraps the handler's LookupError in FunctionCallError; the
         # original is preserved as __cause__.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "categories.features",
-  "description": "Request the resolved feature definitions (own + inherited) for a category. The result is cacheable by the returned revision; a category.changed event invalidates it.",
+  "description": "Request the resolved feature definitions (own + inherited) for a category. The result is cacheable by the returned revision; a category.changed event invalidates it. This object validates the request payload; the response shape ({category_id, revision, features:[ResolvedFeature]}) is documented in $defs for consumers.",
   "type": "object",
   "required": ["category_id"],
   "properties": {
@@ -10,5 +10,22 @@
       "description": "ID of the category whose feature schema to resolve."
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "ResolvedFeature": {
+      "type": "object",
+      "description": "One resolved feature in the response 'features' array. Fed to stapel-attributes' coerce_feature_defs / FeatureDef. show_at_title, show_as_badge and translate MUST be present: attributes' dto_to_dao reads them to build the title/badge projections.",
+      "required": ["id", "slug", "name", "mandatory", "show_at_title", "show_as_badge", "translate", "config"],
+      "properties": {
+        "id": { "type": ["integer", "string"], "description": "Stable feature identifier." },
+        "slug": { "type": "string", "description": "Payload key the feature is submitted under." },
+        "name": { "type": "string", "description": "Display name / translation key." },
+        "mandatory": { "type": "boolean", "description": "Whether a value is required." },
+        "show_at_title": { "type": "boolean", "description": "Whether the value is shown in the listing title." },
+        "show_as_badge": { "type": "boolean", "description": "Whether the value is shown as a badge." },
+        "translate": { "type": "string", "enum": ["all", "title", "none"], "description": "Translation mode." },
+        "config": { "type": "object", "description": "Type-specific config (merged with type defaults), with a 'type' discriminator." }
+      }
+    }
+  }
 }

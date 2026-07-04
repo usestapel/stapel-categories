@@ -42,6 +42,12 @@ Initial release. Ported from `legacy-catalog`'s `categories` app.
   `verbose_name_plural` now apply (regression test + migration assert it).
 - Deduplicated the `_get_feature_slug` / `_build_feature_lookup` helpers that
   belong to the attribute engine — imported from stapel-attributes.
+- `categories.features` now carries `show_at_title`, `show_as_badge` and
+  `translate` per feature (listings integration): stapel-attributes'
+  `dto_to_dao` reads these off the FeatureDef to build the title/badge
+  projections, so omitting them produced empty `features_title` /
+  `features_badges` downstream. Additive to the payload and to the
+  `ResolvedFeature` shape documented in `schemas/functions/categories.features.json`.
 - `publish_category_changed` no longer swallows `emit` failures (review C1):
   the emit runs inside the mutating `save()`'s atomic block, so a delivery
   failure now rolls the mutation back instead of committing a row with no

@@ -270,9 +270,15 @@ class Category(RevisionMixin, TreeNodeModel):
         """Resolved feature definitions for the value-validation pipeline.
 
         Returns a list of dicts consumable by stapel-attributes'
-        ``coerce_feature_defs`` (slug/id/name/mandatory/config). This is what
-        the ``categories.features`` comm Function serializes so consumers
-        (stapel-listings) validate values without importing this module.
+        ``coerce_feature_defs`` (a superset of ``FeatureDef``'s fields). This
+        is what the ``categories.features`` comm Function serializes so
+        consumers (stapel-listings) validate values without importing this
+        module.
+
+        ``show_at_title`` / ``show_as_badge`` / ``translate`` MUST cross the
+        boundary: attributes' ``dto_to_dao`` reads them off the FeatureDef to
+        build the title/badge projections — omitting them yields empty
+        ``features_title`` / ``features_badges`` downstream.
         """
         return [
             {
@@ -280,6 +286,9 @@ class Category(RevisionMixin, TreeNodeModel):
                 "slug": feature.slug,
                 "name": feature.name,
                 "mandatory": feature.mandatory,
+                "show_at_title": feature.show_at_title,
+                "show_as_badge": feature.show_as_badge,
+                "translate": feature.translate,
                 "config": feature.get_config_with_defaults(),
             }
             for feature in self.get_all_features()
