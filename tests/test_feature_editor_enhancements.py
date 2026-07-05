@@ -203,7 +203,7 @@ class FeatureTypeEditingTestCase(TestCase):
                     "id": self.root_feature.pk,
                     "name": "Color",
                     "slug": "color",
-                    "config": {"type": "hex_color", "options": [{"hex": "#FF0000", "label": "Red"}]},
+                    "config": {"type": "hex_color", "options": [{"hex": "#FF0000", "simple": "red", "label": "Red"}]},
                     "mandatory": False,
                     "show_as_badge": True,
                     "show_at_title": False,

@@ -63,12 +63,30 @@ overriding `serializer_class` / `get_serializer_class`, then remount the URL.
 ### Feature-editor extension points (`feature_editor.py`)
 
 The editor is a pure function over `FeatureEditorItem`s
-(`apply_feature_editor_changes(category, items)`), separate from the HTTP layer
-— call it directly from a management command or a host workflow. The action set
-(`keep/add/edit/inherit/remove/create/replace`) and its descendant-propagation
-rules are the module contract; adding an action is an upstream change (it also
-needs an editor-serializer choice + a UI action in the attributes-based
-front end).
+(`apply_feature_editor_changes(category, items, base_revision=None)`), separate
+from the HTTP layer — call it directly from a management command or a host
+workflow. The action set (`keep/add/edit/inherit/remove/create/replace`) and its
+descendant-propagation rules are the module contract; adding an action is an
+upstream change (it also needs an editor-serializer choice + a UI action in the
+attributes-based front end).
+
+**Invariants enforced server-side** (not just in the UI): `edit`/`remove` are
+rejected for a slug inherited from the parent (raise `FeatureEditorError`);
+`inherit` must keep its source feature's slug; `replace` only swaps another
+version from the same feature tree; `edit` runs through `Feature.save()` +
+`clean()` so it re-versions the feature, fans `category.changed` out to every
+category carrying it, and validates the config. Resolved-schema dedup is by
+**slug** (nearest version wins), so an `inherit` override actually takes effect
+downstream.
+
+**Concurrency**: `apply` `select_for_update`-locks the category and its whole
+subtree (deterministic pk order) up front. Pass `base_revision` (echoed from the
+feature-editor state's `revision`) for an optimistic-concurrency check — a
+mismatch raises `FeatureEditorConflict` (HTTP `409`), closing the lost-update
+where a stale editor's keep-list erases a concurrent add. The draft is editor
+scratch state: it is persisted column-only (no revision bump, no
+`category.changed`), so autosaves and the post-apply draft clear are
+revision-neutral.
 
 ### Admin UI
 
@@ -88,7 +106,11 @@ consume attributes' Lit components; this repo owns only their server side.
 
 `category.changed` is emitted from post-save signals on Category (and per
 affected category on Feature save) so consumers invalidate any cached
-`categories.features` result. Emission goes through the transactional
+`categories.features` result. The `categories.features` payload is a consistent
+`(revision, features)` snapshot: the revision is re-read on both sides of the
+feature resolution and retried until stable, so a concurrent apply never yields
+a torn pair (old revision + new features) a consumer would cache under the wrong
+revision. Emission goes through the transactional
 outbox; `Category.save` / `Feature.save` wrap the row write and the signal
 emits in one `stapel_core.comm.mutate_and_emit()` block, so the row and its
 invalidation events commit together or not at all.

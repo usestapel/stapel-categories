@@ -4,6 +4,63 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
+## [0.2.0] - Unreleased
+
+Internal code-review fixes to the category feature editor and resolved-schema
+resolution. Observable behaviour changes (schema resolution, edit fanout, new
+error responses) → minor bump.
+
+### Fixed
+- **Resolved-schema dedup is now by slug, not feature id (H-1).**
+  `Category.get_all_features()` collapsed an inherited override and its parent
+  version into two rows sharing one slug, and the *parent* won downstream
+  (`categories.features`, attribute validation) — an `inherit` override applied
+  in the admin but did nothing to validation/projections. Dedup is now by slug
+  with the version closest to the category winning (self before ancestors,
+  nearer ancestor before farther); slug-less rows (headers) still dedup by id.
+- **`edit` goes through `Feature.save()`, not `QuerySet.update()` (H-2).** The
+  old `.update()` skipped the revision bump, the `category.changed` fanout to
+  *every* category carrying the feature, the cached-translation refresh and
+  config validation. Edits now re-version the feature and invalidate all
+  affected categories; the `icon` field is no longer dropped and an invalid
+  config is rejected instead of silently written (L-10).
+- **Draft save/clear no longer bumps the category revision or emits
+  `category.changed` (H-3, L-8).** The draft is editor scratch state; it is now
+  persisted with a column-only `QuerySet.update`, so autosaves don't churn
+  revisions and the apply path no longer produces a phantom revision (a bumped
+  number that was never persisted, then reused by the next real change).
+- **`replace` validates same-tree + existence (L-9)** and **`inherit`
+  validates its slug matches the source feature (L-11)** — both bypassed
+  `clean()` before and could leave a category with two versions of one root.
+
+### Added
+- **Server-side enforcement of `available_actions` (M-4).** `apply` now rejects
+  `edit`/`remove` of a slug inherited from the parent (`400`,
+  `error.400.categories_feature_editor_invalid`) — the rule the UI already
+  showed is now a server boundary.
+- **Optimistic concurrency + subtree locking on apply (M-5).** `apply` accepts
+  an optional `base_revision`; a mismatch returns `409`
+  (`error.409.categories_feature_editor_conflict`), closing the silent
+  lost-update ("stale keep-list erases another editor's add"). The category and
+  its whole subtree are `select_for_update`-locked at the top of the
+  transaction (deterministic pk order) to serialize concurrent applies. The
+  feature-editor state now returns `revision` so clients can round-trip it.
+- New error keys `error.400.categories_feature_editor_invalid`,
+  `error.409.categories_feature_editor_conflict`.
+
+### Changed
+- **`categories.features` returns a consistent `(revision, features)` snapshot
+  (M-6).** The revision is re-read on both sides of `feature_defs()` and the
+  pair is retried until stable, so a concurrent apply can no longer yield a
+  torn pair (old revision + new features) that a consumer would cache forever.
+
+### Migration notes
+- No schema/migration changes. `apply` clients SHOULD send `base_revision`
+  (echoed from the feature-editor state) to opt into the `409` lost-update
+  guard; omitting it keeps the old behaviour but only the subtree lock. Any
+  client that relied on a draft autosave bumping the category revision must
+  stop — draft saves are now revision-neutral.
+
 ## [0.1.1] - Unreleased
 
 ### Changed

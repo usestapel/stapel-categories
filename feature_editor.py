@@ -10,6 +10,39 @@ from .serializers import FeatureSerializer
 
 
 # ---------------------------------------------------------------------------
+# Domain errors
+# ---------------------------------------------------------------------------
+
+
+class FeatureEditorError(ValueError):
+    """A feature-editor request that violates a server-side invariant.
+
+    Raised for rule violations the UI already blocks but the API must
+    re-enforce (M-4: edit/remove of an inherited slug; L-9: cross-tree
+    ``replace``; L-11: ``inherit`` slug not matching its source). The view
+    maps it to HTTP 400.
+    """
+
+
+class FeatureEditorConflict(Exception):
+    """Optimistic-concurrency clash: the editor's base revision is stale.
+
+    Raised when ``apply_feature_editor_changes`` is given a ``base_revision``
+    that no longer matches the category's current revision — another editor
+    committed in between (M-5). The view maps it to HTTP 409 so the client
+    reloads and re-applies against fresh state instead of silently clobbering
+    the other edit.
+    """
+
+    def __init__(self, expected: int, actual: int) -> None:
+        self.expected = expected
+        self.actual = actual
+        super().__init__(
+            f"stale base_revision {expected}; category is now at revision {actual}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
 
@@ -179,11 +212,18 @@ def build_editor_state(category: Category) -> Dict:
             available_root_features.order_by("name"), many=True
         ).data,
         "draft": category.draft or "",
+        # Echo the current revision so the client can send it back as
+        # base_revision on apply for the optimistic-concurrency check (M-5).
+        "revision": category.revision,
     }
 
 
 @transaction.atomic
-def apply_feature_editor_changes(category: Category, items: List[FeatureEditorItem]) -> None:
+def apply_feature_editor_changes(
+    category: Category,
+    items: List[FeatureEditorItem],
+    base_revision: Optional[int] = None,
+) -> None:
     """
     Apply editor actions to category and propagate to descendants following rules:
 
@@ -195,16 +235,99 @@ def apply_feature_editor_changes(category: Category, items: List[FeatureEditorIt
     - remove: remove Feature from M2M (recursively for descendants)
     - create: create new root Feature and add to M2M
 
+    Concurrency (M-5): the category and its whole subtree are row-locked
+    (``select_for_update``) at the top of the transaction so two applies
+    serialize instead of interleaving lost updates / half-propagated trees.
+    When ``base_revision`` is supplied it must match the category's current
+    revision, else :class:`FeatureEditorConflict` (the caller applied against
+    stale editor state). ``base_revision`` is optional for backwards
+    compatibility; omitting it opts out of the optimistic check but keeps the
+    lock.
+
     Algorithm:
-    1. Process removes (and the remove part of inherit) for current category and descendants
-    2. Process adds/inherit/create additions for current category and descendants
-    3. Update order for current category only
+    1. Validate the whole batch (server-side action rules) before any write
+    2. Process removes (and the remove part of inherit) for current category and descendants
+    3. Process adds/inherit/create additions for current category and descendants
+    4. Update order for current category only
     """
     if not items:
         return
 
+    # M-5: lock the category and its whole subtree up-front. Deterministic
+    # order (by pk) avoids deadlocks between two applies over overlapping
+    # trees; select_for_update is a no-op on backends without row locking.
+    descendant_pks = [d.pk for d in _iter_descendants(category)]
+    lock_ids = [category.pk] + descendant_pks
+    list(Category.objects.select_for_update().filter(pk__in=lock_ids).order_by("pk"))
+
+    # M-5: optimistic-concurrency guard. Read the current revision under the
+    # lock and reject a stale editor before mutating anything.
+    if base_revision is not None:
+        current_revision = Category.objects.values_list("revision", flat=True).get(
+            pk=category.pk
+        )
+        if current_revision != int(base_revision):
+            raise FeatureEditorConflict(int(base_revision), current_revision)
+
     # Sort items by requested order once
     ordered_items = sorted(items, key=lambda it: it.order)
+
+    # --- Validation pass (before any mutation) --------------------------------
+    # Mirror the UI's available_actions rule server-side (M-4) plus the
+    # source-consistency rules the create/inherit paths bypass (L-9, L-11).
+    parent = category.tn_parent
+    parent_slugs: Set[str] = set()
+    if parent:
+        for link in (
+            CategoryFeature.objects.filter(category=parent).select_related("feature")
+        ):
+            if link.feature and link.feature.slug:
+                parent_slugs.add(link.feature.slug)
+
+    for item in ordered_items:
+        action = item.action
+        payload = item.feature or {}
+        slug = (payload.get("slug") or "").strip()
+        feature_id = payload.get("id")
+
+        # M-4: edit/remove is only offered for a slug the parent does NOT
+        # carry; an inherited (shared) slug must be re-shaped via inherit,
+        # never edited/removed from a child.
+        if action in ("edit", "remove") and slug and slug in parent_slugs:
+            raise FeatureEditorError(
+                f"action '{action}' is not allowed for inherited slug '{slug}'"
+            )
+
+        # L-11: an inherit child must keep its source feature's slug, else the
+        # stage-1 remove (keyed by payload slug) misses and the category ends
+        # up with two versions of one root.
+        if action == "inherit" and feature_id:
+            source_slug = (
+                Feature.objects.filter(pk=feature_id)
+                .values_list("slug", flat=True)
+                .first()
+            )
+            if source_slug and slug and slug != source_slug:
+                raise FeatureEditorError(
+                    f"inherit slug '{slug}' must match source feature slug "
+                    f"'{source_slug}'"
+                )
+
+        # L-9: replace only swaps in another version from the SAME feature tree
+        # (shared root); a missing replacement is an error, not a silent no-op.
+        if action == "replace" and item.replace_with:
+            replacement = Feature.objects.filter(pk=item.replace_with).first()
+            if replacement is None:
+                raise FeatureEditorError(
+                    f"replace_with feature {item.replace_with} not found"
+                )
+            if feature_id:
+                original = Feature.objects.filter(pk=feature_id).first()
+                if original is not None and original.root_pk != replacement.root_pk:
+                    raise FeatureEditorError(
+                        "replace_with must belong to the same feature tree as "
+                        "the feature it replaces"
+                    )
 
     # Build prev-slug map (ignoring removed items) for positioning in descendants
     prev_slug_map: Dict[str, Optional[str]] = {}
@@ -262,22 +385,33 @@ def apply_feature_editor_changes(category: Category, items: List[FeatureEditorIt
                     pass
 
         elif action == "edit":
-            # Update Feature model fields
+            # Update Feature model fields. Go through Feature.save() (NOT a
+            # QuerySet.update()) so the edit bumps the feature's revision,
+            # fans out category.changed to EVERY category carrying it
+            # (emit_category_changed_on_feature_save), refreshes the cached
+            # translation and validates the config — all bypassed by .update()
+            # (H-2). ``icon`` is carried too, instead of silently dropped
+            # (L-10).
             if feature_id:
-                Feature.objects.filter(pk=feature_id).update(
-                    name=payload.get("name", ""),
-                    comment=payload.get("comment", ""),
-                    config=payload.get("config", {}) or {},
-                    mandatory=payload.get("mandatory", False),
-                    show_as_badge=payload.get("show_as_badge", False),
-                    show_at_title=payload.get("show_at_title", False),
-                    translate=payload.get("translate", "all"),
-                )
                 try:
                     feature_obj = Feature.objects.get(pk=feature_id)
-                    final_features.append(feature_obj)
                 except Feature.DoesNotExist:
-                    pass
+                    continue
+                feature_obj.name = payload.get("name", "")
+                feature_obj.comment = payload.get("comment", "")
+                feature_obj.config = payload.get("config", {}) or {}
+                feature_obj.mandatory = payload.get("mandatory", False)
+                feature_obj.show_as_badge = payload.get("show_as_badge", False)
+                feature_obj.show_at_title = payload.get("show_at_title", False)
+                feature_obj.translate = payload.get("translate", "all")
+                if "icon" in payload:
+                    feature_obj.icon = payload.get("icon") or ""
+                # Validate the config (and slug rules) via the model's clean()
+                # — the .update() path skipped this, letting a typeless config
+                # land in the DB (L-10). Raises ValidationError -> 400.
+                feature_obj.clean()
+                feature_obj.save()
+                final_features.append(feature_obj)
 
         elif action == "inherit":
             # Create new Feature with old feature as parent
@@ -326,23 +460,14 @@ def apply_feature_editor_changes(category: Category, items: List[FeatureEditorIt
             })
 
         elif action == "replace":
-            # Replace current feature with another one from the same tree (ancestor or descendant)
-            # This only affects M2M, no Feature model changes
+            # Replace current feature with another version from the SAME feature
+            # tree. Existence + same-tree are enforced in the validation pass
+            # (L-9), so no silent fallback here. M2M-only; not propagated to
+            # descendants (each category picks its own version).
             replace_with_id = item.replace_with
             if replace_with_id:
-                try:
-                    new_feature = Feature.objects.get(pk=replace_with_id)
-                    final_features.append(new_feature)
-                    # Note: we don't propagate replace to descendants
-                    # Each category should explicitly choose which feature version to use
-                except Feature.DoesNotExist:
-                    # Fallback to original feature if replacement not found
-                    if feature_id:
-                        try:
-                            feature_obj = Feature.objects.get(pk=feature_id)
-                            final_features.append(feature_obj)
-                        except Feature.DoesNotExist:
-                            pass
+                new_feature = Feature.objects.get(pk=replace_with_id)
+                final_features.append(new_feature)
 
     # Stage 2b: propagate additions to descendants (add, inherit, create)
     for addition in additions:

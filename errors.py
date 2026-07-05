@@ -11,6 +11,8 @@ ERR_400_DATABASE_ERROR = "error.400.categories_database_error"
 ERR_400_CATEGORY_NOT_DELETED = "error.400.categories_not_deleted"
 ERR_400_INVALID_CONVERSION = "error.400.categories_invalid_conversion"
 ERR_400_CONFIG_REQUIRED = "error.400.categories_config_required"
+ERR_400_FEATURE_EDITOR_INVALID = "error.400.categories_feature_editor_invalid"
+ERR_409_FEATURE_EDITOR_CONFLICT = "error.409.categories_feature_editor_conflict"
 
 STAPEL_CATEGORIES_ERRORS = {
     ERR_400_EXPECTED_LIST: "Expected a list of objects",
@@ -19,6 +21,11 @@ STAPEL_CATEGORIES_ERRORS = {
     ERR_400_CATEGORY_NOT_DELETED: "Category is not deleted",
     ERR_400_INVALID_CONVERSION: "Invalid type conversion (only select<->string is supported)",
     ERR_400_CONFIG_REQUIRED: "A config object is required",
+    ERR_400_FEATURE_EDITOR_INVALID: "Invalid feature editor request: {reason}",
+    ERR_409_FEATURE_EDITOR_CONFLICT: (
+        "Category was modified by another editor "
+        "(expected revision {expected}, now {actual}); reload and retry"
+    ),
 }
 
 register_service_errors(STAPEL_CATEGORIES_ERRORS)
@@ -31,4 +38,6 @@ __all__ = [
     "ERR_400_CATEGORY_NOT_DELETED",
     "ERR_400_INVALID_CONVERSION",
     "ERR_400_CONFIG_REQUIRED",
+    "ERR_400_FEATURE_EDITOR_INVALID",
+    "ERR_409_FEATURE_EDITOR_CONFLICT",
 ]

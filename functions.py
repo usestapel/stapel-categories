@@ -23,6 +23,9 @@ from stapel_core.comm import function
 
 _SCHEMAS_DIR = Path(__file__).resolve().parent / "schemas" / "functions"
 
+# Bounded retries for the consistent (revision, features) snapshot read below.
+_FEATURES_SNAPSHOT_RETRIES = 3
+
 
 def _schema(name: str) -> dict:
     """Load a committed contract — one source of truth, no inline copy."""
@@ -48,8 +51,34 @@ def features_function(payload: dict) -> dict:
     except Category.DoesNotExist:
         raise LookupError(f"category {category_id} not found") from None
 
+    # M-6: revision and features must come from ONE snapshot. Under READ
+    # COMMITTED the row read (revision) and feature_defs() (its own SELECTs)
+    # are separate statements, so a concurrent apply committing between them
+    # yields a torn pair — e.g. an old revision with new features, which a
+    # consumer would then cache forever under the stale revision. Read the
+    # revision on both sides of feature_defs() and retry until it is stable,
+    # so the returned (revision, features) pair is internally consistent.
+    for _ in range(_FEATURES_SNAPSHOT_RETRIES):
+        revision_before = (
+            Category.objects.values_list("revision", flat=True).get(pk=category.pk)
+        )
+        features = category.feature_defs()
+        revision_after = (
+            Category.objects.values_list("revision", flat=True).get(pk=category.pk)
+        )
+        if revision_before == revision_after:
+            break
+        category.refresh_from_db()
+    else:
+        # Never converged (constant churn) — return the last consistent read of
+        # the revision paired with those features; refresh once more so at least
+        # revision_after describes the same read.
+        revision_after = (
+            Category.objects.values_list("revision", flat=True).get(pk=category.pk)
+        )
+
     return {
         "category_id": category.pk,
-        "revision": category.revision,
-        "features": category.feature_defs(),
+        "revision": revision_after,
+        "features": features,
     }

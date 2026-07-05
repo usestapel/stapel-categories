@@ -44,9 +44,13 @@ from .errors import (
     ERR_400_DATABASE_ERROR,
     ERR_400_DUPLICATE_SLUG,
     ERR_400_EXPECTED_LIST,
+    ERR_400_FEATURE_EDITOR_INVALID,
     ERR_400_INVALID_CONVERSION,
+    ERR_409_FEATURE_EDITOR_CONFLICT,
 )
 from .feature_editor import (
+    FeatureEditorConflict,
+    FeatureEditorError,
     FeatureEditorItem,
     apply_feature_editor_changes,
     build_editor_state,
@@ -198,9 +202,14 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="feature-editor/draft", permission_classes=[IsStaffUser])
     def feature_editor_draft(self, request, pk=None):
         category = self.get_object()
-        category.draft = request.data.get("draft") or ""
-        category.save()
-        dto = FeatureEditorDraftResponse(draft=category.draft)
+        new_draft = request.data.get("draft") or ""
+        # Draft is editor scratch state, not part of the resolved schema. Persist
+        # only the column via a QuerySet.update — this bypasses RevisionMixin.save
+        # and its post_save fanout, so an autosave neither bumps the category
+        # revision nor emits category.changed (L-8; also sidesteps the
+        # phantom-revision H-3 that save(update_fields=["draft"]) would cause).
+        Category.objects.filter(pk=category.pk).update(draft=new_draft)
+        dto = FeatureEditorDraftResponse(draft=new_draft)
         return Response(FeatureEditorDraftResponseSerializer(dto).data)
 
     @extend_schema(
@@ -211,6 +220,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="feature-editor/apply", permission_classes=[IsStaffUser])
     def feature_editor_apply(self, request, pk=None):
+        from django.core.exceptions import ValidationError as DjangoValidationError
         from django.db import IntegrityError
 
         category = self.get_object()
@@ -229,7 +239,25 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         ]
 
         try:
-            apply_feature_editor_changes(category, items)
+            apply_feature_editor_changes(
+                category, items, base_revision=payload.get("base_revision")
+            )
+        except FeatureEditorConflict as e:
+            return StapelErrorResponse(
+                409,
+                ERR_409_FEATURE_EDITOR_CONFLICT,
+                params={"expected": e.expected, "actual": e.actual},
+            )
+        except FeatureEditorError as e:
+            return StapelErrorResponse(
+                400, ERR_400_FEATURE_EDITOR_INVALID, params={"reason": str(e)}
+            )
+        except DjangoValidationError as e:
+            return StapelErrorResponse(
+                400,
+                ERR_400_FEATURE_EDITOR_INVALID,
+                params={"reason": "; ".join(e.messages)},
+            )
         except IntegrityError as e:
             error_msg = str(e)
             if "duplicate key" in error_msg and "slug" in error_msg:
@@ -240,9 +268,11 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
                 return StapelErrorResponse(400, ERR_400_DUPLICATE_SLUG, params={"slug": slug})
             return StapelErrorResponse(400, ERR_400_DATABASE_ERROR)
 
-        # Draft is not persisted on apply to avoid keeping stale client state
-        category.draft = ""
-        category.save(update_fields=["draft"])
+        # Clear the draft without bumping revision or emitting category.changed
+        # (H-3/L-8): a QuerySet.update writes just the column, bypassing
+        # RevisionMixin.save and its post_save fanout — the apply above already
+        # emitted the real schema-change events.
+        Category.objects.filter(pk=category.pk).update(draft="")
         category.refresh_from_db()
         return Response(build_editor_state(category))
 

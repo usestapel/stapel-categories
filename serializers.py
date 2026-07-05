@@ -223,6 +223,10 @@ class FeatureEditorApplySerializer(serializers.Serializer):
 
     features = FeatureEditorItemSerializer(many=True)
     draft = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    # Optimistic-concurrency token (M-5): the revision the editor was loaded
+    # against (echoed from the feature-editor state's ``revision``). When
+    # present it must still match, else the apply is rejected with 409.
+    base_revision = serializers.IntegerField(required=False, allow_null=True)
 
 
 # =============================================================================
@@ -254,6 +258,7 @@ class FeatureEditorStateSerializer(serializers.Serializer):
     features = FeatureEditorStateItemSerializer(many=True)
     available_root_features = FeatureSerializer(many=True)
     draft = serializers.CharField(required=False, allow_blank=True, default="")
+    revision = serializers.IntegerField(required=False)
 
 
 # =============================================================================

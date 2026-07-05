@@ -242,21 +242,43 @@ class Category(RevisionMixin, TreeNodeModel):
         """All features for this category, including inherited from ancestors.
 
         Returns a QuerySet ordered by this category's feature order first,
-        then ancestors' — each feature slug appears once.
+        then ancestors' (nearest ancestor first) — each feature *slug* appears
+        once. Deduplication is by ``slug``, not by feature id: an ``inherit``
+        override creates a *new* Feature row that shares the parent's slug, so
+        the child category ends up linking its override while the ancestor
+        still links the original. The version closest to this category wins
+        (self beats ancestors, nearer ancestor beats farther), so the resolved
+        schema, ``categories.features`` and the value-validation pipeline all
+        see the effective override — making the docstring's "each feature slug
+        appears once" true (H-1). Slug-less features (e.g. ``header`` rows) are
+        never collapsed: they dedup by row id only.
         """
         ordered_ids = []
-        seen = set()
+        seen_slugs = set()
+        seen_ids = set()
 
         def append_from_category(cat):
             for link in cat.category_features.all().order_by("order", "id").select_related("feature"):
-                if link.feature_id in seen:
+                feature = link.feature
+                if feature is None:
                     continue
-                seen.add(link.feature_id)
-                ordered_ids.append(link.feature_id)
+                slug = (feature.slug or "").strip()
+                if slug:
+                    if slug in seen_slugs:
+                        continue
+                    seen_slugs.add(slug)
+                elif feature.pk in seen_ids:
+                    continue
+                seen_ids.add(feature.pk)
+                ordered_ids.append(feature.pk)
 
         append_from_category(self)
-        for ancestor in self.get_ancestors_queryset():
-            append_from_category(ancestor)
+        # Ancestors nearest-first: tn_ancestors_pks is root-first, so reverse it.
+        ancestors_by_pk = {str(a.pk): a for a in self.get_ancestors_queryset()}
+        for anc_pk in reversed(self.get_ancestors_pks()):
+            ancestor = ancestors_by_pk.get(str(anc_pk))
+            if ancestor is not None:
+                append_from_category(ancestor)
 
         if not ordered_ids:
             return Feature.objects.none()
