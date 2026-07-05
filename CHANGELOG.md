@@ -4,6 +4,16 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
+## [0.2.1] - Unreleased
+
+### Packaging
+- Tests excluded from the built wheel/sdist (the `stapel_categories.tests`
+  subpackage is no longer listed in `[tool.setuptools] packages`). Added
+  `[project.urls]`, completed the trove classifiers (MIT/OSI, Python 3.13,
+  `Typing :: Typed`, OS Independent, `3 :: Only`, Development Status) and a
+  `[tool.ruff]` lint section (single source shared with the git hooks/CI).
+
+
 ## [0.2.0] - Unreleased
 
 Internal code-review fixes to the category feature editor and resolved-schema

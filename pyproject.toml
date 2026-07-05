@@ -4,16 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.2.0"
+version = "0.2.1"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 keywords = ["django", "stapel", "categories"]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Framework :: Django",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
 ]
 dependencies = [
     "stapel-core>=0.3.3,<0.4",
@@ -22,15 +29,30 @@ dependencies = [
     "drf-spectacular>=0.27",
 ]
 
+[project.urls]
+Homepage = "https://github.com/usestapel/stapel-categories"
+Repository = "https://github.com/usestapel/stapel-categories"
+Documentation = "https://github.com/usestapel/stapel-categories#readme"
+Changelog = "https://github.com/usestapel/stapel-categories/blob/main/CHANGELOG.md"
+Issues = "https://github.com/usestapel/stapel-categories/issues"
+
 [project.optional-dependencies]
 all = []
 
 [tool.setuptools]
 package-dir = {"stapel_categories" = "."}
-packages = ["stapel_categories", "stapel_categories.migrations", "stapel_categories.tests"]
+packages = ["stapel_categories", "stapel_categories.migrations"]
 
 [tool.setuptools.package-data]
 stapel_categories = ["py.typed", "migrations/*.py", "schemas/**/*.json"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# Single source for the git hooks and CI (they pass the same flags on the CLI).
+select = ["E", "F", "W"]
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
 django_find_project = false
