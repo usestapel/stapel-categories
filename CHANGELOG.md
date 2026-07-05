@@ -4,6 +4,29 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
+## [0.1.1] - Unreleased
+
+### Changed
+- `Category.save` / `Feature.save` wrap the row write and the post-save
+  signal emits in one `stapel_core.comm.mutate_and_emit()` block. Before, a
+  bare `save()` in autocommit mode ran the post-save `category.changed`
+  emits *after* the row's own transaction (Django fires `post_save` outside
+  `save_base`'s atomic context) — the L2 bug shape: a crash between them
+  left a committed category with no invalidation event. Now the row,
+  `copy_parent_features` side effects and the emit fanout commit as one
+  unit.
+- `publish_category_changed` now goes through
+  `stapel_core.comm.mutate_and_emit()` (stapel-core >= 0.3.3) instead of a
+  bare `emit()` — the outbox-atomicity discipline (review C1) is now core
+  mechanism: a failed emit sinks the mutating transaction even if the
+  caller swallows the exception. `savepoint=False` keeps the Feature-save
+  N-fanout free of per-emit savepoints. Core pin bumped to `>=0.3.3,<0.4`.
+- CI/pre-commit now run the `emit-check` static gate
+  (`python -m stapel_core.lint.emit_check .`) next to ruff.
+- Tests: the failing-emit rollback test fails emit at the delivery seam
+  (`stapel_core.comm.actions.deliver`); new adversarial test — a swallowed
+  emit failure still cannot commit the row.
+
 ## [0.1.0] - Unreleased
 
 Initial release. Ported from `legacy-catalog`'s `categories` app.

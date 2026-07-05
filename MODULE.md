@@ -88,7 +88,10 @@ consume attributes' Lit components; this repo owns only their server side.
 
 `category.changed` is emitted from post-save signals on Category (and per
 affected category on Feature save) so consumers invalidate any cached
-`categories.features` result. Emission goes through the transactional outbox.
+`categories.features` result. Emission goes through the transactional
+outbox; `Category.save` / `Feature.save` wrap the row write and the signal
+emits in one `stapel_core.comm.mutate_and_emit()` block, so the row and its
+invalidation events commit together or not at all.
 
 ## Anti-patterns
 
@@ -101,6 +104,11 @@ affected category on Feature save) so consumers invalidate any cached
 - **Don't reintroduce a second `class Meta`** on a model — it silently shadows
   the first (the exact bug fixed in 0.1.0).
 - **Don't bypass the settings namespace** with `os.getenv` at import time.
+- **Don't emit outside the mutation's transaction, and never swallow an emit
+  failure** — a committed category without its `category.changed` event
+  strands every downstream `categories.features` cache. Mutation+emit go
+  through `stapel_core.comm.mutate_and_emit()`; CI and the git hooks gate
+  this with `python -m stapel_core.lint.emit_check .`.
 
 ## App-layer override vs upstream contribution — rule of thumb
 

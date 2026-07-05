@@ -25,6 +25,7 @@ from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 from treenode.models import TreeNodeModel
 
+from stapel_core.comm import mutate_and_emit
 from stapel_core.django.models import RevisionMixin
 
 from .translation import cache_feature_translation, translate, translate_feature
@@ -149,7 +150,12 @@ class Feature(RevisionMixin, TreeNodeModel):
                 raise ValidationError({"slug": _("Slug must be unique among root features")})
 
     def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
+        # The feature write and the category.changed fanout emitted by the
+        # post_save receiver (emit_category_changed_on_feature_save) commit
+        # as ONE transaction — a feature edit is never committed without its
+        # cache-invalidation events, nor vice versa (outbox atomicity).
+        with mutate_and_emit():
+            super().save(*args, **kwargs)
         cache_feature_translation(self)
 
     def get_config_with_defaults(self) -> dict:
@@ -218,6 +224,15 @@ class Category(RevisionMixin, TreeNodeModel):
 
     def __str__(self):
         return translate(self.name)
+
+    def save(self, *args, **kwargs):
+        # The category write, the copy_parent_features side effects and the
+        # category.changed event emitted by the post_save receiver commit as
+        # ONE transaction — the invalidation event leaves iff the row
+        # committed (outbox atomicity; a lost invalidation strands every
+        # downstream categories.features cache).
+        with mutate_and_emit():
+            super().save(*args, **kwargs)
 
     def clean(self):
         if self.pk:

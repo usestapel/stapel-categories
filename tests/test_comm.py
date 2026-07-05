@@ -137,13 +137,16 @@ class TestCategoryChangedAction:
         assert len(mine) == 1
 
     def test_failing_emit_rolls_back_the_mutation(self, monkeypatch):
-        # The outbox guarantee: emit runs inside save()'s atomic block, so if
-        # it raises the mutation MUST roll back — never a committed row with no
-        # announcement (which would strand every downstream cache).
-        def boom(*args, **kwargs):
+        # The outbox guarantee: publish_category_changed joins save()'s atomic
+        # block via mutate_and_emit, so a failing emit MUST roll the mutation
+        # back — never a committed row with no announcement (which would
+        # strand every downstream cache). Fail emit at the delivery seam
+        # (tests run OUTBOX_ENABLED=False; with the outbox on, the failing
+        # outbox write behaves the same — covered in stapel-core).
+        def boom(event):
             raise RuntimeError("comm backend down")
 
-        monkeypatch.setattr("stapel_core.comm.emit", boom)
+        monkeypatch.setattr("stapel_core.comm.actions.deliver", boom)
 
         before = Category.objects.count()
         with pytest.raises(RuntimeError):
@@ -151,3 +154,24 @@ class TestCategoryChangedAction:
 
         assert Category.objects.count() == before
         assert not Category.objects.filter(slug="doomed").exists()
+
+    def test_swallowed_emit_failure_still_cannot_commit_the_row(self, monkeypatch):
+        # C1 adversarial: even a caller that swallows the emit failure must
+        # not end up with a committed-but-unannounced category — the emit
+        # failure already sank the save's atomic block it was part of (and
+        # with the outbox on, core additionally marks the transaction
+        # rollback-only).
+        def boom(event):
+            raise RuntimeError("comm backend down")
+
+        monkeypatch.setattr("stapel_core.comm.actions.deliver", boom)
+
+        from django.db import transaction
+
+        with transaction.atomic():
+            try:
+                Category.objects.create(name="Doomed", slug="doomed2")
+            except RuntimeError:
+                pass  # the C1 anti-pattern — swallow and hope
+
+        assert not Category.objects.filter(slug="doomed2").exists()
