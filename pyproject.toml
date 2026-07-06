@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.2.1"
+version = "0.3.0"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -41,7 +41,12 @@ all = []
 
 [tool.setuptools]
 package-dir = {"stapel_categories" = "."}
-packages = ["stapel_categories", "stapel_categories.migrations"]
+packages = [
+    "stapel_categories",
+    "stapel_categories.migrations",
+    "stapel_categories.management",
+    "stapel_categories.management.commands",
+]
 
 [tool.setuptools.package-data]
 stapel_categories = ["py.typed", "migrations/*.py", "schemas/**/*.json"]

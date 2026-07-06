@@ -4,6 +4,38 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
+## [0.3.0] - Unreleased
+
+Catalog fixtures sync, part 1 (CAT-1 of docs/catalog-fixtures-sync.md): a
+byte-stable export of the live catalog to natural-key JSON fixtures, and a
+`is_test` marker so scratch data never ships. New model field + migration →
+minor bump.
+
+### Added
+- **`is_test` field** on `Category` and `Feature` (`BooleanField`, default
+  `False`, indexed). Marks test/scratch rows. Editable in admin with a
+  `list_filter`; **not** exposed in the public API serializers or comm
+  contracts (`categories.features`) — it is an export-time concern only, not a
+  runtime-visibility gate (docs/catalog-fixtures-sync.md §5). Migration
+  `0002_category_is_test_feature_is_test` (additive, back-compatible).
+- **`export_catalog` management command** — snapshots the live
+  `Category`/`Feature`/`CategoryFeature` tables to byte-stable JSON fixtures in
+  `<BASE_DIR>/fixtures/catalog/` (the `staff_group` precedent). Natural keys
+  (`Category.slug`, root `Feature.slug`, `parent_slug`); each category carries
+  its *materialized* ordered feature list (bare `{slug}` reference for a shared
+  root feature, inline config for a tree override). Sorted keys, `indent=2`,
+  `ensure_ascii=False`, trailing newline — identical DB state yields
+  byte-identical files (the `dump_translations`/codegen contract). Writes a
+  `.sync-state.json` sidecar (content-hash per natural key + max revision) as
+  the 3-way-diff base for a future `load_catalog` (CAT-2).
+  - `is_test` rows are excluded **transitively** — a test category or feature,
+    and any `CategoryFeature` link touching one, never reach the export.
+  - Flags: `--out DIR`, `--dry-run` (report create/update/delete/skip, write
+    nothing), `--include-test` (local debug dump only, prints a not-for-commit
+    warning), `--force` (ignore the max-revision pre-filter).
+- New serialization module `catalog_fixtures.py` (canonical-JSON + content-hash
+  helpers, reused by CAT-2).
+
 ## [0.2.1] - Unreleased
 
 ### Changed

@@ -75,6 +75,16 @@ class Feature(RevisionMixin, TreeNodeModel):
         help_text="What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing",
     )
 
+    # Marks a row as test/scratch data. Excluded from ``export_catalog`` (and,
+    # transitively, from any CategoryFeature link touching it) so test data
+    # never ships as a committed catalog fixture. Not a runtime-visibility gate
+    # (see docs/catalog-fixtures-sync.md §5) — only export filters on it.
+    is_test = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Test/scratch data — excluded from export_catalog fixtures.",
+    )
+
     @property
     def display_name(self):
         return translate_feature(self)
@@ -204,6 +214,16 @@ class Category(RevisionMixin, TreeNodeModel):
 
     translatable = models.BooleanField(
         default=True, help_text="If True, category name is a translation key"
+    )
+
+    # Marks a row as test/scratch data. Excluded from ``export_catalog`` (and,
+    # transitively, from every CategoryFeature link on it) so test data never
+    # ships as a committed catalog fixture. Not a runtime-visibility gate
+    # (see docs/catalog-fixtures-sync.md §5) — only export filters on it.
+    is_test = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Test/scratch data — excluded from export_catalog fixtures.",
     )
 
     features = models.ManyToManyField(

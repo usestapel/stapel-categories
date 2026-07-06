@@ -51,16 +51,16 @@ class CategoryAdmin(RevisionAdmin, TreeNodeModelAdmin):
     list_display = [
         "name_with_status", "tn_priority", "feature_count", "active",
         "carousel_enabled", "catalog_icon", "carousel_icon", "translatable",
-        "revision", "deleted",
+        "is_test", "revision", "deleted",
     ]
-    list_filter = ["active", "carousel_enabled", "translatable", "deleted"]
+    list_filter = ["active", "carousel_enabled", "translatable", "is_test", "deleted"]
     search_fields = ["name", "slug"]
     readonly_fields = ["revision"]
     actions = ["undelete_branch", "validate_category_features"]
 
     fieldsets = (
         ("Basic Information", {
-            "fields": ("tn_parent", "translatable", "slug", "name", "comment", "active", "tn_priority"),
+            "fields": ("tn_parent", "translatable", "slug", "name", "comment", "active", "is_test", "tn_priority"),
         }),
         ("Icons", {
             "fields": ("catalog_icon", "carousel_icon", "carousel_enabled"),
@@ -150,15 +150,15 @@ class FeatureAdmin(TreeNodeModelAdmin):
     autocomplete_fields = ["tn_parent"]
     list_display = [
         "name", "slug", "feature_type_display", "config_status", "mandatory",
-        "show_as_badge", "show_at_title", "translate", "tn_priority",
+        "show_as_badge", "show_at_title", "translate", "is_test", "tn_priority",
     ]
-    list_filter = ["mandatory", "show_as_badge", "show_at_title", "translate"]
+    list_filter = ["mandatory", "show_as_badge", "show_at_title", "translate", "is_test"]
     search_fields = ["name", "slug", "comment"]
     actions = ["validate_configs"]
 
     fieldsets = (
         ("Basic Information", {
-            "fields": ("tn_parent", "translate", "slug", "name", "icon", "comment", "tn_priority"),
+            "fields": ("tn_parent", "translate", "slug", "name", "icon", "comment", "is_test", "tn_priority"),
         }),
         ("Type Configuration", {"fields": ("config",)}),
         ("Display Options", {"fields": ("mandatory", "show_as_badge", "show_at_title")}),

@@ -22,6 +22,9 @@
   validate-dto / validate-configs).
 - A **comm surface**: Function `categories.features` (resolved schema for a
   category) and emitted Action `category.changed`.
+- **Catalog fixtures export** (`export_catalog` management command): a
+  byte-stable, natural-key JSON snapshot of the live catalog for reconciliation
+  with a host project's `fixtures/catalog/` — see below.
 
 ### Ownership boundary with stapel-attributes
 
@@ -115,6 +118,37 @@ outbox; `Category.save` / `Feature.save` wrap the row write and the signal
 emits in one `stapel_core.comm.mutate_and_emit()` block, so the row and its
 invalidation events commit together or not at all.
 
+## Catalog fixtures (`export_catalog`)
+
+`python manage.py export_catalog` writes the live catalog to byte-stable JSON
+in `<BASE_DIR>/fixtures/catalog/` (override with `--out DIR`): `features.json`
+(root feature definitions, keyed by `slug`), `categories.json` (tree edges via
+`parent_slug` + each category's *materialized* ordered feature list), and a
+`.sync-state.json` sidecar (content-hash per natural key + max revision) that a
+future `load_catalog` (CAT-2) uses as its 3-way-diff base. Design:
+`docs/catalog-fixtures-sync.md`.
+
+- **Natural keys, not pks.** `Category.slug` (globally unique) and root
+  `Feature.slug` (unique among roots). A category feature list entry is either
+  a bare `{"slug": …}` reference to a shared root feature, or an inline
+  override (`{"slug", "config", "mandatory", "show_as_badge", "show_at_title",
+  "translate"}`) when the linked row is a tree override (`tn_parent` set).
+  Override rows get **no** invented natural key — every referencing category
+  inlines its config independently (no dedup/owner heuristic; §2).
+- **`is_test` is an export filter, transitively.** A test category or feature,
+  and any `CategoryFeature` link touching one, are excluded. `is_test` is
+  admin-editable and filterable but is **not** in the public API serializers or
+  the `categories.features` contract — do not add it there; it is not a
+  runtime-visibility gate (§5).
+- **Byte-stable.** Sorted keys, `indent=2`, `ensure_ascii=False`, trailing
+  newline; no timestamps/UUIDs in bodies (provenance lives in the git commit).
+  Identical DB state ⇒ byte-identical files — the same contract as
+  `dump_translations` / codegen artifacts.
+- Flags: `--dry-run` (report, write nothing), `--include-test` (local debug
+  dump only — not for commit), `--force` (ignore the revision pre-filter).
+- The canonical-JSON + content-hash helpers live in `catalog_fixtures.py`
+  (shared with CAT-2's loader). Do not fork a second byte-stable dumper.
+
 ## Anti-patterns
 
 - **Don't re-implement attribute validation or types** — import from
@@ -126,6 +160,9 @@ invalidation events commit together or not at all.
 - **Don't reintroduce a second `class Meta`** on a model — it silently shadows
   the first (the exact bug fixed in 0.1.0).
 - **Don't bypass the settings namespace** with `os.getenv` at import time.
+- **Don't leak `is_test` into runtime read paths** — it is an `export_catalog`
+  filter (and an admin marker), not a visibility gate. Keep it out of the
+  public serializers and the `categories.features` contract.
 - **Don't emit outside the mutation's transaction, and never swallow an emit
   failure** — a committed category without its `category.changed` event
   strands every downstream `categories.features` cache. Mutation+emit go
