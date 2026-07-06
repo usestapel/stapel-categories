@@ -101,6 +101,34 @@ and extra assets are attributes' seams (`ADMIN_EXTRA_CSS/JS`, `ADMIN_LOCALES`)
 — see stapel-attributes MODULE.md. The feature-editor / children-editor screens
 consume attributes' Lit components; this repo owns only their server side.
 
+### Admin categories — `@access` declarations (admin-suite AS-5)
+
+Every model in `models.py` carries (or implicitly defaults to) a
+`stapel_core.access.access` category — one declaration, consumed by admin
+visibility, default staff rights, and the audit report (admin-suite §0).
+Undecorated = `business` (visible, staff-manageable) and is the correct,
+zero-effort default for domain tables.
+
+All three models here are `business` and stay undecorated — none fit `ops`
+(outbox/dedup/audit-log/TTL-junk machinery) or `secret` (token/key/credential
+carriers):
+
+- `Category` — the module's core taxonomy table; the admin-suite doc's own
+  verbatim `business` example. `RevisionMixin` only adds `revision`
+  (monotonic sync counter) and `deleted` (soft-delete flag) fields directly
+  on the model — it does not introduce a separate revision-log/audit-trail
+  model, so there is no shadow `ops`-shaped table to classify here.
+- `Feature` — the parallel attribute-definition tree (name, typed `config`,
+  display flags). Same `RevisionMixin` fields, same reasoning; it holds
+  catalog metadata, not credentials or machinery journals.
+- `CategoryFeature` — a plain through table (`category`, `feature`, `order`)
+  recording M2M ordering. No timestamps, no delivery/dedup semantics, no
+  sensitive fields — an ordinary junction row, not an `ops` journal.
+
+No decorator changes were made and `admin.py` (`CategoryAdmin`,
+`FeatureAdmin`) is untouched — there is no ops/secret model here to route
+through `StapelModelAdmin`.
+
 ### comm surface
 
 | Kind | Name | Payload | Schema |
