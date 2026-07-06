@@ -9,6 +9,9 @@ Pre-1.0 semver: **minor = breaking**, patch = compatible.
 ### Changed
 - Pinned `stapel-core` to the `>=0.8,<0.9` window (library-standard §7.1: one
   minor window; floor `0.8.0` is published on PyPI — no pin into the void).
+- Pinned `stapel-attributes` to the `>=0.3,<0.4` window (was `>=0.1,<0.2` —
+  a stale sibling pin predating attributes 0.3.x; same §7.1 rule).
+
 - CI: added the release-track job (library-standard §7.4) — installs the package
   the way an end user does (`pip install .`, dependencies resolved from PyPI
   strictly by the declared pins, no git-main core, no editable siblings), asserts

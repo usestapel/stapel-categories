@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "stapel-core>=0.8,<0.9",
-    "stapel-attributes>=0.1,<0.2",
+    "stapel-attributes>=0.3,<0.4",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
 ]
