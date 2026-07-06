@@ -4,6 +4,63 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
+## [0.4.0] - Unreleased
+
+Catalog fixtures sync, part 2 (CAT-2 of docs/catalog-fixtures-sync.md): the
+load side of the reconciliation — a 3-way diff of the committed fixtures
+against the live DB, with an honest conflict policy. New management command =
+feature → minor bump. No schema changes.
+
+### Added
+- **`load_catalog` management command** — reconciles
+  `<BASE_DIR>/fixtures/catalog/` (`features.json` / `categories.json` + the
+  `.sync-state.json` sidecar) into the live `Category`/`Feature`/
+  `CategoryFeature` tables via a **3-way diff**: base = sidecar content-hashes
+  (last synced state), theirs = fixture files, ours = live DB (hashed exactly
+  as export would serialize it). Per-record classification per the design §4
+  table:
+  - unchanged → skip (zero writes); fixture-side change with untouched DB →
+    fast-forward apply; both sides changed → **conflict, per-record abort by
+    default** (the record is left alone, reported, exit code goes non-zero;
+    non-conflicting records still apply);
+  - changed only in DB since the last export → warn + keep DB ("run
+    `export_catalog` first"); present only in DB, never exported → left alone,
+    noted as "not in canon";
+  - removed from the fixture → **soft-delete by default**
+    (`RevisionMixin.soft_delete()`, reversible); removal + concurrent local
+    edit → conflict, not a delete.
+  - Flags: `--dir DIR`, `--dry-run` (full classification report, zero writes,
+    sidecar untouched), `--on-conflict abort|fixture-wins|db-wins` (global
+    policy over all conflicts), `--deletions soft|hard|ignore`,
+    `--seed-if-empty` (bootstrap idiom: full load on an empty catalog, warn +
+    no-op on a populated one — the `load_staff_group_if_empty` precedent).
+- All writes go through `Model.save()`/`full_clean()` — never
+  `bulk_create`/`QuerySet.update()` (the H-2 lesson): a load earns the same
+  side effects as an admin/Studio edit (revision bump, `category.changed`
+  outbox emit, `copy_parent_features` on new children, config/slug
+  validation). Idempotent by construction: a record whose fixture state
+  already equals its DB state is never `save()`d — a second run is zero
+  writes, zero revision bumps, zero events (H-3 rule).
+- Concurrency: the whole reconciliation runs in one transaction that first
+  `select_for_update`-locks the catalog rows in deterministic pk order (the
+  M-5 pattern), so a load serializes against concurrent admin/Studio edits.
+- `is_test` rows are invisible to the diff (the DB side is built with the
+  export serializer, which excludes them): never updated, never deleted —
+  a fixture record whose slug collides with a live `is_test` row is a
+  per-record error, not a silent overwrite.
+- After a successful load the `.sync-state.json` sidecar is rewritten to the
+  **applied** state: reconciled keys advance to their new DB hash, deleted
+  keys drop out, and untouched keys (DB-only drift, unresolved conflicts)
+  keep their old base hash so they stay flagged on the next run.
+- Fixture records are normalized to the canonical export shape before
+  hashing, so sparse hand-written fixtures (defaulted keys omitted) converge
+  instead of re-applying forever; shared override rows (inherit-propagation)
+  are copied-on-write when one category's fixture diverges — a load never
+  silently rewrites a sibling category's schema through a shared row.
+- New engine module `catalog_load.py` (classification, policies, apply,
+  report); reuses `catalog_fixtures.py` canonical-JSON/content-hash helpers
+  from CAT-1.
+
 ## [0.3.0] - Unreleased
 
 Catalog fixtures sync, part 1 (CAT-1 of docs/catalog-fixtures-sync.md): a

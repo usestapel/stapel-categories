@@ -22,9 +22,10 @@
   validate-dto / validate-configs).
 - A **comm surface**: Function `categories.features` (resolved schema for a
   category) and emitted Action `category.changed`.
-- **Catalog fixtures export** (`export_catalog` management command): a
-  byte-stable, natural-key JSON snapshot of the live catalog for reconciliation
-  with a host project's `fixtures/catalog/` — see below.
+- **Catalog fixtures sync** (`export_catalog` / `load_catalog` management
+  commands): a byte-stable, natural-key JSON snapshot of the live catalog in a
+  host project's `fixtures/catalog/`, reconciled back into a DB via a 3-way
+  diff with an honest conflict policy — see below.
 
 ### Ownership boundary with stapel-attributes
 
@@ -118,15 +119,28 @@ outbox; `Category.save` / `Feature.save` wrap the row write and the signal
 emits in one `stapel_core.comm.mutate_and_emit()` block, so the row and its
 invalidation events commit together or not at all.
 
-## Catalog fixtures (`export_catalog`)
+## Catalog fixtures (`export_catalog` / `load_catalog`)
 
 `python manage.py export_catalog` writes the live catalog to byte-stable JSON
 in `<BASE_DIR>/fixtures/catalog/` (override with `--out DIR`): `features.json`
 (root feature definitions, keyed by `slug`), `categories.json` (tree edges via
 `parent_slug` + each category's *materialized* ordered feature list), and a
-`.sync-state.json` sidecar (content-hash per natural key + max revision) that a
-future `load_catalog` (CAT-2) uses as its 3-way-diff base. Design:
+`.sync-state.json` sidecar (content-hash per natural key + max revision) that
+`load_catalog` uses as its 3-way-diff base. Design:
 `docs/catalog-fixtures-sync.md`.
+
+`python manage.py load_catalog` reconciles those fixtures back into the DB:
+base = sidecar hashes, theirs = files, ours = live DB. Fast-forwards apply;
+both-sides-changed records **abort per-record by default** (report + non-zero
+exit; override with `--on-conflict fixture-wins|db-wins`); removals from the
+fixture **soft-delete** by default (`--deletions hard|ignore` to change);
+DB-only drift warns and is kept. All writes go through `save()`/`full_clean()`
+(never bulk/`.update()` — H-2), under a `select_for_update` catalog lock (M-5),
+and a re-run on materialized fixtures is zero saves / zero events. Engine:
+`catalog_load.py`. `--seed-if-empty` is the bootstrap idiom (full load on an
+empty catalog, no-op otherwise); `--dry-run` prints the full classification
+without writing. After a successful load the sidecar is rewritten to the
+applied state.
 
 - **Natural keys, not pks.** `Category.slug` (globally unique) and root
   `Feature.slug` (unique among roots). A category feature list entry is either
