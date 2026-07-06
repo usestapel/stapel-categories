@@ -125,16 +125,21 @@ invalidation events commit together or not at all.
 in `<BASE_DIR>/fixtures/catalog/` (override with `--out DIR`): `features.json`
 (root feature definitions, keyed by `slug`), `categories.json` (tree edges via
 `parent_slug` + each category's *materialized* ordered feature list), and a
-`.sync-state.json` sidecar (content-hash per natural key + max revision) that
-`load_catalog` uses as its 3-way-diff base. Design:
+`.sync-state.json` sidecar (content-hash per natural key + `max_revision`,
+export's pre-filter base — the sidecar a *load* rewrites deliberately omits
+`max_revision` so a post-load export never falsely skips) that `load_catalog`
+uses as its 3-way-diff base. `parent_slug` always references a record in the
+same file: children of filtered-out parents (soft-deleted / `is_test`) are
+re-parented to the nearest exported ancestor. Design:
 `docs/catalog-fixtures-sync.md`.
 
 `python manage.py load_catalog` reconciles those fixtures back into the DB:
 base = sidecar hashes, theirs = files, ours = live DB. Fast-forwards apply;
 both-sides-changed records **abort per-record by default** (report + non-zero
 exit; override with `--on-conflict fixture-wins|db-wins`); removals from the
-fixture **soft-delete** by default (`--deletions hard|ignore` to change);
-DB-only drift warns and is kept. All writes go through `save()`/`full_clean()`
+fixture **soft-delete** by default (`--deletions hard|ignore` to change; hard
+refuses per-record when the treenode/FK cascade would silently take down live
+children or still-linked categories); DB-only drift warns and is kept. All writes go through `save()`/`full_clean()`
 (never bulk/`.update()` — H-2), under a `select_for_update` catalog lock (M-5),
 and a re-run on materialized fixtures is zero saves / zero events. Engine:
 `catalog_load.py`. `--seed-if-empty` is the bootstrap idiom (full load on an
@@ -159,7 +164,8 @@ applied state.
   Identical DB state ⇒ byte-identical files — the same contract as
   `dump_translations` / codegen artifacts.
 - Flags: `--dry-run` (report, write nothing), `--include-test` (local debug
-  dump only — not for commit), `--force` (ignore the revision pre-filter).
+  dump only — requires an explicit `--out`, never clobbers the canonical
+  fixtures), `--force` (ignore the revision pre-filter).
 - The canonical-JSON + content-hash helpers live in `catalog_fixtures.py`
   (shared with CAT-2's loader). Do not fork a second byte-stable dumper.
 

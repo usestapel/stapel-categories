@@ -109,10 +109,17 @@ class Command(BaseCommand):
 
     def handle(self, *_args, **options):
         directory = self.get_dir(options)
-        if not os.path.exists(os.path.join(directory, cf.CATEGORIES_FILE)):
+        # Both files are required: a missing features.json alongside a present
+        # categories.json would read as "every root feature was removed from
+        # the fixture" and mass-(soft-)delete the feature table.
+        missing = [
+            name for name in (cf.CATEGORIES_FILE, cf.FEATURES_FILE)
+            if not os.path.exists(os.path.join(directory, name))
+        ]
+        if missing:
             raise CommandError(
-                f"no catalog fixtures found in {directory} "
-                f"(missing {cf.CATEGORIES_FILE}); run export_catalog first "
+                f"catalog fixtures incomplete in {directory} "
+                f"(missing {', '.join(missing)}); run export_catalog first "
                 "or pass --dir."
             )
 

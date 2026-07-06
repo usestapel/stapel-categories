@@ -61,6 +61,41 @@ feature → minor bump. No schema changes.
   report); reuses `catalog_fixtures.py` canonical-JSON/content-hash helpers
   from CAT-1.
 
+### Fixed (fable review of CAT-1 + CAT-2, pre-release)
+- **Load-written sidecar no longer poisons export's pre-filter (H).**
+  `load_catalog` wrote the post-load `max_revision` into `.sync-state.json`;
+  the very next `export_catalog` — including the one the db-only-drift warning
+  tells the operator to run — saw an unmoved max(revision) and silently
+  skipped, stranding the drift out of canon. The load-written sidecar now
+  omits `max_revision` (it is export's pre-filter base, meaningful only for
+  export-written sidecars).
+- **Export re-parents children of filtered-out categories (H).** A child of a
+  soft-deleted or `is_test` category (a state `load_catalog --deletions soft`
+  itself produces) exported a dangling `parent_slug`, making the default
+  export unloadable on a fresh DB. `parent_slug` now resolves to the nearest
+  *exported* ancestor (or `null`), so fixtures are always self-contained.
+- **Unreachable fixture states no longer churn revisions forever (H).** Two
+  list entries resolving to one row (duplicate bare reference) are a loud
+  per-record error; and upserts now carry a dirty guard — if the applicable
+  state already equals the DB state (e.g. a hand-written `is_test` inline
+  entry, invisible to the export view), nothing is `save()`d: no phantom
+  revision bump, no `category.changed` emit on every load (the H-3 rule).
+- **`--deletions hard` no longer silently cascades (H).** treenode's
+  `delete()` cascades the subtree: hard-deleting a parent category silently
+  took down live children the fixture still declared (reported as "skipped"),
+  and hard-deleting a root feature cascaded its override rows + links out of
+  still-referencing categories. Both now refuse with a per-record error;
+  category deletes run children-first so a whole-subtree removal still works.
+- `load_catalog` requires `features.json` too (a missing file next to a
+  present `categories.json` read as "delete every root feature");
+  `export_catalog --include-test` requires an explicit `--out` (an inspection
+  dump must never clobber the canonical fixtures + sidecar); a category record
+  whose `parent_slug` is itself is a per-record error.
+- New regression tests: dirty-state round-trips (root+override of one slug,
+  shared/multiple slug-less rows, override chains, soft-deleted links,
+  duplicate orders) in `tests/test_catalog_roundtrip_dirty.py`, plus the
+  fable-review cases above (198 tests total).
+
 ## [0.3.0] - Unreleased
 
 Catalog fixtures sync, part 1 (CAT-1 of docs/catalog-fixtures-sync.md): a

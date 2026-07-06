@@ -114,9 +114,16 @@ def _feature_list_entry(feature, include_test: bool) -> dict:
     return entry
 
 
-def _category_record(category, include_test: bool) -> dict:
-    """Category record: tree edge + materialized feature list."""
-    parent = category.tn_parent
+def _category_record(category, include_test: bool, parent_slug) -> dict:
+    """Category record: tree edge + materialized feature list.
+
+    ``parent_slug`` is resolved by the caller to the nearest *exported*
+    ancestor (see :func:`_resolved_parent_slugs`) — naively writing
+    ``category.tn_parent.slug`` would emit a dangling reference whenever the
+    physical parent is itself excluded from the export (soft-deleted or
+    ``is_test``), producing a fixture that ``load_catalog`` cannot apply to a
+    fresh DB (per-record "unknown parent_slug" errors).
+    """
     features = []
     links = (
         category.category_features.all()
@@ -135,7 +142,7 @@ def _category_record(category, include_test: bool) -> dict:
 
     rec = {
         "slug": category.slug,
-        "parent_slug": parent.slug if parent is not None else None,
+        "parent_slug": parent_slug,
         "name": category.name,
         "comment": category.comment,
         "catalog_icon": category.catalog_icon,
@@ -174,11 +181,15 @@ def build_catalog(include_test: bool = False):
     feature_records.sort(key=lambda r: r["slug"])
 
     # --- Categories (categories.json) ---------------------------------------
-    category_qs = Category.objects.filter(deleted=False).select_related("tn_parent")
+    category_qs = Category.objects.filter(deleted=False)
     if not include_test:
         category_qs = category_qs.filter(is_test=False)
 
-    category_records = [_category_record(c, include_test) for c in category_qs]
+    categories = list(category_qs)
+    parent_slugs = _resolved_parent_slugs(categories)
+    category_records = [
+        _category_record(c, include_test, parent_slugs[c.pk]) for c in categories
+    ]
     # (depth, slug) — parents (shallower) sort before children, which the
     # loader relies on, and the tie-break on the unique slug is deterministic.
     # Depth is derived from the exported parent_slug edges (not the treenode
@@ -197,6 +208,34 @@ def build_catalog(include_test: bool = False):
         "categories": {r["slug"]: content_hash(r) for r in category_records},
     }
     return feature_records, category_records, state
+
+
+def _resolved_parent_slugs(exported_categories) -> dict:
+    """Map each exported category pk to its nearest *exported* ancestor's slug.
+
+    The physical ``tn_parent`` chain may pass through rows the export filters
+    out (soft-deleted or ``is_test`` categories with live children — a state
+    ``load_catalog --deletions soft`` itself produces). The fixture must stay
+    self-contained: every ``parent_slug`` it writes must reference a record in
+    the same file, so filtered-out ancestors are skipped and the child is
+    attached to the closest surviving one (or exported as a root). The ``seen``
+    guard terminates on a (constraint-forbidden) cyclic edge.
+    """
+    from .models import Category
+
+    exported_pks = {c.pk for c in exported_categories}
+    slug_by_pk = dict(Category.objects.values_list("pk", "slug"))
+    parent_by_pk = dict(Category.objects.values_list("pk", "tn_parent_id"))
+
+    resolved = {}
+    for cat in exported_categories:
+        pid = cat.tn_parent_id
+        seen = {cat.pk}
+        while pid is not None and pid not in seen and pid not in exported_pks:
+            seen.add(pid)
+            pid = parent_by_pk.get(pid)
+        resolved[cat.pk] = slug_by_pk[pid] if pid in exported_pks else None
+    return resolved
 
 
 def _depths_by_slug(records) -> dict:

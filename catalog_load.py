@@ -351,6 +351,26 @@ def _save_feature(feat) -> None:
     feat.save()
 
 
+# Scalar fields the loader owns on each model — used by the dirty guards below
+# so an upsert whose target state already equals the DB state never save()s
+# (no phantom revision bump / category.changed emit; the H-3 rule holds even
+# for records the 3-way hash classified as changed but whose *applicable*
+# state is unchanged — e.g. hand-written fixtures with unreachable parts).
+_FEATURE_SCALARS = (
+    "slug", "name", "icon", "comment", "config", "mandatory",
+    "show_as_badge", "show_at_title", "translate", "is_test", "deleted",
+)
+_CATEGORY_SCALARS = (
+    "slug", "name", "comment", "catalog_icon", "carousel_icon",
+    "carousel_enabled", "active", "translatable", "is_test", "deleted",
+    "tn_parent_id",
+)
+
+
+def _snapshot(obj, fields) -> dict:
+    return {f: getattr(obj, f) for f in fields}
+
+
 def _apply_feature_upsert(record: dict):
     from .models import Feature
 
@@ -361,6 +381,7 @@ def _apply_feature_upsert(record: dict):
             f"root feature slug '{slug}' is occupied by an is_test row — not overwriting"
         )
     feat = existing or Feature(tn_parent=None)
+    before = _snapshot(feat, _FEATURE_SCALARS) if existing is not None else None
     feat.slug = slug
     feat.name = record.get("name", "")
     feat.icon = record.get("icon", "")
@@ -372,6 +393,8 @@ def _apply_feature_upsert(record: dict):
     feat.translate = record.get("translate", "all")
     feat.is_test = bool(record.get("is_test", False))
     feat.deleted = False  # restore if it had been soft-deleted
+    if before is not None and before == _snapshot(feat, _FEATURE_SCALARS):
+        return feat  # dirty guard: nothing to write, no bump, no emit
     _save_feature(feat)
     return feat
 
@@ -521,6 +544,7 @@ def _reconcile_features(cat, entries: list) -> bool:
     target = []
     changed = False
     used: set = set()
+    seen_pks: set = set()
     for entry in entries:
         slug = entry.get("slug") or ""
         if _is_inline(entry):
@@ -528,6 +552,16 @@ def _reconcile_features(cat, entries: list) -> bool:
             changed = changed or feat_changed
         else:
             feat = _root_feature(slug, cat.slug)
+        if feat.pk in seen_pks:
+            # Two entries resolving to one row (e.g. a bare reference listed
+            # twice) can never be materialized: the applied list would hash-
+            # differ from the fixture forever, so every future load would
+            # re-"apply" it. Refuse loudly instead of churning silently.
+            raise RecordError(
+                f"category '{cat.slug}': duplicate feature entry "
+                f"'{slug or '(slug-less)'}' — two list entries resolve to one row"
+            )
+        seen_pks.add(feat.pk)
         target.append(feat)
     if _rewrite_orders(cat, target):
         changed = True
@@ -545,8 +579,11 @@ def _apply_category_upsert(record: dict):
         )
     created = existing is None
     cat = existing or Category()
+    before = _snapshot(cat, _CATEGORY_SCALARS) if existing is not None else None
 
     parent_slug = record.get("parent_slug")
+    if parent_slug == slug:
+        raise RecordError(f"category '{slug}' references itself as parent_slug")
     parent = None
     if parent_slug:
         parent = Category.objects.filter(slug=parent_slug, deleted=False).first()
@@ -578,13 +615,32 @@ def _apply_category_upsert(record: dict):
             cat.save()        # bump/emit reflecting the reconciled schema
     else:
         features_changed = _reconcile_features(cat, record.get("features", []))
-        cat.full_clean()      # validate_features over the reconciled set
-        cat.save()            # single bump/emit for scalar + feature changes
+        if features_changed or before != _snapshot(cat, _CATEGORY_SCALARS):
+            cat.full_clean()  # validate_features over the reconciled set
+            cat.save()        # single bump/emit for scalar + feature changes
+        # else: dirty guard — the hash diff flagged this record, but nothing
+        # applicable actually differs (e.g. an unreachable hand-written part
+        # such as an is_test inline entry, which the export view excludes).
+        # Saving anyway would bump revision + emit on EVERY load (H-3 rule).
     return cat, created
 
 
-def _apply_feature_delete(slug: str, deletions: str) -> bool:
+def _feature_tree_pks(root) -> list:
+    """Pks of a root feature and every override row hanging under it (BFS)."""
     from .models import Feature
+
+    pks = [root.pk]
+    frontier = [root.pk]
+    while frontier:
+        frontier = list(
+            Feature.objects.filter(tn_parent_id__in=frontier).values_list("pk", flat=True)
+        )
+        pks.extend(frontier)
+    return pks
+
+
+def _apply_feature_delete(slug: str, deletions: str) -> bool:
+    from .models import CategoryFeature, Feature
 
     feat = Feature.objects.filter(slug=slug, tn_parent__isnull=True, deleted=False).first()
     if feat is None or feat.is_test:
@@ -592,6 +648,20 @@ def _apply_feature_delete(slug: str, deletions: str) -> bool:
     if deletions == DELETIONS_SOFT:
         feat.soft_delete()
     elif deletions == DELETIONS_HARD:
+        # A hard delete CASCADEs to every override child row and every
+        # CategoryFeature link (treenode tn_parent + the FK are CASCADE) — it
+        # would silently strip the feature from any category still carrying
+        # it. A consistent fixture unlinks in the upsert phase (which runs
+        # first); remaining links mean the fixture never asked for this.
+        links = CategoryFeature.objects.filter(
+            feature_id__in=_feature_tree_pks(feat), category__deleted=False
+        )
+        if links.exists():
+            raise RecordError(
+                f"refusing hard delete of feature '{slug}': it (or an override "
+                "of it) is still linked by a live category — remove the "
+                "entries from those categories' fixture records first"
+            )
         feat.delete()
     return True
 
@@ -605,6 +675,17 @@ def _apply_category_delete(slug: str, deletions: str) -> bool:
     if deletions == DELETIONS_SOFT:
         cat.soft_delete()
     elif deletions == DELETIONS_HARD:
+        # treenode's delete() cascades the whole subtree (tn_parent CASCADE,
+        # inside no_signals) — hard-deleting a parent would silently take down
+        # live children the fixture still declares (or is_test scratch rows,
+        # which must be invisible to the loader). Deletes are ordered
+        # children-first (see _run_plan), so a whole-subtree removal still
+        # works: by the time the parent is processed its children are gone.
+        if cat.tn_children.filter(deleted=False).exists():
+            raise RecordError(
+                f"refusing hard delete of category '{slug}': it still has live "
+                "children (treenode cascade would silently delete them)"
+            )
         cat.delete()
     return True
 
@@ -747,13 +828,21 @@ def _run_plan(
         key=lambda p: (cat_depth.get(p.key, 0), p.key),
     )
 
+    # Category deletes run children-first (deepest first, by the LIVE tree):
+    # with --deletions hard the parent's guard requires its children to be
+    # gone already, so a whole-subtree removal deletes leaves upward.
+    db_depths = _db_category_depths()
+    cat_deletes = sorted(
+        (p for p in cat_plan if p.decision.op == "delete"),
+        key=lambda p: (-db_depths.get(p.key, 0), p.key),
+    )
+
     if apply:
         _apply_phase(report, "features", [p for p in feat_plan if p.decision.op == "upsert"],
                      _apply_feature_upsert)
         _apply_phase(report, "categories", cat_upserts,
                      _apply_category_upsert)
-        _apply_delete_phase(report, "categories",
-                            [p for p in cat_plan if p.decision.op == "delete"],
+        _apply_delete_phase(report, "categories", cat_deletes,
                             _apply_category_delete, deletions)
         _apply_delete_phase(report, "features",
                             [p for p in feat_plan if p.decision.op == "delete"],
@@ -762,14 +851,15 @@ def _run_plan(
         _record_passive(report, "features", feat_plan)
         _record_passive(report, "categories", cat_plan)
 
-        # Sidecar reflects the applied state.
+        # Sidecar reflects the applied state. Deliberately NO "max_revision":
+        # that key is export's pre-filter base ("has the DB changed since the
+        # last EXPORT"). If a load wrote the post-load max here, the very next
+        # export_catalog — including the one the db-only-drift warning tells
+        # the operator to run — would see an unmoved max(revision) and silently
+        # skip, stranding the drift out of canon forever.
         _, _, db_after = cf.build_catalog(include_test=False)
         return {
             "version": cf.STATE_VERSION,
-            "max_revision": max(
-                _model("Category").get_max_revision(),
-                _model("Feature").get_max_revision(),
-            ),
             "features": _new_base(base_feat, feat_plan, db_after["features"], report, "features"),
             "categories": _new_base(base_cat, cat_plan, db_after["categories"], report, "categories"),
         }
@@ -781,9 +871,21 @@ def _run_plan(
     return None
 
 
-def _model(name: str):
-    from . import models
-    return getattr(models, name)
+def _db_category_depths() -> dict:
+    """Depth of every live category slug, walking the DB ``tn_parent`` edges."""
+    from .models import Category
+
+    rows = list(Category.objects.values_list("pk", "slug", "tn_parent_id"))
+    parent_of = {pk: parent for pk, _, parent in rows}
+    depths: Dict[str, int] = {}
+    for pk, slug, parent in rows:
+        d, cur, seen = 0, parent, {pk}
+        while cur is not None and cur not in seen:
+            seen.add(cur)
+            d += 1
+            cur = parent_of.get(cur)
+        depths[slug] = d
+    return depths
 
 
 def _apply_phase(report, side, planned, apply_fn):

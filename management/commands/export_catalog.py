@@ -17,7 +17,7 @@ Usage::
 import os
 
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from stapel_categories import catalog_fixtures as cf
 
@@ -61,6 +61,16 @@ class Command(BaseCommand):
         out_dir = self.get_out_dir(options)
 
         if include_test:
+            # An inspection dump must never land in the canonical fixture
+            # directory: it would clobber the committed fixtures AND the
+            # .sync-state.json sidecar with test-polluted hashes, corrupting
+            # the 3-way base for every subsequent load_catalog.
+            if not options.get("out") and not dry_run:
+                raise CommandError(
+                    "--include-test requires an explicit --out directory "
+                    "(refusing to overwrite the canonical fixtures with a "
+                    "test-data dump)."
+                )
             self.stdout.write(self.style.WARNING(
                 "--include-test: is_test rows are INCLUDED. This dump is for local "
                 "inspection only and must NOT be committed as a catalog fixture."

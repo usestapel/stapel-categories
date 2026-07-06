@@ -847,3 +847,180 @@ class CommandTests(_CatalogTestCase):
             self.assertFalse(second.failed)
             self.assertEqual(second.count(cl.CREATED) + second.count(cl.UPDATED), 0)
             self.assertEqual(received, [])
+
+
+# ---------------------------------------------------------------------------
+# Fable-review regressions (adversarial pass over CAT-1 + CAT-2)
+# ---------------------------------------------------------------------------
+
+
+class ExportPrefilterAfterLoadTests(_CatalogTestCase):
+    def test_export_after_load_still_sees_db_only_drift(self):
+        """H: the load-written sidecar must not poison export's pre-filter.
+
+        load_catalog used to write the post-load max(revision) into the
+        sidecar; the very next export_catalog — the one the db-only-drift
+        warning tells the operator to run — then saw an unmoved max(revision)
+        and silently skipped, stranding the drift out of canon forever.
+        """
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            apparel = Category.objects.get(slug="apparel")
+            apparel.name = "Edited in admin"
+            apparel.save()
+
+            report = cl.load_catalog(out)          # warns db_only, rewrites sidecar
+            self.assertEqual(report.count(cl.DB_ONLY), 1)
+            # The load-written sidecar carries no export pre-filter base.
+            self.assertNotIn("max_revision", _read_json(out, cf.STATE_FILE))
+
+            _export(out)                            # follow the warning's advice
+            self.assertIn("Edited in admin", _read(out, cf.CATEGORIES_FILE))
+
+
+class FilteredParentLoadabilityTests(_CatalogTestCase):
+    def test_export_with_soft_deleted_parent_loads_into_fresh_db(self):
+        """H: the default export must always be loadable on a clean DB."""
+        self.seed_catalog()                        # electronics -> phones
+        Category.objects.get(slug="electronics").soft_delete()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            _wipe_db()
+            report = cl.load_catalog(out, seed_if_empty=True)
+            self.assertFalse(report.failed)
+            phones = Category.objects.get(slug="phones")
+            self.assertIsNone(phones.tn_parent_id)  # re-rooted, not dangling
+
+    def test_export_with_is_test_parent_loads_into_fresh_db(self):
+        root = Category.objects.create(name="QA root", slug="qa-root", is_test=True)
+        Category.objects.create(name="Real child", slug="real-child", tn_parent=root)
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            _wipe_db()
+            report = cl.load_catalog(out, seed_if_empty=True)
+            self.assertFalse(report.failed)
+            self.assertTrue(Category.objects.filter(slug="real-child").exists())
+
+
+class UnreachableFixtureStateTests(_CatalogTestCase):
+    def test_duplicate_bare_ref_is_loud_error_not_perpetual_churn(self):
+        """H: two entries resolving to one row can never be materialized —
+        the loader used to silently re-"apply" (revision bump + emit) on
+        every run forever. Now: per-record error, zero churn."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            apparel = next(c for c in cats if c["slug"] == "apparel")
+            apparel["features"] = [{"slug": "size"}, {"slug": "size"}]
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            rev_before = Category.objects.get(slug="apparel").revision
+            first = cl.load_catalog(out)
+            self.assertTrue(first.failed)
+            self.assertEqual(first.errors, 1)
+            second = cl.load_catalog(out)
+            self.assertTrue(second.failed)
+            self.assertEqual(
+                Category.objects.get(slug="apparel").revision, rev_before
+            )
+
+    def test_inline_is_test_entry_does_not_churn_revisions(self):
+        """H: an is_test inline entry is invisible to the export view, so the
+        record can never converge — the loader used to save() the category on
+        every run (phantom revisions + emits). The dirty guard stops that."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            apparel = next(c for c in cats if c["slug"] == "apparel")
+            apparel["features"] = [{
+                "slug": "size", "config": {"type": "int", "min": 5},
+                "mandatory": False, "show_as_badge": False,
+                "show_at_title": False, "translate": "all", "is_test": True,
+            }]
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            cl.load_catalog(out)
+            rev_after_first = Category.objects.get(slug="apparel").revision
+            received = _capture_events()
+            cl.load_catalog(out)
+            self.assertEqual(
+                Category.objects.get(slug="apparel").revision, rev_after_first
+            )
+            self.assertEqual(received, [])
+
+    def test_self_parent_record_is_error(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            next(c for c in cats if c["slug"] == "apparel")["parent_slug"] = "apparel"
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = cl.load_catalog(out)
+            self.assertTrue(report.failed)
+            self.assertIsNone(Category.objects.get(slug="apparel").tn_parent_id)
+
+
+class HardDeleteCascadeGuardTests(_CatalogTestCase):
+    def test_hard_delete_refuses_when_live_children_survive(self):
+        """H: treenode delete() cascades the subtree — removing only the
+        parent from the fixture used to silently take the (still-declared)
+        child down with it, while the report listed the child as skipped."""
+        self.seed_catalog()                        # electronics -> phones
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = [c for c in _read_json(out, cf.CATEGORIES_FILE)
+                    if c["slug"] != "electronics"]
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = cl.load_catalog(out, deletions=cl.DELETIONS_HARD)
+            self.assertTrue(report.failed)
+            self.assertEqual(report.errors, 1)
+            self.assertTrue(Category.objects.filter(slug="phones").exists())
+            self.assertTrue(Category.objects.filter(slug="electronics").exists())
+
+    def test_hard_delete_of_whole_subtree_runs_children_first(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = [c for c in _read_json(out, cf.CATEGORIES_FILE)
+                    if c["slug"] not in ("electronics", "phones")]
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = cl.load_catalog(out, deletions=cl.DELETIONS_HARD)
+            self.assertFalse(report.failed)
+            self.assertFalse(
+                Category.objects.filter(slug__in=["electronics", "phones"]).exists()
+            )
+
+    def test_hard_delete_refuses_feature_still_linked_by_live_category(self):
+        """Hard-deleting a root feature cascades its override rows and every
+        CategoryFeature link — silently stripping categories that still carry
+        it. The loader refuses instead."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            feats = [f for f in _read_json(out, cf.FEATURES_FILE) if f["slug"] != "color"]
+            _write_json(out, cf.FEATURES_FILE, feats)
+            # Keep the categories' entries referencing color untouched: an
+            # inconsistent fixture must not cause silent schema stripping.
+            report = cl.load_catalog(out, deletions=cl.DELETIONS_HARD)
+            self.assertTrue(report.failed)
+            self.assertTrue(
+                Feature.objects.filter(slug="color", tn_parent__isnull=True).exists()
+            )
+            # The child category's override row survived the (refused) cascade.
+            self.assertTrue(Feature.objects.filter(pk=self.override.pk).exists())
+
+    def test_command_errors_when_features_file_missing(self):
+        """Missing features.json must not read as 'delete every feature'."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            os.remove(os.path.join(out, cf.FEATURES_FILE))
+            with self.assertRaises(CommandError):
+                _load_cmd(out)
+            self.assertFalse(Feature.objects.filter(deleted=True).exists())

@@ -232,3 +232,67 @@ class SidecarAndPrefilterTests(TestCase):
             # existing files stay identical.
             _export(out)
             self.assertEqual(_read(out, cf.CATEGORIES_FILE), first)
+
+
+class FilteredParentResolutionTests(TestCase):
+    """A ``parent_slug`` must always reference a record in the same file.
+
+    The physical ``tn_parent`` chain can pass through rows the export filters
+    out (soft-deleted / is_test categories with live children — a state
+    ``load_catalog --deletions soft`` itself produces). Naively exporting
+    ``tn_parent.slug`` wrote a dangling reference, so the default export was
+    not loadable into a fresh DB (fable review, H).
+    """
+
+    def test_soft_deleted_parent_child_reparents_to_nearest_live_ancestor(self):
+        grandparent = Category.objects.create(name="GP", slug="gp")
+        parent = Category.objects.create(name="P", slug="p", tn_parent=grandparent)
+        Category.objects.create(name="C", slug="c", tn_parent=parent)
+        parent.soft_delete()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = {c["slug"]: c for c in _load(out, cf.CATEGORIES_FILE)}
+            self.assertNotIn("p", cats)  # soft-deleted rows are absent
+            self.assertEqual(cats["c"]["parent_slug"], "gp")
+
+    def test_soft_deleted_root_parent_child_becomes_root(self):
+        parent = Category.objects.create(name="P", slug="p")
+        Category.objects.create(name="C", slug="c", tn_parent=parent)
+        parent.soft_delete()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = {c["slug"]: c for c in _load(out, cf.CATEGORIES_FILE)}
+            self.assertIsNone(cats["c"]["parent_slug"])
+
+    def test_is_test_parent_child_reparents_past_it(self):
+        root = Category.objects.create(name="Live root", slug="live-root")
+        qa = Category.objects.create(name="QA", slug="qa", tn_parent=root, is_test=True)
+        Category.objects.create(name="Real", slug="real-child", tn_parent=qa)
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = {c["slug"]: c for c in _load(out, cf.CATEGORIES_FILE)}
+            self.assertNotIn("qa", cats)
+            self.assertEqual(cats["real-child"]["parent_slug"], "live-root")
+
+    def test_include_test_keeps_the_test_parent_edge(self):
+        qa = Category.objects.create(name="QA", slug="qa", is_test=True)
+        Category.objects.create(name="Real", slug="real-child", tn_parent=qa)
+        with tempfile.TemporaryDirectory() as out:
+            _export(out, include_test=True)
+            cats = {c["slug"]: c for c in _load(out, cf.CATEGORIES_FILE)}
+            self.assertEqual(cats["real-child"]["parent_slug"], "qa")
+
+
+class IncludeTestGuardTests(TestCase):
+    def test_include_test_without_out_refuses_to_clobber_canon(self):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            call_command("export_catalog", include_test=True)
+
+    def test_include_test_with_explicit_out_is_allowed(self):
+        Category.objects.create(name="QA", slug="qa", is_test=True)
+        with tempfile.TemporaryDirectory() as out:
+            _export(out, include_test=True)
+            cats = {c["slug"]: c for c in _load(out, cf.CATEGORIES_FILE)}
+            self.assertIn("qa", cats)
