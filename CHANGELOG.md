@@ -4,7 +4,7 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
-## [0.4.0] - Unreleased
+## [0.4.0] - 2026-07-08
 
 Catalog fixtures sync, part 2 (CAT-2 of docs/catalog-fixtures-sync.md): the
 load side of the reconciliation — a 3-way diff of the committed fixtures
