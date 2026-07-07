@@ -12,7 +12,7 @@ stapel-core ``RevisionMixin``; index names <= 30 chars. CDN icons are
 decoupled — stored as plain string references/UIDs, no dependency on
 stapel-cdn.
 
-Provenance: ported from legacy-catalog ``categories/models.py``. Fixed
+Provenance: ported from the legacy catalog's ``categories/models.py``. Fixed
 while porting: the latent ``Category.Meta`` bug where a second ``class
 Meta`` shadowed the first, silently dropping the ``revision`` index — the
 two are now merged into one Meta.

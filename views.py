@@ -1,6 +1,6 @@
 """DRF views for stapel-categories.
 
-Ported from legacy-catalog ``categories/views.py``. Value/config validation
+Ported from the legacy catalog's ``categories/views.py``. Value/config validation
 delegates to stapel-attributes' structured pipeline
 (``validate_dto_structured`` / ``validate_configs_structured``), fed the
 category's resolved ``feature_defs()`` — this module never re-implements the

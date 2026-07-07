@@ -1,6 +1,6 @@
 """Regression for the latent ``Category.Meta`` bug.
 
-In legacy-catalog a SECOND ``class Meta`` shadowed the first, so the
+In the legacy catalog a SECOND ``class Meta`` shadowed the first, so the
 ``revision`` index (and any other first-Meta option) was silently dropped.
 The port merges both into one Meta; these tests pin that the merge holds —
 both the ``verbose_name_plural`` AND the revision index survive.

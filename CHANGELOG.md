@@ -233,7 +233,7 @@ error responses) → minor bump.
 
 ## [0.1.0] - Unreleased
 
-Initial release. Ported from `legacy-catalog`'s `categories` app.
+Initial release. Ported from the legacy catalog's `categories` app.
 
 ### Added
 - **Category tree** (django-treenode): name/slug/comment/draft/icons/active/
@@ -290,5 +290,5 @@ Initial release. Ported from `legacy-catalog`'s `categories` app.
 ### Not ported
 - `feature_types/` engine and its ~3.4k-line test suite (owned by
   stapel-attributes).
-- legacy-specific seeds (`categories.json`, `load_categories`,
+- Legacy-catalog-specific seeds (`categories.json`, `load_categories`,
   `prefill_catalog_assets`) — app-layer concerns.

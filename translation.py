@@ -6,7 +6,7 @@ never owns a translation catalog. ``translate`` runs the key through the
 identity function — the key is returned unchanged. A host that wants
 resolved names points the seam at its own backend without forking.
 
-``cache_feature_translation`` is the port of legacy-catalog's
+``cache_feature_translation`` is the port of the legacy catalog's
 ``categories/utils.py`` admin display cache (build the "``==1.2 - name
 [type] (min=…​)``" label once, memoize per feature+language).
 """
