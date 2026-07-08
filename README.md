@@ -1,5 +1,8 @@
 # stapel-categories
 
+[![CI](https://github.com/usestapel/stapel-categories/actions/workflows/ci.yml/badge.svg)](https://github.com/usestapel/stapel-categories/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/usestapel/stapel-categories/graph/badge.svg)](https://codecov.io/gh/usestapel/stapel-categories)
+
 Category tree with typed features for the [Stapel framework](https://github.com/usestapel) —
 composable Django apps that deploy as a monolith or as microservices without
 changing module code.
