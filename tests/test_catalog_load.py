@@ -554,6 +554,40 @@ class OverrideReconcileTests(_CatalogTestCase):
             self.assertNotEqual(phones_link.feature_id, self.override.pk)
             self.assertEqual(phones_link.feature.config["options"], _opts("only-phones"))
 
+    def test_orphaned_override_is_soft_deleted_not_left_dangling(self):
+        """Removing a category's only use of an override does not leak it (L-finding).
+
+        ``self.override`` is linked only from ``phones``. Dropping it from the
+        fixture's feature list removes that link (a normal stale-link
+        cleanup); without the fix, the override row itself — reachable from
+        nowhere afterward — would sit in the table forever (never surfaced by
+        export, never touched by a future load). It must be soft-deleted
+        instead, and the round trip stays byte-identical (the row was already
+        invisible to export either way).
+        """
+        self.seed_catalog()
+        override_pk = self.override.pk
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            phones = next(c for c in cats if c["slug"] == "phones")
+            phones["features"] = [e for e in phones["features"] if e["slug"] != "color"]
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = cl.load_catalog(out)
+            self.assertFalse(report.failed)
+
+            orphan = Feature.objects.get(pk=override_pk)
+            self.assertTrue(orphan.deleted)
+            self.assertFalse(orphan.feature_categories.exists())
+
+            # No leftover garbage in a re-export, and a second load is still
+            # zero writes (the soft-deleted orphan is invisible, not reprocessed).
+            with tempfile.TemporaryDirectory() as reexport:
+                _export(reexport)
+                self.assertEqual(cf.find_orphan_overrides(), [])
+            self.assertFalse(cl.load_catalog(out).failed)
+
 
 # ---------------------------------------------------------------------------
 # Lock / transaction behavior (§6 invariant 5)
@@ -760,6 +794,33 @@ class SeedIfEmptyTests(_CatalogTestCase):
                 set(Category.objects.values_list("slug", flat=True)),
                 {"electronics", "phones", "apparel"},
             )
+
+    def test_seed_if_empty_ignores_is_test_rows(self):
+        """A DB holding only is_test scratch data must still read as "empty" (L-finding).
+
+        is_test rows are outside canon by construction (§5) — a test suite
+        that seeds is_test fixtures before a bootstrap ``--seed-if-empty``
+        call must not have that scratch data mistaken for "already seeded",
+        which would silently strand the real canon out of the DB forever.
+        """
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            _wipe_db()
+            # DB is not truly empty, but only holds is_test scratch rows.
+            Feature.objects.create(name="Scratch", slug="scratch", is_test=True,
+                                    config={"type": "string"})
+            Category.objects.create(name="Scratch Cat", slug="scratch-cat", is_test=True)
+
+            report = cl.load_catalog(out, seed_if_empty=True)
+            self.assertFalse(report.failed)
+            self.assertEqual(
+                set(Category.objects.filter(is_test=False).values_list("slug", flat=True)),
+                {"electronics", "phones", "apparel"},
+            )
+            # The pre-existing is_test rows are untouched, not clobbered.
+            self.assertTrue(Category.objects.filter(slug="scratch-cat", is_test=True).exists())
+            self.assertTrue(Feature.objects.filter(slug="scratch", is_test=True).exists())
 
 
 class CommandTests(_CatalogTestCase):

@@ -535,8 +535,33 @@ def _rewrite_orders(cat, ordered_features) -> bool:
     stale = [fid for fid in existing if fid not in seen]
     if stale:
         cat.category_features.filter(feature_id__in=stale).delete()
+        _cleanup_orphaned_overrides(stale)
         changed = True
     return changed
+
+
+def _cleanup_orphaned_overrides(feature_ids) -> None:
+    """Soft-delete override rows a stale-link removal just made unreachable.
+
+    An override (``tn_parent`` set) exists only to be linked from one or more
+    categories' materialized list — unlike a root feature, it has no home in
+    ``features.json``. If the link just removed above was its last one, the
+    row is now reachable from nowhere: invisible to every future export (dropped
+    silently by ``_category_record``'s per-category walk) and to every future
+    load (no fixture ever references it), so it would sit in the table forever
+    — a leak that accumulates one row per removed override across repeated
+    fixture edits (the fixtures-sync review's "orphan override" finding).
+    Root features (``tn_parent`` NULL) are never touched here: they are
+    addressed by ``features.json``, independent of any one category's list.
+    """
+    from .models import Feature
+
+    orphans = Feature.objects.filter(
+        pk__in=feature_ids, tn_parent__isnull=False, deleted=False,
+    )
+    for feat in orphans:
+        if not feat.feature_categories.exists():
+            feat.soft_delete()
 
 
 def _reconcile_features(cat, entries: list) -> bool:
@@ -755,8 +780,14 @@ def load_catalog(
 
     # --- seed-if-empty short-circuit (load_staff_group_if_empty idiom) -------
     if seed_if_empty:
+        # is_test rows are outside canon by construction (§5) — a DB that
+        # holds only test/scratch data must still read as "empty" here, or a
+        # test suite that seeds is_test fixtures before calling
+        # --seed-if-empty would silently strand the canon out forever (the
+        # bootstrap idiom's whole point is a guaranteed first load).
         db_empty = (
-            not Category.objects.exists() and not Feature.objects.exists()
+            not Category.objects.filter(is_test=False).exists()
+            and not Feature.objects.filter(is_test=False).exists()
         )
         if not db_empty:
             report.categories.append(Item(

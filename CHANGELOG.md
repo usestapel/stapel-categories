@@ -4,7 +4,39 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
-## [0.4.0] - 2026-07-08
+## [0.4.1] - 2026-07-08
+
+L-tier follow-up from the fable review of CAT-1+CAT-2 (the review's verdict
+was "ready to ship"; these were the non-blocking residuals). No behavior
+change to the review's ratified decisions (db-wins/seed-if-empty/full-table
+lock), no schema change — patch bump.
+
+### Fixed
+- **Orphan override rows no longer leak.** An override Feature (``tn_parent``
+  set) only exists to be linked from a category's materialized feature list;
+  when a fixture update drops a category's last reference to one,
+  ``load_catalog``'s stale-link cleanup now soft-deletes the now-unreachable
+  override instead of leaving a permanently invisible row behind (one leaked
+  row per removed override, across repeated fixture edits, before this fix).
+  For overrides orphaned by something *other* than ``load_catalog`` (e.g. an
+  editor action) — export stays read-only (no delete as a side effect of a
+  dump) but now warns on stdout naming them, since they were previously
+  dropped from the fixtures with zero visibility.
+- **`load_catalog --seed-if-empty` now ignores `is_test` rows when deciding
+  whether the DB is "empty".** `is_test` data is outside canon by
+  construction (§5); a DB holding only test/scratch rows was previously read
+  as "already populated," silently no-op'ing the bootstrap and stranding the
+  real canon out of the DB.
+- **Confirmed (no code change): duplicate `CategoryFeature.order` values
+  cannot make export nondeterministic.** Every sort in the export/load path
+  already breaks ties on the row's DB id (`order_by("order", "id")`, in place
+  since CAT-1) — a total order, so two consecutive exports of an unchanged
+  DB are always byte-identical even when two links share the same `order`.
+  Added a direct regression test pinning this invariant (the existing
+  duplicate-order test only exercised it indirectly, through a full
+  export→load→export round trip).
+
+
 
 Catalog fixtures sync, part 2 (CAT-2 of docs/catalog-fixtures-sync.md): the
 load side of the reconciliation — a 3-way diff of the committed fixtures

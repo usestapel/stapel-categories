@@ -101,6 +101,15 @@ class Command(BaseCommand):
 
         features, categories, state = cf.build_catalog(include_test=include_test)
 
+        orphans = cf.find_orphan_overrides(include_test=include_test)
+        if orphans:
+            self.stdout.write(self.style.WARNING(
+                f"{len(orphans)} override feature row(s) are linked to no "
+                "category and were silently omitted from this export "
+                "(garbage left behind by an editor action outside "
+                "load_catalog): " + ", ".join(orphans)
+            ))
+
         if dry_run:
             self._report_dry_run(features, categories, state, prev_state, out_dir)
             return

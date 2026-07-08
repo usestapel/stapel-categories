@@ -171,9 +171,15 @@ children or still-linked categories); DB-only drift warns and is kept. All write
 (never bulk/`.update()` — H-2), under a `select_for_update` catalog lock (M-5),
 and a re-run on materialized fixtures is zero saves / zero events. Engine:
 `catalog_load.py`. `--seed-if-empty` is the bootstrap idiom (full load on an
-empty catalog, no-op otherwise); `--dry-run` prints the full classification
-without writing. After a successful load the sidecar is rewritten to the
-applied state.
+empty catalog, no-op otherwise — "empty" ignores `is_test` rows: a DB holding
+only test/scratch data still seeds the canon); `--dry-run` prints the full
+classification without writing. After a successful load the sidecar is
+rewritten to the applied state. A stale-link removal that leaves an override
+row (`tn_parent` set) linked to zero categories soft-deletes it — an override
+has no natural key of its own, so an unreferenced one would otherwise be
+invisible to every future export/load and leak forever; `export_catalog`
+separately warns (stdout only, no write) if it finds one left behind by
+something other than `load_catalog` (e.g. an editor action).
 
 - **Natural keys, not pks.** `Category.slug` (globally unique) and root
   `Feature.slug` (unique among roots). A category feature list entry is either

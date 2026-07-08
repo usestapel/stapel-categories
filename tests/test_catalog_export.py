@@ -10,6 +10,7 @@ Covers the invariants from docs/catalog-fixtures-sync.md §6:
 import json
 import os
 import tempfile
+from io import StringIO
 
 from django.core.management import call_command
 from django.test import TestCase
@@ -210,6 +211,30 @@ class ByteStabilityTests(TestCase):
             for name in (cf.FEATURES_FILE, cf.CATEGORIES_FILE):
                 self.assertTrue(_read(out, name).endswith("\n"))
 
+    def test_double_export_is_byte_identical_with_duplicate_order_values(self):
+        """Two links sharing the same ``order`` must not make export nondeterministic.
+
+        A DB row order is decided by SQL ``ORDER BY``, which is unspecified
+        (any order, and not necessarily stable across calls) when the sort
+        key alone does not distinguish two rows — the L-finding this guards.
+        ``_category_record``/``_materialize_override`` sort by
+        ``("order", "id")``, and pk is a total order, so a tie on ``order``
+        alone can never make two consecutive exports (no DB writes between
+        them) disagree on record order.
+        """
+        electronics = Category.objects.get(slug="electronics")
+        size = Feature.objects.get(slug="size")
+        CategoryFeature.objects.create(category=electronics, feature=size, order=0)
+        # Now electronics has two links (color, size) both at order=0.
+        self.assertEqual(
+            list(electronics.category_features.values_list("order", flat=True)), [0, 0],
+        )
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            _export(a)
+            _export(b)
+            for name in (cf.FEATURES_FILE, cf.CATEGORIES_FILE, cf.STATE_FILE):
+                self.assertEqual(_read(a, name), _read(b, name), f"{name} not byte-stable")
+
 
 class SidecarAndPrefilterTests(TestCase):
     def test_sidecar_has_content_hash_per_natural_key(self):
@@ -296,3 +321,41 @@ class IncludeTestGuardTests(TestCase):
             _export(out, include_test=True)
             cats = {c["slug"]: c for c in _load(out, cf.CATEGORIES_FILE)}
             self.assertIn("qa", cats)
+
+
+class OrphanOverrideTests(TestCase):
+    """An override linked to no category is silently unreachable — visibly (L-finding).
+
+    ``build_catalog`` only ever discovers an override feature by walking a
+    category's ``CategoryFeature`` links (§2: no natural key of its own), so
+    a fully unlinked override row (e.g. left behind by an editor action
+    outside ``load_catalog``, which cleans up after itself) is dropped from
+    the fixtures with no natural key to even mention — export must stay
+    read-only (no surprise delete as a side effect of a dump) but should not
+    stay silent about the garbage either.
+    """
+
+    def test_export_omits_orphan_override_and_warns(self):
+        root = Feature.objects.create(name="Color", slug="color", config={"type": "select", "options": []})
+        orphan = Feature.objects.create(
+            tn_parent=root, name="Color", slug="color", config={"type": "select", "options": []},
+        )
+        with tempfile.TemporaryDirectory() as out:
+            stdout = StringIO()
+            _export(out, stdout=stdout)
+            cats = _load(out, cf.CATEGORIES_FILE)
+            self.assertEqual(cats, [])  # nothing references it, nothing to export
+            self.assertIn("linked to no category", stdout.getvalue())
+            self.assertIn(orphan.slug, stdout.getvalue())
+
+    def test_find_orphan_overrides_ignores_linked_and_root_features(self):
+        root = Feature.objects.create(name="Color", slug="color", config={"type": "select", "options": []})
+        linked_override = Feature.objects.create(
+            tn_parent=root, name="Color", slug="color", config={"type": "select", "options": []},
+        )
+        cat = Category.objects.create(name="Electronics", slug="electronics")
+        CategoryFeature.objects.create(category=cat, feature=linked_override, order=0)
+        orphan = Feature.objects.create(
+            tn_parent=root, name="Color", slug="color", config={"type": "select", "options": []},
+        )
+        self.assertEqual(cf.find_orphan_overrides(), [orphan.slug])

@@ -210,6 +210,30 @@ def build_catalog(include_test: bool = False):
     return feature_records, category_records, state
 
 
+def find_orphan_overrides(include_test: bool = False) -> list:
+    """Slugs/names of override rows linked to zero live categories.
+
+    An override (``tn_parent`` set) is reachable only through a category's
+    ``CategoryFeature`` link — it has no natural key of its own and no home
+    in ``features.json``. A row with no link at all (left behind by an
+    editor action outside ``load_catalog``'s own bookkeeping, which cleans up
+    after itself — see ``catalog_load._cleanup_orphaned_overrides``) is
+    invisible to ``build_catalog`` and would never surface in the exported
+    fixtures — reported here purely for operator visibility, not acted on:
+    export is read-only and must not delete data as a side effect of a dump.
+    """
+    from .models import Feature
+
+    qs = Feature.objects.filter(tn_parent__isnull=False, deleted=False)
+    if not include_test:
+        qs = qs.filter(is_test=False)
+    return [
+        f.slug or f"(id={f.pk}) {f.name}"
+        for f in qs
+        if not f.feature_categories.exists()
+    ]
+
+
 def _resolved_parent_slugs(exported_categories) -> dict:
     """Map each exported category pk to its nearest *exported* ancestor's slug.
 
