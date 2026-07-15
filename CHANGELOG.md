@@ -4,6 +4,17 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
+## [0.4.2] - 2026-07-16
+
+### Fixed — dependency pin
+
+- `stapel-core` requirement was still `>=0.8,<0.9` — three releases behind
+  every other stapel-* module (`>=0.10,<0.11`, matching stapel-auth /
+  stapel-profiles) and behind the 0.10.1 production fix
+  (`users_user.avatar` URLField widening). Bumped to `>=0.10,<0.11`. Full
+  suite (209 tests) passes unchanged against core 0.10.1 — no code
+  changes were needed.
+
 ## [0.4.1] - 2026-07-08
 
 L-tier follow-up from the fable review of CAT-1+CAT-2 (the review's verdict
