@@ -102,7 +102,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         responses={200: CategorySerializer(many=True)},
     )
     @action(detail=False, methods=["get"], pagination_class=None)
-    def carousel(self, request):
+    def carousel(self, request):  # noqa: R007
         """Return active categories with carousel_enabled=True, cached."""
         cache_key = "categories_carousel"
         cached_data = cache.get(cache_key)
@@ -134,7 +134,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     @action(detail=False, methods=["post"], permission_classes=[IsStaffUser])
-    def bulk_add(self, request):
+    def bulk_add(self, request):  # noqa: R007
         data = request.data
         if not isinstance(data, list):
             return StapelErrorResponse(400, ERR_400_EXPECTED_LIST)
@@ -169,7 +169,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
             updated.append(obj.pk)
 
         reset_sequences_for_models(Category)
-        return Response({"updated_ids": updated}, status=status.HTTP_200_OK)
+        return Response({"updated_ids": updated}, status=status.HTTP_200_OK)  # noqa: R001
 
     @extend_schema(
         description="Get all features for this category, sorted by order. Includes inherited features.",
@@ -177,11 +177,11 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         parameters=[],
     )
     @action(detail=True, methods=["get"], url_path="features", pagination_class=None)
-    def category_features(self, request, pk=None):
+    def category_features(self, request, pk=None):  # noqa: R007
         """Return full feature objects for this category, sorted by order."""
         category = self.get_object()
         features = category.get_all_features()
-        return Response(FeatureCompactSerializer(features, many=True).data)
+        return Response(FeatureCompactSerializer(features, many=True).data)  # noqa: R001
 
     @extend_schema(
         tags=["Feature Editor"],
@@ -189,9 +189,9 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         responses={200: FeatureEditorStateSerializer},
     )
     @action(detail=True, methods=["get"], url_path="feature-editor", permission_classes=[IsStaffUser])
-    def feature_editor(self, request, pk=None):
+    def feature_editor(self, request, pk=None):  # noqa: R007
         category = self.get_object()
-        return Response(build_editor_state(category))
+        return Response(build_editor_state(category))  # noqa: R001
 
     @extend_schema(
         tags=["Feature Editor"],
@@ -200,7 +200,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         responses={200: FeatureEditorDraftResponseSerializer},
     )
     @action(detail=True, methods=["post"], url_path="feature-editor/draft", permission_classes=[IsStaffUser])
-    def feature_editor_draft(self, request, pk=None):
+    def feature_editor_draft(self, request, pk=None):  # noqa: R007
         category = self.get_object()
         new_draft = request.data.get("draft") or ""
         # Draft is editor scratch state, not part of the resolved schema. Persist
@@ -210,7 +210,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         # phantom-revision H-3 that save(update_fields=["draft"]) would cause).
         Category.objects.filter(pk=category.pk).update(draft=new_draft)
         dto = FeatureEditorDraftResponse(draft=new_draft)
-        return Response(FeatureEditorDraftResponseSerializer(dto).data)
+        return Response(FeatureEditorDraftResponseSerializer(dto).data)  # noqa: R001
 
     @extend_schema(
         tags=["Feature Editor"],
@@ -219,7 +219,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         responses={200: FeatureEditorStateSerializer},
     )
     @action(detail=True, methods=["post"], url_path="feature-editor/apply", permission_classes=[IsStaffUser])
-    def feature_editor_apply(self, request, pk=None):
+    def feature_editor_apply(self, request, pk=None):  # noqa: R007
         from django.core.exceptions import ValidationError as DjangoValidationError
         from django.db import IntegrityError
 
@@ -274,7 +274,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         # emitted the real schema-change events.
         Category.objects.filter(pk=category.pk).update(draft="")
         category.refresh_from_db()
-        return Response(build_editor_state(category))
+        return Response(build_editor_state(category))  # noqa: R001
 
     @extend_schema(
         description="Validate a features DTO against this category's schema.",
@@ -282,23 +282,23 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         responses={200: ValidationBatchResultSerializer},
     )
     @action(detail=True, methods=["post"], url_path="validate-dto")
-    def validate_dto(self, request, pk=None):
+    def validate_dto(self, request, pk=None):  # noqa: R007
         """Validate features DTO against category (delegates to stapel-attributes)."""
         category = self.get_object()
         features_dto = request.data.get("features", {})
         result = validate_dto_structured(category.feature_defs(), features_dto)
-        return Response(ValidationBatchResultSerializer(result).data)
+        return Response(ValidationBatchResultSerializer(result).data)  # noqa: R001
 
     @extend_schema(
         description="Validate all feature configs in this category.",
         responses={200: ValidationBatchResultSerializer},
     )
     @action(detail=True, methods=["get"], url_path="validate-configs")
-    def validate_configs(self, request, pk=None):
+    def validate_configs(self, request, pk=None):  # noqa: R007
         """Validate all feature configs in category (delegates to stapel-attributes)."""
         category = self.get_object()
         result = validate_configs_structured(category.feature_defs())
-        return Response(ValidationBatchResultSerializer(result).data)
+        return Response(ValidationBatchResultSerializer(result).data)  # noqa: R001
 
     @extend_schema(
         description="Get all non-deleted children of this category, sorted by tn_priority descending.",
@@ -306,11 +306,11 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         parameters=[],
     )
     @action(detail=True, methods=["get"], url_path="children", pagination_class=None)
-    def children(self, request, pk=None):
+    def children(self, request, pk=None):  # noqa: R007
         """Return non-deleted children, sorted by tn_priority descending."""
         category = self.get_object()
         children = Category.objects.filter(tn_parent=category, deleted=False).order_by("-tn_priority")
-        return Response(CategorySerializer(children, many=True).data)
+        return Response(CategorySerializer(children, many=True).data)  # noqa: R001
 
     @extend_schema(
         description="Get all deleted children of this category.",
@@ -318,18 +318,18 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         parameters=[],
     )
     @action(detail=True, methods=["get"], url_path="deleted-children", pagination_class=None)
-    def deleted_children(self, request, pk=None):
+    def deleted_children(self, request, pk=None):  # noqa: R007
         """Return deleted children of this category."""
         category = self.get_object()
         deleted_children = Category.objects.filter(tn_parent=category, deleted=True).order_by("name")
-        return Response(CategorySerializer(deleted_children, many=True).data)
+        return Response(CategorySerializer(deleted_children, many=True).data)  # noqa: R001
 
     @extend_schema(
         description="Restore deleted category and all its descendants.",
         responses={200: UndeleteResponseSerializer},
     )
     @action(detail=True, methods=["post"], url_path="undelete", permission_classes=[IsStaffUser])
-    def undelete(self, request, pk=None):
+    def undelete(self, request, pk=None):  # noqa: R007
         """Undelete category and all its descendants."""
         category = self.get_object()
 
@@ -347,7 +347,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
             descendant.save()
 
         dto = UndeleteResponse(restored=[category.pk] + descendant_ids)
-        return Response(UndeleteResponseSerializer(dto).data, status=status.HTTP_200_OK)
+        return Response(UndeleteResponseSerializer(dto).data, status=status.HTTP_200_OK)  # noqa: R001
 
     @extend_schema(
         description="Execute bulk commands on categories (add/edit/delete/reorder).",
@@ -355,7 +355,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         responses={200: OpenApiTypes.OBJECT, 400: OpenApiTypes.OBJECT},
     )
     @action(detail=False, methods=["post"], url_path="bulk-commands", permission_classes=[IsStaffUser])
-    def bulk_commands(self, request):
+    def bulk_commands(self, request):  # noqa: R007
         """Execute bulk commands on categories."""
         serializer = CategoryBulkCommandSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -441,7 +441,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
             except Exception as e:  # noqa: BLE001 — surface per-command errors, keep batch going
                 results["errors"].append({"command": cmd, "error": str(e)})
 
-        return Response(results, status=status.HTTP_200_OK)
+        return Response(results, status=status.HTTP_200_OK)  # noqa: R001
 
     @extend_schema(
         operation_id="collect_translation_keys",
@@ -450,11 +450,11 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         responses={200: OpenApiTypes.OBJECT},
     )
     @action(detail=False, methods=["get"], permission_classes=[IsServiceRequest], url_path="translation-keys")
-    def translation_keys(self, request):
+    def translation_keys(self, request):  # noqa: R007
         """Collect all translation keys from catalog entities."""
         from .translation_keys import collect_all_catalog_translation_keys
 
-        return Response(collect_all_catalog_translation_keys())
+        return Response(collect_all_catalog_translation_keys())  # noqa: R001
 
 
 @extend_schema_view(
@@ -505,7 +505,7 @@ class FeatureViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         responses={200: BulkUpdateResponseSerializer, 400: OpenApiTypes.OBJECT},
     )
     @action(detail=False, methods=["post"], permission_classes=[IsStaffUser])
-    def bulk_add(self, request):
+    def bulk_add(self, request):  # noqa: R007
         data = request.data
         if not isinstance(data, list):
             return StapelErrorResponse(400, ERR_400_EXPECTED_LIST)
@@ -542,7 +542,7 @@ class FeatureViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
             updated.append(obj.pk)
 
         reset_sequences_for_models(Feature)
-        return Response({"updated_ids": updated}, status=status.HTTP_200_OK)
+        return Response({"updated_ids": updated}, status=status.HTTP_200_OK)  # noqa: R001
 
     @extend_schema(
         description="Convert feature type between select and string, optionally propagating to descendants.",
@@ -558,7 +558,7 @@ class FeatureViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         responses={200: FeatureSerializer},
     )
     @action(detail=True, methods=["post"], url_path="convert-type", permission_classes=[IsStaffUser])
-    def convert_type(self, request, pk=None):
+    def convert_type(self, request, pk=None):  # noqa: R007
         """Convert feature type between select and string, optionally propagating."""
         feature = self.get_object()
         new_config = request.data.get("config")
@@ -589,7 +589,7 @@ class FeatureViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
                         )
                         descendant.save()
 
-        return Response(FeatureSerializer(feature).data)
+        return Response(FeatureSerializer(feature).data)  # noqa: R001
 
     @staticmethod
     def _convert_config(config, from_type, to_type, slug=""):

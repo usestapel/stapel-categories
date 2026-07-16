@@ -1,13 +1,13 @@
-"""URL patterns — no global prefix here, the host project mounts them:
+"""Root URLconf for stapel-categories — v1 canon mount (api-versioning.md §2, §6).
 
-    path("categories/", include("stapel_categories.urls"))
+Canon: ``/<mod>/api/v1/...`` — the version segment sits right after ``api/``.
+Hosts keep mounting ``include('stapel_categories.urls')`` under their
+``.../api/`` prefix; this module contributes the mandatory ``v1/``
+sub-prefix. The actual URL set (paths inside unchanged, incl. the DRF
+router) lives in ``urls_v1.py``.
 """
-from rest_framework.routers import DefaultRouter
+from django.urls import include, path
 
-from .views import CategoryViewSet, FeatureViewSet
-
-router = DefaultRouter()
-router.register(r"categories", CategoryViewSet, basename="category")
-router.register(r"features", FeatureViewSet, basename="feature")
-
-urlpatterns = router.urls
+urlpatterns = [
+    path('v1/', include('stapel_categories.urls_v1')),
+]

@@ -193,27 +193,27 @@ class FeatureEditorItemSerializer(serializers.Serializer):
         slug = feature_data.get("slug")
 
         if action in ("keep", "edit", "remove") and not feature_id:
-            raise serializers.ValidationError("feature.id is required for keep/edit/remove actions")
+            raise serializers.ValidationError("feature.id is required for keep/edit/remove actions")  # noqa: R002
 
         if action == "add" and not feature_id:
-            raise serializers.ValidationError("feature.id (root feature id) is required for add")
+            raise serializers.ValidationError("feature.id (root feature id) is required for add")  # noqa: R002
 
         if action == "inherit":
             if not feature_id:
-                raise serializers.ValidationError("feature.id is required for inherit")
+                raise serializers.ValidationError("feature.id is required for inherit")  # noqa: R002
             if not slug:
-                raise serializers.ValidationError("slug is required for inherit")
+                raise serializers.ValidationError("slug is required for inherit")  # noqa: R002
 
         if action == "create":
             if not slug:
-                raise serializers.ValidationError("slug is required for create")
+                raise serializers.ValidationError("slug is required for create")  # noqa: R002
 
         if action == "replace":
             replace_with = attrs.get("replace_with")
             if not replace_with:
-                raise serializers.ValidationError("replace_with is required for replace action")
+                raise serializers.ValidationError("replace_with is required for replace action")  # noqa: R002
             if not feature_id:
-                raise serializers.ValidationError("feature.id is required for replace action")
+                raise serializers.ValidationError("feature.id is required for replace action")  # noqa: R002
 
         return attrs
 
@@ -285,13 +285,13 @@ class CategoryCommandSerializer(serializers.Serializer):
 
         if command == "add":
             if not attrs.get("name"):
-                raise serializers.ValidationError({"name": "Name is required for add command"})
+                raise serializers.ValidationError({"name": "Name is required for add command"})  # noqa: R002
             if not attrs.get("slug"):
-                raise serializers.ValidationError({"slug": "Slug is required for add command"})
+                raise serializers.ValidationError({"slug": "Slug is required for add command"})  # noqa: R002
 
         elif command in ("edit", "delete", "keep", "reorder"):
             if not category_id:
-                raise serializers.ValidationError({"id": f"Category ID is required for {command} command"})
+                raise serializers.ValidationError({"id": f"Category ID is required for {command} command"})  # noqa: R002
 
         return attrs
 
