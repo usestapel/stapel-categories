@@ -222,7 +222,7 @@ def build_editor_state(category: Category) -> Dict:
 def apply_feature_editor_changes(
     category: Category,
     items: List[FeatureEditorItem],
-    base_revision: Optional[int] = None,
+    base_revision: int,
 ) -> None:
     """
     Apply editor actions to category and propagate to descendants following rules:
@@ -238,11 +238,9 @@ def apply_feature_editor_changes(
     Concurrency (M-5): the category and its whole subtree are row-locked
     (``select_for_update``) at the top of the transaction so two applies
     serialize instead of interleaving lost updates / half-propagated trees.
-    When ``base_revision`` is supplied it must match the category's current
-    revision, else :class:`FeatureEditorConflict` (the caller applied against
-    stale editor state). ``base_revision`` is optional for backwards
-    compatibility; omitting it opts out of the optimistic check but keeps the
-    lock.
+    ``base_revision`` (echoed from the editor state's ``revision``) must match
+    the category's current revision, else :class:`FeatureEditorConflict` (the
+    caller applied against stale editor state).
 
     Algorithm:
     1. Validate the whole batch (server-side action rules) before any write
@@ -262,12 +260,11 @@ def apply_feature_editor_changes(
 
     # M-5: optimistic-concurrency guard. Read the current revision under the
     # lock and reject a stale editor before mutating anything.
-    if base_revision is not None:
-        current_revision = Category.objects.values_list("revision", flat=True).get(
-            pk=category.pk
-        )
-        if current_revision != int(base_revision):
-            raise FeatureEditorConflict(int(base_revision), current_revision)
+    current_revision = Category.objects.values_list("revision", flat=True).get(
+        pk=category.pk
+    )
+    if current_revision != int(base_revision):
+        raise FeatureEditorConflict(int(base_revision), current_revision)
 
     # Sort items by requested order once
     ordered_items = sorted(items, key=lambda it: it.order)

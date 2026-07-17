@@ -240,7 +240,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
 
         try:
             apply_feature_editor_changes(
-                category, items, base_revision=payload.get("base_revision")
+                category, items, base_revision=payload["base_revision"]
             )
         except FeatureEditorConflict as e:
             return StapelErrorResponse(

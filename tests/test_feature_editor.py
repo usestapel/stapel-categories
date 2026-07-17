@@ -25,6 +25,12 @@ from stapel_categories.feature_editor import (
 )
 
 
+def _apply(category, items):
+    """Apply against the category's current revision (base_revision is required)."""
+    rev = Category.objects.values_list('revision', flat=True).get(pk=category.pk)
+    apply_feature_editor_changes(category, items, base_revision=rev)
+
+
 @pytest.fixture
 def root_category():
     """Create a root category."""
@@ -189,7 +195,7 @@ class TestFeatureEditorActions:
             )
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Feature should still exist with updated order
         cf = CategoryFeature.objects.get(category=root_category, feature=feature_color)
@@ -205,7 +211,7 @@ class TestFeatureEditorActions:
             )
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Feature should be added to root and child
         assert CategoryFeature.objects.filter(category=root_category, feature=feature_color).exists()
@@ -230,7 +236,7 @@ class TestFeatureEditorActions:
             )
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Feature should be updated
         feature_color.refresh_from_db()
@@ -253,7 +259,7 @@ class TestFeatureEditorActions:
             )
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Feature should be removed from all
         assert not CategoryFeature.objects.filter(category=root_category, feature=feature_color).exists()
@@ -275,7 +281,7 @@ class TestFeatureEditorActions:
             )
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # New feature should exist
         new_feature = Feature.objects.get(slug='new-feature')
@@ -304,7 +310,7 @@ class TestFeatureEditorActions:
             )
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # New inherited feature should exist
         inherited_features = Feature.objects.filter(slug='color', tn_parent=feature_color)
@@ -331,7 +337,7 @@ class TestFeatureEditorComplexScenarios:
             FeatureEditorItem(action='add', order=2, feature={'id': feature_brand.pk, 'slug': 'brand'}),
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Check order
         features = list(CategoryFeature.objects.filter(category=root_category).order_by('order'))
@@ -352,7 +358,7 @@ class TestFeatureEditorComplexScenarios:
             FeatureEditorItem(action='keep', order=1, feature={'id': feature_color.pk, 'slug': 'color'}),
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Check new order
         features = list(CategoryFeature.objects.filter(category=root_category).order_by('order'))
@@ -370,7 +376,7 @@ class TestFeatureEditorComplexScenarios:
             FeatureEditorItem(action='add', order=0, feature={'id': feature_size.pk, 'slug': 'size'}),
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Color should be removed, size should be added (both recursively)
         assert not CategoryFeature.objects.filter(category=root_category, feature=feature_color).exists()
@@ -384,7 +390,7 @@ class TestFeatureEditorComplexScenarios:
             FeatureEditorItem(action='add', order=0, feature={'id': feature_color.pk, 'slug': 'color'}),
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Should propagate to all levels
         assert CategoryFeature.objects.filter(category=root_category, feature=feature_color).exists()
@@ -403,7 +409,7 @@ class TestFeatureEditorComplexScenarios:
                 feature={'id': feature_color.pk, 'slug': 'color', 'name': 'Edited Color', 'config': {'type': 'hex_color'}}
             ),
         ]
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         feature_color.refresh_from_db()
         assert feature_color.name == 'Edited Color'
@@ -416,7 +422,7 @@ class TestFeatureEditorComplexScenarios:
                 feature={'id': feature_color.pk, 'slug': 'color', 'name': 'Child Color', 'config': {'type': 'hex_color'}}
             ),
         ]
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Should have inherited feature
         inherited = Feature.objects.get(slug='color', tn_parent=feature_color)
@@ -496,7 +502,7 @@ class TestFeatureEditorEdgeCases:
     def test_empty_items_list(self, root_category):
         """Test applying changes with empty items list."""
         # Should not raise error
-        apply_feature_editor_changes(root_category, [])
+        _apply(root_category, [])
 
     def test_invalid_feature_id_graceful_handling(self, root_category):
         """Test that invalid feature IDs are handled gracefully."""
@@ -505,7 +511,7 @@ class TestFeatureEditorEdgeCases:
         ]
 
         # Should not raise error, just skip invalid item
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # No features should be added
         assert CategoryFeature.objects.filter(category=root_category).count() == 0
@@ -518,7 +524,7 @@ class TestFeatureEditorEdgeCases:
 
         # Should complete successfully
         with transaction.atomic():
-            apply_feature_editor_changes(root_category, items)
+            _apply(root_category, items)
 
         assert CategoryFeature.objects.filter(category=root_category, feature=feature_color).exists()
 
@@ -530,7 +536,7 @@ class TestFeatureEditorEdgeCases:
             FeatureEditorItem(action='add', order=100, feature={'id': feature_brand.pk, 'slug': 'brand'}),
         ]
 
-        apply_feature_editor_changes(root_category, items)
+        _apply(root_category, items)
 
         # Final order should be sequential 0, 1, 2 regardless of input gaps
         features = list(CategoryFeature.objects.filter(category=root_category).order_by('order'))

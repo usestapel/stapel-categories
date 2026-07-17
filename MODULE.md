@@ -67,7 +67,7 @@ overriding `serializer_class` / `get_serializer_class`, then remount the URL.
 ### Feature-editor extension points (`feature_editor.py`)
 
 The editor is a pure function over `FeatureEditorItem`s
-(`apply_feature_editor_changes(category, items, base_revision=None)`), separate
+(`apply_feature_editor_changes(category, items, base_revision)`), separate
 from the HTTP layer — call it directly from a management command or a host
 workflow. The action set (`keep/add/edit/inherit/remove/create/replace`) and its
 descendant-propagation rules are the module contract; adding an action is an
@@ -84,8 +84,8 @@ category carrying it, and validates the config. Resolved-schema dedup is by
 downstream.
 
 **Concurrency**: `apply` `select_for_update`-locks the category and its whole
-subtree (deterministic pk order) up front. Pass `base_revision` (echoed from the
-feature-editor state's `revision`) for an optimistic-concurrency check — a
+subtree (deterministic pk order) up front. `base_revision` (echoed from the
+feature-editor state's `revision`) is required and checked optimistically — a
 mismatch raises `FeatureEditorConflict` (HTTP `409`), closing the lost-update
 where a stale editor's keep-list erases a concurrent add. The draft is editor
 scratch state: it is persisted column-only (no revision bump, no

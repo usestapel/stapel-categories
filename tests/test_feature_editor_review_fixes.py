@@ -19,6 +19,12 @@ from stapel_categories.feature_editor import (
 from stapel_categories.models import Category, CategoryFeature, Feature
 
 
+def _apply(category, items):
+    """Apply against the category's current revision (base_revision is required)."""
+    rev = Category.objects.values_list("revision", flat=True).get(pk=category.pk)
+    apply_feature_editor_changes(category, items, base_revision=rev)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures (self-contained; mirrors of the report's minimal trees)
 # ---------------------------------------------------------------------------
@@ -54,7 +60,7 @@ def test_h1_inherit_override_wins_and_slug_appears_once(root_cat, child_cat):
     CategoryFeature.objects.create(category=child_cat, feature=color, order=0)
 
     # Child overrides color via inherit -> new Feature row, same slug.
-    apply_feature_editor_changes(
+    _apply(
         child_cat,
         [FeatureEditorItem(
             action="inherit", order=0,
@@ -106,7 +112,7 @@ def test_h2_edit_bumps_feature_revision_and_fans_out(root_cat):
     received = []
     subscribe_action("category.changed", lambda event: received.append(event.payload))
 
-    apply_feature_editor_changes(
+    _apply(
         root_cat,
         [FeatureEditorItem(
             action="edit", order=0,
@@ -130,7 +136,7 @@ def test_h2_edit_keeps_icon(root_cat):
     f = Feature.objects.create(slug="mat", name="Material", config={"type": "string"},
                                icon="icons/mat")
     root_cat.features.add(f)
-    apply_feature_editor_changes(
+    _apply(
         root_cat,
         [FeatureEditorItem(
             action="edit", order=0,
@@ -148,7 +154,7 @@ def test_h2_edit_invalid_config_rejected(root_cat):
     f = Feature.objects.create(slug="c", name="C", config={"type": "string"})
     root_cat.features.add(f)
     with pytest.raises(Exception):
-        apply_feature_editor_changes(
+        _apply(
             root_cat,
             [FeatureEditorItem(action="edit", order=0,
                                feature={"id": f.pk, "slug": "c", "config": {}})],
@@ -165,7 +171,7 @@ def test_m4_edit_inherited_slug_rejected(root_cat, child_cat):
     weight = Feature.objects.create(slug="weight", name="Weight", config={"type": "string"})
     root_cat.features.add(weight)  # inherited by child via copy_parent_features
     with pytest.raises(FeatureEditorError):
-        apply_feature_editor_changes(
+        _apply(
             child_cat,
             [FeatureEditorItem(
                 action="edit", order=0,
@@ -182,7 +188,7 @@ def test_m4_remove_inherited_slug_rejected(root_cat, child_cat):
     weight = Feature.objects.create(slug="weight", name="Weight", config={"type": "string"})
     root_cat.features.add(weight)
     with pytest.raises(FeatureEditorError):
-        apply_feature_editor_changes(
+        _apply(
             child_cat,
             [FeatureEditorItem(action="remove", order=0,
                                feature={"id": weight.pk, "slug": "weight"})],
@@ -201,7 +207,7 @@ def test_m5_stale_base_revision_conflicts(root_cat):
     stale = build_editor_state(root_cat)["revision"]
 
     # Another editor commits, bumping the revision.
-    apply_feature_editor_changes(
+    _apply(
         root_cat,
         [FeatureEditorItem(action="create", order=1,
                            feature={"slug": "size", "name": "Size",
@@ -241,7 +247,7 @@ def test_l9_replace_cross_tree_rejected(root_cat):
     unrelated = Feature.objects.create(slug="onoff", name="OnOff", config={"type": "bool"})
     root_cat.features.add(color)
     with pytest.raises(FeatureEditorError):
-        apply_feature_editor_changes(
+        _apply(
             root_cat,
             [FeatureEditorItem(action="replace", order=0,
                                feature={"id": color.pk, "slug": "color"},
@@ -254,7 +260,7 @@ def test_l11_inherit_slug_mismatch_rejected(root_cat, child_cat):
     color = _color_feature()
     root_cat.features.add(color)
     with pytest.raises(FeatureEditorError):
-        apply_feature_editor_changes(
+        _apply(
             child_cat,
             [FeatureEditorItem(
                 action="inherit", order=0,
@@ -304,9 +310,11 @@ class DraftRevisionTests(TestCase):
         self.cat.draft = "scratch"
         Category.objects.filter(pk=self.cat.pk).update(draft="scratch")
         color = _color_feature()
+        rev = self.client.get(f"{self.base}/feature-editor/").data["revision"]
         resp = self.client.post(
             f"{self.base}/feature-editor/apply/",
-            {"features": [{"action": "add", "order": 0,
+            {"base_revision": rev,
+             "features": [{"action": "add", "order": 0,
                            "feature": {"id": color.pk, "slug": "color"}}]},
             format="json",
         )
@@ -318,6 +326,18 @@ class DraftRevisionTests(TestCase):
         # Reload editor: revision unchanged (draft-clear emitted no phantom).
         state = self.client.get(f"{self.base}/feature-editor/")
         self.assertEqual(state.data["revision"], db_rev)
+
+    def test_m5_apply_without_base_revision_returns_400(self):
+        """base_revision is a required part of the apply payload."""
+        color = _color_feature()
+        self.cat.features.add(color)
+        resp = self.client.post(
+            f"{self.base}/feature-editor/apply/",
+            {"features": [{"action": "keep", "order": 0,
+                           "feature": {"id": color.pk, "slug": "color"}}]},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
 
     def test_m5_apply_stale_base_revision_returns_409(self):
         color = _color_feature()

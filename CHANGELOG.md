@@ -4,6 +4,22 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
+## [0.5.0] - 2026-07-17
+
+Legacy sweep: pre-0.2.0 backward-compat shims removed (breaking → minor per
+pre-1.0 semver).
+
+### Removed
+- **`base_revision` is no longer optional** on the feature-editor apply path.
+  `apply_feature_editor_changes(category, items, base_revision)` now requires
+  the token, and `POST …/feature-editor/apply/` rejects a payload without
+  `base_revision` with `400` (`FeatureEditorApplySerializer` field is
+  `IntegerField()` — no `required=False`, no `allow_null`). The "omit to opt
+  out of the optimistic check" compat behavior for pre-0.2.0 clients is gone:
+  every apply is now revision-checked (stale → `409`), closing the lost-update
+  loophole for clients that silently never sent the token. Clients must echo
+  the `revision` from the feature-editor state response.
+
 ## [0.4.4] - 2026-07-17
 
 ### Changed

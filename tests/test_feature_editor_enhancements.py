@@ -11,6 +11,12 @@ from stapel_categories.models import Category, Feature
 from stapel_categories.feature_editor import apply_feature_editor_changes, FeatureEditorItem
 
 
+def _apply(category, items):
+    """Apply against the category's current revision (base_revision is required)."""
+    rev = Category.objects.values_list("revision", flat=True).get(pk=category.pk)
+    apply_feature_editor_changes(category, items, base_revision=rev)
+
+
 class InheritFromAddActionTestCase(TestCase):
     """Test that inherit action works with features from ADD action."""
 
@@ -50,7 +56,7 @@ class InheritFromAddActionTestCase(TestCase):
             )
         ]
 
-        apply_feature_editor_changes(self.root_category, items)
+        _apply(self.root_category, items)
 
         # Verify the feature was added
         self.assertEqual(self.root_category.features.count(), 1)
@@ -83,7 +89,7 @@ class InheritFromAddActionTestCase(TestCase):
             )
         ]
 
-        apply_feature_editor_changes(child_category, items)
+        _apply(child_category, items)
 
         # Verify a new feature was created
         new_features = Feature.objects.filter(tn_parent=self.root_feature)
@@ -125,7 +131,7 @@ class CreateActionTestCase(TestCase):
             )
         ]
 
-        apply_feature_editor_changes(self.category, items)
+        _apply(self.category, items)
 
         # Verify the feature was created
         new_feature = Feature.objects.filter(slug="brand", tn_parent__isnull=True).first()
@@ -162,7 +168,7 @@ class CreateActionTestCase(TestCase):
             )
         ]
 
-        apply_feature_editor_changes(self.category, items)
+        _apply(self.category, items)
 
         # Verify the feature was created and added to both categories
         new_feature = Feature.objects.filter(slug="material").first()
@@ -211,7 +217,7 @@ class FeatureTypeEditingTestCase(TestCase):
             )
         ]
 
-        apply_feature_editor_changes(self.category, items)
+        _apply(self.category, items)
 
         # Verify the feature type was changed
         self.root_feature.refresh_from_db()
@@ -235,7 +241,7 @@ class FeatureTypeEditingTestCase(TestCase):
             )
         ]
 
-        apply_feature_editor_changes(self.category, items)
+        _apply(self.category, items)
 
         # Verify the feature was created with the selected type
         new_feature = Feature.objects.filter(slug="price").first()
@@ -309,7 +315,7 @@ class ReorderDetectionTestCase(TestCase):
             ),
         ]
 
-        apply_feature_editor_changes(self.category, items)
+        _apply(self.category, items)
 
         # Verify order using the through model
         from stapel_categories.models import CategoryFeature
