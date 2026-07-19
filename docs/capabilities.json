@@ -1,0 +1,56 @@
+{
+  "module": "stapel-categories",
+  "version": "0.5.1",
+  "provides": "Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.",
+  "axes": [
+    {
+      "key": "DISPLAY_TRANSLATOR",
+      "kind": "enum",
+      "default": "stapel_categories.translation.identity_translator",
+      "group": "categories.display",
+      "gates": {
+        "operations": [],
+        "co_gates": []
+      },
+      "curated": {
+        "summary": "Callable (key) -> str rendering a translation key for admin/__str__ display. The module stores translation keys, not resolved text; default is identity (conf.py, MODULE.md Extension points table).",
+        "business_label": "How category/feature names render as text"
+      }
+    }
+  ],
+  "extension_points": [
+    {
+      "name": "DISPLAY_TRANSLATOR",
+      "kind": "dotted_path",
+      "summary": "REPLACE, single strategy: point it at a translation backend (e.g. a wrapper over the translate.resolve comm Function) to show resolved names instead of raw keys (conf.py, MODULE.md)."
+    },
+    {
+      "name": "serializer_seams",
+      "kind": "class_override",
+      "summary": "CategoryViewSet / FeatureViewSet are DRF ModelViewSets; swap serializer_class / get_serializer_class by subclassing and remounting the router (views.py:77, views.py:482, MODULE.md 'Serializer seams')."
+    },
+    {
+      "name": "feature_editor",
+      "kind": "function_seam",
+      "summary": "apply_feature_editor_changes(category, items, base_revision) is a pure function over FeatureEditorItems, separate from the HTTP layer — callable directly from a management command or host workflow (feature_editor.py, MODULE.md 'Feature-editor extension points')."
+    },
+    {
+      "name": "Admin config editor widgets",
+      "kind": "delegated_seam",
+      "summary": "The Feature.config admin widget resolves via stapel-attributes' get_config_editor_widget('config'); restyling/locales/extra assets are attributes' ADMIN_WIDGETS/ADMIN_EXTRA_CSS/ADMIN_EXTRA_JS/ADMIN_LOCALES seams (MODULE.md 'Admin UI', admin.py:16)."
+    }
+  ],
+  "operations_total": 27,
+  "requires": [
+    {
+      "module": "stapel-core",
+      "optional": false,
+      "reason": "comm bus (mutate_and_emit/function), RevisionMixin, AppSettings, error registry (pyproject.toml dependency; models.py:28-29, conf.py:11, functions.py:22)"
+    },
+    {
+      "module": "stapel-attributes",
+      "optional": false,
+      "reason": "the feature-type registry, config/DTO validation, polymorphic serializers and admin widgets are imported from stapel-attributes and never re-implemented (pyproject.toml dependency; admin.py:16, forms.py:14, serializers.py:11, views.py:23-24)"
+    }
+  ]
+}
