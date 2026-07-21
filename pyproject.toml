@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.5.1"
+version = "0.5.2"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -23,7 +23,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "stapel-core>=0.10,<0.13",
+    "stapel-core>=0.10,<1.0",
     "stapel-attributes>=0.3,<0.4",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
