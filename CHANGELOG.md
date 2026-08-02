@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.4] — 2026-08-03
+
+### Fixed
+
+- Пол зависимости на `stapel-attributes` поднят с `>=0.3,<0.4` до `>=0.4,<0.5`.
+  Старая ветка attributes кэпала `stapel-core<0.12`, из-за чего categories
+  нельзя было установить рядом с profiles/notifications/workspaces/cdn,
+  требующими `core>=0.16` — `ResolutionImpossible`. Собственный потолок на
+  core расширили до `<1.0` раньше (3e3200f), а пин на attributes расширить
+  забыли: библиотека была невыпускаема в сборку с флотом, и это не ловилось
+  ничем, потому что в изоляции её тесты зелёные (213 passed на attributes 0.4.4).
+
 All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
