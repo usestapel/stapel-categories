@@ -4,6 +4,27 @@ All notable changes to stapel-categories are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0 semver: **minor = breaking**, patch = compatible.
 
+## [0.5.3] - 2026-08-02
+
+Packaging / contract only. Patch.
+
+### Added
+- `docs/llms.txt` — the fifth contract artifact — is now emitted, drift-gated
+  by `make contract`/`contract-check`, and badged in the README.
+  `docs/capabilities.json` remains hand-written (stapel-catalog sweep); these
+  targets manage only `docs/llms.txt` and never touch `capabilities.json`.
+  No `surface` entries exist yet, so the generated llms.txt's Usage surface
+  section is empty (pre-existing gap, not introduced here).
+- Badge canon, Python 3.14 classifier, migration-lint enabled in CI.
+
+### Fixed
+- `docs/capabilities.json`'s hand-maintained `version` field had drifted to
+  `0.5.1` (missed the 0.5.2 bump); corrected to match `pyproject.toml`.
+  Content unchanged.
+- `docs/llms.txt`/`docs/capabilities.json`/`docs/flows.json`/`docs/errors.json`/
+  `CONFIG.MD` are now listed in `package-data` so they ship in the wheel.
+- CI now tests Python 3.14 (the version actually deployed).
+
 ## [0.5.1] - 2026-07-17
 
 Fleet follow-up to stapel-core 0.12.0 (legacy shim sweep). No source
