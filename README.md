@@ -1,8 +1,11 @@
 # stapel-categories
 
-[![CI](https://github.com/usestapel/stapel-categories/actions/workflows/ci.yml/badge.svg)](https://github.com/usestapel/stapel-categories/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/usestapel/stapel-categories/graph/badge.svg)](https://codecov.io/gh/usestapel/stapel-categories)
-[![PyPI](https://img.shields.io/pypi/v/stapel-categories.svg)](https://pypi.org/project/stapel-categories/)
+[![CI](https://img.shields.io/github/actions/workflow/status/usestapel/stapel-categories/ci.yml?branch=main&logo=github&label=CI)](https://github.com/usestapel/stapel-categories/actions/workflows/ci.yml?query=branch%3Amain)
+[![coverage](https://img.shields.io/codecov/c/github/usestapel/stapel-categories?branch=main&logo=codecov&label=coverage)](https://app.codecov.io/gh/usestapel/stapel-categories)
+[![pypi](https://img.shields.io/pypi/v/stapel-categories?logo=pypi&logoColor=white&label=pypi)](https://pypi.org/project/stapel-categories/)
+[![downloads](https://static.pepy.tech/badge/stapel-categories/month)](https://pepy.tech/project/stapel-categories)
+[![python](https://img.shields.io/pypi/pyversions/stapel-categories?logo=python&logoColor=white)](https://pypi.org/project/stapel-categories/)
+[![license](https://img.shields.io/github/license/usestapel/stapel-categories)](https://github.com/usestapel/stapel-categories/blob/main/LICENSE)
 
 Category tree with typed features for the [Stapel framework](https://github.com/usestapel) —
 composable Django apps that deploy as a monolith or as microservices without
