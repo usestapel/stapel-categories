@@ -6,6 +6,7 @@
 [![downloads](https://static.pepy.tech/badge/stapel-categories/month)](https://pepy.tech/project/stapel-categories)
 [![python](https://img.shields.io/pypi/pyversions/stapel-categories?logo=python&logoColor=white)](https://pypi.org/project/stapel-categories/)
 [![license](https://img.shields.io/github/license/usestapel/stapel-categories)](https://github.com/usestapel/stapel-categories/blob/main/LICENSE)
+[![llms.txt](https://img.shields.io/badge/llms.txt-blue)](https://github.com/usestapel/stapel-categories/blob/main/docs/llms.txt)
 
 Category tree with typed features for the [Stapel framework](https://github.com/usestapel) —
 composable Django apps that deploy as a monolith or as microservices without
