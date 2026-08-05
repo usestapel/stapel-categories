@@ -1,0 +1,96 @@
+{
+  "_comment": "Curated layer for the `surface` section of docs/capabilities.json (discoverability-design.md, stapel-catalog sweep). NOTE the honest boundary: capabilities.json itself is otherwise still HAND-WRITTEN (authored in the stapel-catalog sweep, commit 1c69898) — no gate registry, no codegen step deriving axes/extension_points from code. `make contract` patches in the two derivable things: module/version from pyproject and the derived `surface`. surface_roots deliberately EXCLUDE models.py's signal receivers (copy_parent_features, emit_category_changed_on_*save — the bus/ORM calls those, not a product), events.py's publish_category_changed (called only from those same signal receivers, never meant to be called directly) and functions.py's features_function (a stapel-core comm Function dispatched by name via call('categories.features', ...) — its own module docstring says 'no import of this package needed', the opposite of usage surface). What remains is the actual call-this-instead-of-writing-your-own surface: the feature-editor engine, the catalog fixture-sync engine, and the translation-key/display-label helpers.",
+
+  "surface_roots": [
+    {"select": "functions", "path": "feature_editor.py"},
+    {"select": "functions", "path": "validators.py"},
+    {"select": "functions", "path": "catalog_fixtures.py"},
+    {"select": "functions", "path": "catalog_load.py"},
+    {"select": "functions", "path": "translation.py"},
+    {"select": "functions", "path": "translation_keys.py"}
+  ],
+
+  "surface": {
+    "build_editor_state": {
+      "kind": "factory",
+      "intent": "Build the feature-editor's read-model JSON for a category (own + inherited features, per-slug available_actions, available root features, echoed revision) in one call — the shape the editor UI/API is built on. Recomputing it by hand means re-deriving the M-4 rule that edit/remove are only offered for a slug the parent does NOT carry."
+    },
+    "apply_feature_editor_changes": {
+      "kind": "gate_function",
+      "intent": "Apply a batch of feature-editor actions (keep/add/edit/inherit/remove/create/replace) to a category and propagate to descendants, under an optimistic-concurrency lock — call this instead of writing your own upsert/propagate loop over Category/Feature/CategoryFeature, which would have to re-derive the M-5 subtree row-lock + revision check, the M-4 inherited-slug rule and the L-9/L-11 replace/inherit consistency rules from scratch. Raises FeatureEditorError (400, rule violation) or FeatureEditorConflict (409, stale base_revision).",
+      "instead_of": ["a hand-written Category/Feature/CategoryFeature upsert-and-propagate loop without the M-5 select_for_update lock or the M-4/L-9/L-11 rule checks"]
+    },
+    "validate_features": {
+      "kind": "gate_function",
+      "intent": "Reject a category that carries two features sharing the same root (two versions of one inherited feature the host must pick between) — call this from wherever a category's feature set is validated (Category.clean() already does) instead of writing your own root-collision scan over category.features.",
+      "instead_of": ["a hand-rolled scan for duplicate root_pk across category.features"]
+    },
+    "canonical_json": {
+      "kind": "factory",
+      "intent": "Byte-stable JSON text (sorted keys, no ASCII-escaping, trailing newline) for anything meant to diff cleanly across runs — a committed fixture file or a hash input. Use this instead of calling json.dumps with your own parameter choices, or the file stops being byte-identical for identical DB state.",
+      "instead_of": ["json.dumps(obj) with ad hoc sort_keys/indent/ensure_ascii choices"]
+    },
+    "content_hash": {
+      "kind": "factory",
+      "intent": "Content hash of one canonical fixture record (compact sorted-key encoding), for comparing a fixture record's identity against the DB or a previous sync-state sidecar. Use this exact hashing wherever you need two tools to agree on whether a record changed — a different key order or whitespace choice hashes differently.",
+      "instead_of": ["a hand-rolled hashlib.sha256(json.dumps(record)) with its own key-ordering/whitespace choices"]
+    },
+    "build_catalog": {
+      "kind": "factory",
+      "intent": "Snapshot the live Category/Feature/CategoryFeature tables into the natural-key fixture shape (features/categories/sync-state sidecar) — call this for any export/dump/diff tooling that needs the catalog as portable JSON, instead of re-deriving the is_test exclusion, soft-delete filtering and nearest-exported-ancestor parent_slug resolution by hand."
+    },
+    "find_orphan_overrides": {
+      "kind": "predicate",
+      "intent": "Detect override Feature rows (tn_parent set) linked to zero live categories — the check an ops/audit job should branch on to flag leaked override rows before they accumulate. Read-only: it reports, it does not clean up (catalog_load's own cleanup runs during a load, not from here)."
+    },
+    "load_catalog": {
+      "kind": "gate_function",
+      "intent": "Reconcile a directory of catalog fixtures into the live DB via a 3-way diff (base=sidecar, theirs=fixture, ours=DB) — the engine behind `manage.py load_catalog`. Call it directly from a deploy script or a data-migration when you need the identical semantics (idempotent re-load, is_test invisibility, subtree row-lock, conflict policy) instead of writing your own fixture-to-DB upsert loop.",
+      "instead_of": ["a hand-written fixture-to-DB upsert loop using bulk_create()/QuerySet.update() (skips the revision bump, category.changed emit and full_clean() validation Model.save() gives you)"]
+    },
+    "identity_translator": {
+      "kind": "factory",
+      "intent": "The null DISPLAY_TRANSLATOR (returns the key unchanged) — reach for this to explicitly reset or bypass translation (tests, a raw-key admin view) instead of writing your own passthrough."
+    },
+    "translate": {
+      "kind": "factory",
+      "intent": "Render one translation key through the configured DISPLAY_TRANSLATOR seam, with the None/empty-key guard already applied. Call this, not `categories_settings.DISPLAY_TRANSLATOR(key)` directly — the raw seam has no guard and breaks on a falsy key.",
+      "instead_of": ["calling categories_settings.DISPLAY_TRANSLATOR(key) directly (no None/empty-key guard)"]
+    },
+    "get_feature_key": {
+      "kind": "factory",
+      "intent": "The exact cache key for a feature's memoized admin display label (per feature + active language) — use this wherever you read or invalidate that cache entry, so a custom invalidation path can't drift from the key cache_feature_translation writes under."
+    },
+    "translate_feature": {
+      "kind": "factory",
+      "intent": "The cached admin display label for a feature (depth marker, id path, mandatory star, type, config summary), built lazily on a cache miss — call this anywhere a feature needs its formatted admin label instead of re-deriving the label format or bypassing the cache.",
+      "instead_of": ["re-deriving the '<depth-marker><id-path><*> - <caption> [<type>](<summary>)' label format by hand"]
+    },
+    "cache_feature_translation": {
+      "kind": "factory",
+      "intent": "Force-rebuild and re-cache a feature's admin display label — call this after a change translate_feature's own cache would not know to invalidate (e.g. a bulk update that bypasses Feature.save()), instead of leaving a stale cached label around."
+    },
+    "collect_category_translation_keys_with_refs": {
+      "kind": "factory",
+      "intent": "Every category translation key in tree-walk order, each with its admin refs and hierarchical comment — the manifest a translation-catalog export/dump tool should build from, instead of re-walking the category tree by hand."
+    },
+    "collect_category_translation_keys": {
+      "kind": "factory",
+      "intent": "Just the set of category translation keys (no refs/comments) — for a cheap completeness/diff check against a translation catalog when you don't need the full collect_category_translation_keys_with_refs manifest."
+    },
+    "collect_feature_translation_keys_with_refs": {
+      "kind": "factory",
+      "intent": "Every feature translation key (name + config UI keys + option labels) in tree-walk order with admin refs/comments — use this, not a naive tree-walk, since it already knows to descend into polymorphic config option labels (select/hierarchical_select) that a generic walk would miss.",
+      "instead_of": ["a hand-written feature tree-walk that reads only feature.name and misses config option-label keys"]
+    },
+    "collect_feature_translation_keys": {
+      "kind": "factory",
+      "intent": "Just the set of feature translation keys — for a lightweight completeness check without building the full refs/comments manifest."
+    },
+    "collect_all_catalog_translation_keys": {
+      "kind": "factory",
+      "intent": "Categories and features combined into one manifest (deduplicated all_keys + total_count) — the one call a translation-catalog completeness/dump tool needs instead of running and merging the four collect_*_translation_keys* calls itself.",
+      "instead_of": ["manually calling and merging collect_category_translation_keys_with_refs + collect_feature_translation_keys_with_refs"]
+    }
+  }
+}

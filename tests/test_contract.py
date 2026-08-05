@@ -1,13 +1,15 @@
 """Drift gate for ``docs/llms.txt``, the fifth contract artifact
 (stapel_tools.llms_txt).
 
-``docs/capabilities.json`` in this module is HAND-WRITTEN (authored in the
-stapel-catalog sweep, commit 1c69898) — there is no gate registry and no
-codegen step to regenerate it from, so this gate does NOT cover
-capabilities.json itself. It covers only ``docs/llms.txt``, which IS
+``docs/capabilities.json`` in this module is otherwise HAND-WRITTEN (authored
+in the stapel-catalog sweep, commit 1c69898) — there is no gate registry and
+no codegen step to derive axes from, so this gate does NOT cover
+capabilities.json itself (that is tests/test_capabilities_surface.py's job,
+for the derived ``surface`` section). It covers ``docs/llms.txt``, which IS
 generated (from capabilities.json) and therefore CAN drift the moment the
-hand-written source changes underneath it without a `make contract` re-run —
-exactly the silent-rot failure mode the fifth artifact exists to catch.
+hand-written source OR the derived surface changes underneath it without a
+`make contract` re-run — exactly the silent-rot failure mode the fifth
+artifact exists to catch.
 """
 from pathlib import Path
 

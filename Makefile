@@ -10,20 +10,27 @@ migration-lint:
 
 # stapel-categories — docs/llms.txt emission + drift gate (contract-pipeline.md §2-3).
 #
-# docs/capabilities.json here is HAND-WRITTEN (authored in the stapel-catalog
-# sweep, commit 1c69898 "docs: author capabilities.json for the stapel-catalog
-# sweep") — no gate registry, no docs/schema.json, nothing for a codegen step
-# to derive axes/surface from. The targets below manage ONLY the fifth
-# contract artifact, docs/llms.txt (stapel_tools.llms_txt), rendered straight
-# from that curated capabilities.json. They do NOT regenerate or touch
-# capabilities.json itself — that stays hand-edited.
+# docs/capabilities.json here is otherwise HAND-WRITTEN (authored in the
+# stapel-catalog sweep, commit 1c69898 "docs: author capabilities.json for
+# the stapel-catalog sweep") — no gate registry, no docs/schema.json for a
+# codegen step to derive axes from. It DOES now have a derived `surface`
+# section (discoverability-design.md §1.2): the feature-editor engine, the
+# catalog fixture-sync engine and the translation-key/display-label helpers
+# a product is meant to call instead of writing its own. `stapel_tools.surface
+# . --patch` refreshes ONLY module/version + `surface` from
+# docs/capabilities.meta.json, leaving provides/axes/extension_points/requires
+# verbatim. Then docs/llms.txt (the fifth contract artifact) is rendered from
+# the patched document.
 
-# Emit docs/llms.txt from the (hand-written) docs/capabilities.json.
+# Patch `surface` (+ module/version) into docs/capabilities.json, then emit
+# docs/llms.txt from the result.
 contract:
+	$(PYTHON) -m stapel_tools.surface . --patch
 	$(PYTHON) -m stapel_tools.llms_txt .
 
-# Drift gate: regenerate into a temp dir and diff against the committed docs/llms.txt.
+# Drift gate: regenerate into a temp dir and diff against the committed docs/*.
 contract-check:
+	$(PYTHON) -m stapel_tools.surface . --patch --check
 	@tmp=$$(mktemp -d); \
 	$(PYTHON) -m stapel_tools.llms_txt . --out "$$tmp" || { rm -rf "$$tmp"; exit 1; }; \
 	if ! diff -q docs/llms.txt "$$tmp/llms.txt" >/dev/null 2>&1; then \

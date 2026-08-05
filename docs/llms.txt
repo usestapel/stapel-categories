@@ -2,13 +2,64 @@
 
 Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.
 
-Contract: axes 1 · extension points 4.
+Contract: axes 1 · surface 18 · extension points 4.
 Generated from docs/capabilities.json by `stapel-llms-txt` — do not edit; drift-gated by `make contract-check`.
 
 ## Configuration axes — what a product switches on
 Settings keys; `default` is what you get by saying nothing. Turning an axis off unmounts the operations it gates.
 - DISPLAY_TRANSLATOR [enum, default "stapel_categories.translation.identity_translator"] — How category/feature names render as text
   Callable (key) -> str rendering a translation key for admin/__str__ display. The module stores translation keys, not resolved text; default is identity (conf.py, MODULE.md Extension points table).
+
+## Usage surface — call these before writing your own
+This is the answer to "does Stapel already have something for X?". `instead of` names the outside symbol this one displaces.
+### gate_function
+- apply_feature_editor_changes — stapel_categories.feature_editor.apply_feature_editor_changes
+  instead of: a hand-written Category/Feature/CategoryFeature upsert-and-propagate loop without the M-5 select_for_update lock or the M-4/L-9/L-11 rule checks
+  Apply a batch of feature-editor actions (keep/add/edit/inherit/remove/create/replace) to a category and propagate to descendants, under an optimistic-concurrency lock — call this instead of writing your own upsert/propagate loop over Category/Feature/CategoryFeature, which would have to re-derive the M-5 subtree row-lock + revision check, the M-4 inherited-slug rule and the L-9/L-11 replace/inherit consistency rules from scratch. Raises FeatureEditorError (400, rule violation) or FeatureEditorConflict (409, stale base_revision).
+- load_catalog — stapel_categories.catalog_load.load_catalog
+  instead of: a hand-written fixture-to-DB upsert loop using bulk_create()/QuerySet.update() (skips the revision bump, category.changed emit and full_clean() validation Model.save() gives you)
+  Reconcile a directory of catalog fixtures into the live DB via a 3-way diff (base=sidecar, theirs=fixture, ours=DB) — the engine behind `manage.py load_catalog`. Call it directly from a deploy script or a data-migration when you need the identical semantics (idempotent re-load, is_test invisibility, subtree row-lock, conflict policy) instead of writing your own fixture-to-DB upsert loop.
+- validate_features — stapel_categories.validators.validate_features
+  instead of: a hand-rolled scan for duplicate root_pk across category.features
+  Reject a category that carries two features sharing the same root (two versions of one inherited feature the host must pick between) — call this from wherever a category's feature set is validated (Category.clean() already does) instead of writing your own root-collision scan over category.features.
+### predicate
+- find_orphan_overrides — stapel_categories.catalog_fixtures.find_orphan_overrides
+  Detect override Feature rows (tn_parent set) linked to zero live categories — the check an ops/audit job should branch on to flag leaked override rows before they accumulate. Read-only: it reports, it does not clean up (catalog_load's own cleanup runs during a load, not from here).
+### factory
+- build_catalog — stapel_categories.catalog_fixtures.build_catalog
+  Snapshot the live Category/Feature/CategoryFeature tables into the natural-key fixture shape (features/categories/sync-state sidecar) — call this for any export/dump/diff tooling that needs the catalog as portable JSON, instead of re-deriving the is_test exclusion, soft-delete filtering and nearest-exported-ancestor parent_slug resolution by hand.
+- build_editor_state — stapel_categories.feature_editor.build_editor_state
+  Build the feature-editor's read-model JSON for a category (own + inherited features, per-slug available_actions, available root features, echoed revision) in one call — the shape the editor UI/API is built on. Recomputing it by hand means re-deriving the M-4 rule that edit/remove are only offered for a slug the parent does NOT carry.
+- cache_feature_translation — stapel_categories.translation.cache_feature_translation
+  Force-rebuild and re-cache a feature's admin display label — call this after a change translate_feature's own cache would not know to invalidate (e.g. a bulk update that bypasses Feature.save()), instead of leaving a stale cached label around.
+- canonical_json — stapel_categories.catalog_fixtures.canonical_json
+  instead of: json.dumps(obj) with ad hoc sort_keys/indent/ensure_ascii choices
+  Byte-stable JSON text (sorted keys, no ASCII-escaping, trailing newline) for anything meant to diff cleanly across runs — a committed fixture file or a hash input. Use this instead of calling json.dumps with your own parameter choices, or the file stops being byte-identical for identical DB state.
+- collect_all_catalog_translation_keys — stapel_categories.translation_keys.collect_all_catalog_translation_keys
+  instead of: manually calling and merging collect_category_translation_keys_with_refs + collect_feature_translation_keys_with_refs
+  Categories and features combined into one manifest (deduplicated all_keys + total_count) — the one call a translation-catalog completeness/dump tool needs instead of running and merging the four collect_*_translation_keys* calls itself.
+- collect_category_translation_keys — stapel_categories.translation_keys.collect_category_translation_keys
+  Just the set of category translation keys (no refs/comments) — for a cheap completeness/diff check against a translation catalog when you don't need the full collect_category_translation_keys_with_refs manifest.
+- collect_category_translation_keys_with_refs — stapel_categories.translation_keys.collect_category_translation_keys_with_refs
+  Every category translation key in tree-walk order, each with its admin refs and hierarchical comment — the manifest a translation-catalog export/dump tool should build from, instead of re-walking the category tree by hand.
+- collect_feature_translation_keys — stapel_categories.translation_keys.collect_feature_translation_keys
+  Just the set of feature translation keys — for a lightweight completeness check without building the full refs/comments manifest.
+- collect_feature_translation_keys_with_refs — stapel_categories.translation_keys.collect_feature_translation_keys_with_refs
+  instead of: a hand-written feature tree-walk that reads only feature.name and misses config option-label keys
+  Every feature translation key (name + config UI keys + option labels) in tree-walk order with admin refs/comments — use this, not a naive tree-walk, since it already knows to descend into polymorphic config option labels (select/hierarchical_select) that a generic walk would miss.
+- content_hash — stapel_categories.catalog_fixtures.content_hash
+  instead of: a hand-rolled hashlib.sha256(json.dumps(record)) with its own key-ordering/whitespace choices
+  Content hash of one canonical fixture record (compact sorted-key encoding), for comparing a fixture record's identity against the DB or a previous sync-state sidecar. Use this exact hashing wherever you need two tools to agree on whether a record changed — a different key order or whitespace choice hashes differently.
+- get_feature_key — stapel_categories.translation.get_feature_key
+  The exact cache key for a feature's memoized admin display label (per feature + active language) — use this wherever you read or invalidate that cache entry, so a custom invalidation path can't drift from the key cache_feature_translation writes under.
+- identity_translator — stapel_categories.translation.identity_translator
+  The null DISPLAY_TRANSLATOR (returns the key unchanged) — reach for this to explicitly reset or bypass translation (tests, a raw-key admin view) instead of writing your own passthrough.
+- translate — stapel_categories.translation.translate
+  instead of: calling categories_settings.DISPLAY_TRANSLATOR(key) directly (no None/empty-key guard)
+  Render one translation key through the configured DISPLAY_TRANSLATOR seam, with the None/empty-key guard already applied. Call this, not `categories_settings.DISPLAY_TRANSLATOR(key)` directly — the raw seam has no guard and breaks on a falsy key.
+- translate_feature — stapel_categories.translation.translate_feature
+  instead of: re-deriving the '<depth-marker><id-path><*> - <caption> [<type>](<summary>)' label format by hand
+  The cached admin display label for a feature (depth marker, id path, mandatory star, type, config summary), built lazily on a cache miss — call this anywhere a feature needs its formatted admin label instead of re-deriving the label format or bypassing the cache.
 
 ## Extension points — what a product replaces, fork-free
 - Admin config editor widgets [delegated_seam]
