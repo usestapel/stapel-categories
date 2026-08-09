@@ -186,7 +186,7 @@ def build_editor_state(category: Category) -> Dict:
             continue
         slug = feature.slug or ""
         current_slugs.add(slug)
-        # keep, inherit доступны всегда. edit и remove - только если у парента нет характеристик с таким slug
+        # keep/inherit are always available; edit/remove only if the parent has no feature with this slug
         available_actions = ["keep", "inherit"]
         if slug not in parent_features_by_slug:
             available_actions.extend(["edit", "remove"])
