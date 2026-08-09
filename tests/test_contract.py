@@ -50,3 +50,34 @@ def test_llms_txt_emission_is_deterministic():
     a = render(load_inputs(REPO))
     b = render(load_inputs(REPO))
     assert a == b
+
+
+# --- README.md — the sixth artifact (tracker #257) ---------------------------
+#
+# README.md is assembled by ``stapel_tools.readme`` from docs/readme.md (the
+# human half: what this module is and how to think about it) plus the contract
+# documents above (badges, version, surface counts, doc links). Everything a
+# hand-written README used to restate — and therefore used to get wrong one
+# release later — is generated here and gated below.
+
+def test_readme_is_assembled_and_has_no_drift():
+    from stapel_tools.readme import load_inputs as load_readme_inputs, render as render_readme, static_languages
+
+    inputs = load_readme_inputs(REPO)
+    languages = static_languages(REPO)
+    assert languages == ["en"], "expected exactly the English static body docs/readme.md"
+    committed = (REPO / "README.md").read_text()
+    assert committed == render_readme(REPO, inputs, "en", languages), (
+        "README.md drifted — run `make contract` and commit README.md "
+        "(edit prose in docs/readme.md, never README.md itself)"
+    )
+
+
+def test_readme_version_matches_the_package():
+    """The #226 gate, at the point where the number is published."""
+    import tomllib
+
+    from stapel_tools.readme import load_inputs as load_readme_inputs, resolve_version
+
+    pyproject = tomllib.loads((REPO / "pyproject.toml").read_text())
+    assert resolve_version(load_readme_inputs(REPO)) == pyproject["project"]["version"]

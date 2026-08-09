@@ -24,9 +24,16 @@ migration-lint:
 
 # Patch `surface` (+ module/version) into docs/capabilities.json, then emit
 # docs/llms.txt from the result.
+#
+# README.md is the SIXTH artifact (tracker #257): assembled by
+# stapel_tools.readme from docs/readme.md (the human half — what this module
+# is, how to think about it) plus everything emitted above. Badges, version,
+# surface counts and doc links are generated, so a release cannot leave them
+# behind. Edit docs/readme.md; never README.md.
 contract:
 	$(PYTHON) -m stapel_tools.surface . --patch
 	$(PYTHON) -m stapel_tools.llms_txt .
+	$(PYTHON) -m stapel_tools.readme .
 
 # Drift gate: regenerate into a temp dir and diff against the committed docs/*.
 contract-check:
@@ -39,4 +46,5 @@ contract-check:
 		rm -rf "$$tmp"; exit 1; \
 	fi; \
 	rm -rf "$$tmp"; \
-	echo "contract-check: docs/llms.txt up to date"
+	$(PYTHON) -m stapel_tools.readme . --check || exit 1; \
+	echo "contract-check: docs/llms.txt + README.md up to date"
