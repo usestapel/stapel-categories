@@ -5,6 +5,13 @@ strings are translations, never literals in responses.
 """
 from stapel_core.django.api.errors import register_service_errors
 
+# stapel-attributes is an embedded (non-app) library: autodiscovery never
+# reaches its errors module, so without this import its feature-validation
+# keys enter the registry only as a side effect of serializer imports —
+# errors.json emission then depends on whether the schema was built first.
+# The embedding app forces the registration deterministically.
+import stapel_attributes.errors  # noqa: F401
+
 ERR_400_EXPECTED_LIST = "error.400.categories_expected_list"
 ERR_400_DUPLICATE_SLUG = "error.400.categories_duplicate_slug"
 ERR_400_DATABASE_ERROR = "error.400.categories_database_error"
