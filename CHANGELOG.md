@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.5] — 2026-08-15
+
+### Changed — `stapel-core` floor raised to 0.26.0
+
+The floor sat at `>=0.10`, far below the core this app is developed and
+tested against. 0.26.0 is the core whose error registry runs the
+registry-catalog pairing gate that the deterministic `stapel_attributes`
+registration in this release exists for; the floor now names it instead of
+leaving a consumer free to resolve a decade-old core.
+
 ## [0.5.4] — 2026-08-03
 
 ### Fixed
