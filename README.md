@@ -24,17 +24,18 @@ pip install stapel-categories
 
 | Fact | Value |
 |---|---|
-| Version | `0.5.6` |
+| Version | `0.6.0` |
 | Python | `>=3.11` (3.11, 3.12, 3.13, 3.14) |
-| HTTP operations | 27 |
+| HTTP operations | 31 |
 | Config axes | 1 |
 | Usage surface | 18 |
 | Extension points | 4 |
+| Error codes | 62 |
 | Fleet dependencies | [`stapel-attributes`](https://github.com/usestapel/stapel-attributes) · [`stapel-core`](https://github.com/usestapel/stapel-core) |
 
 ## Documentation
 
-[capabilities.json](https://github.com/usestapel/stapel-categories/blob/main/docs/capabilities.json) · [llms.txt (for agents)](https://github.com/usestapel/stapel-categories/blob/main/docs/llms.txt)
+[OpenAPI](https://github.com/usestapel/stapel-categories/blob/main/docs/schema.json) · [capabilities.json](https://github.com/usestapel/stapel-categories/blob/main/docs/capabilities.json) · [llms.txt (for agents)](https://github.com/usestapel/stapel-categories/blob/main/docs/llms.txt)
 
 ## What this is
 
@@ -55,8 +56,10 @@ INSTALLED_APPS = [
     "stapel_categories",
 ]
 
-# urls.py — the host chooses the prefix
-path("categories/", include("stapel_categories.urls"))
+# urls.py — this module's own urls.py bakes in only `v1/`; the host
+# contributes `api/`, giving the canonical `/categories/api/v1/...` prefix
+# (exactly what stapel-example-monolith already does for this module).
+path("categories/api/", include("stapel_categories.urls"))
 ```
 
 `stapel-attributes` is an imported library (no app to install); its config
@@ -86,6 +89,35 @@ category's schema without importing this module. `categories.path` is the
 provider stapel-search declares by canonical name for category rollup — without
 it a search index degrades to a single path segment and a filter on a parent
 category finds none of its descendants.
+
+## Contract
+
+`docs/{schema,flows,errors}.json` are emitted from a single-module
+`{categories + core}` Django instance mounted at the canonical
+`/categories/api/v1` prefix (`make contract` / `make contract-check`; see
+`_codegen.py`) — the same mechanism stapel-search, stapel-chat and
+stapel-forms already use. `docs/flows.json` is `[]`: no flow is declared via
+`@flow` yet, same state as every other contract-complete module today.
+`docs/capabilities.json` stays hand-authored (see the Makefile comment); only
+its `surface` section is derived.
+
+The ten feature-value shapes (`FeatureConfig`, `FeatureDto`) are a proper
+discriminated `oneOf` keyed by `type`, contributed by stapel-attributes and
+now used consistently everywhere a config or a values-DTO crosses the wire —
+`Feature.config`, `FeatureBulk.config`, the `convert-type` request body and
+`validate-dto`'s `features` field all resolve through it (previously the
+last three fell back to an untyped `JSONField`/`DictField`).
+
+**Delta note — one pair of fields stays untyped, and it isn't this module's
+to fix.** `FeatureValidationResult.id` / `.ref_value` render as free-form in
+the schema. Both are defined by **stapel-attributes**
+(`FeatureValidationResult` dataclass + its `serializers.JSONField`
+projection in `results.py`), not by this module: `id` is
+`Optional[Union[int, str]]` and `ref_value` is
+`Optional[Union[str, int, float, list]]` — plain scalar unions with no
+`type` discriminator to key a `oneOf` on, unlike the ten-way `config`/DTO
+shapes. Typing them is upstream's serializer to extend, not a gap
+`stapel-categories` introduced or can close by itself.
 
 ## Extension points
 

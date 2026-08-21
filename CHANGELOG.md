@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.6.0] — 2026-08-22
+
+**This module now emits its own contract triad.** `docs/schema.json`,
+`docs/flows.json` and `docs/errors.json` did not exist before this release —
+the Makefile said so out loud — which blocked the react codegen pipeline
+(`gen:api`/`gen:errors`/`gen:manifest`) for any `-react` pair generated
+against this module (darom-storefront-design.md §1.8, §3.10, A1).
+
+### Added
+
+- `_codegen.py` + `_codegen_settings.py` + `codegen_urls.py`: a
+  single-module `{categories + core}` Django harness that emits
+  `docs/{schema,flows,errors}.json` at the canonical `/categories/api/v1`
+  prefix, the same mechanism stapel-search/-chat/-forms already use.
+  `make contract` / `make contract-check` now cover the triad in addition
+  to the existing `surface`/`docs/llms.txt`/README.md gates.
+- `docs/schema.json` (23 paths), `docs/flows.json` (`[]` — no `@flow` is
+  declared yet, same state as every other contract-complete module today),
+  `docs/errors.json` (62 keys: 8 owned by this module, the rest inherited
+  from stapel-core/stapel-attributes).
+- `tests/test_contract.py`: every mounted route is described in
+  `docs/schema.json`; every `STAPEL_CATEGORIES_ERRORS` code and every
+  stapel-attributes validation code the feature-editor/validate-dto paths
+  can raise is declared with the correct `owner`.
+- `docs/llms.txt`'s token budget raised 4000 → 5000 (`--budget 5000`, same
+  exception stapel-forms/-recordings already take) — the errors + HTTP
+  operations sections pushed it over the default ceiling.
+
+### Changed
+
+- `FeatureBulkSerializer.config` and the `convert-type` action's request
+  `config` field now resolve through the same `FeatureConfig` discriminated
+  `oneOf` as `FeatureCreateUpdateSerializer.config`, instead of a bare
+  `JSONField`/`DictField`. `ValidateDtoRequestSerializer.features` is now a
+  `{slug: FeatureDto}` object (the new `FeaturesDtoField`, mirroring
+  stapel-listings' `ListingFeaturesInputField`) instead of an untyped
+  `JSONField`. Response bytes are unchanged; only the declared OpenAPI type
+  is — three fields that used to fall back to "any" now describe the same
+  ten-way polymorphic shape the rest of the config/DTO surface already did.
+- `docs/readme.md`: the quick-start mount snippet corrected to
+  `path("categories/api/", include("stapel_categories.urls"))` — this
+  module's own `urls.py` bakes in only `v1/`, the host contributes `api/`,
+  exactly the recipe stapel-example-monolith already uses. Plus a
+  documented, deliberate gap: `FeatureValidationResult.id`/`.ref_value`
+  stay untyped because they are stapel-attributes' scalar-union fields, not
+  this module's to type (see the README "Contract" section).
+
 ## [0.5.6] — 2026-08-21
 
 ### Added — `categories.path`, the ancestry provider the fleet declared before anything answered it

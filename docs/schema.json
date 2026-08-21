@@ -1,0 +1,3701 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "",
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/categories/api/v1/categories/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_list",
+        "description": "List categories with revision-based pagination.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_deleted",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            },
+            "description": "Include soft-deleted items in response. Default: true"
+          },
+          {
+            "in": "query",
+            "name": "max_revision",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Return objects with revision less than or equal to this value (inclusive). Default: no limit"
+          },
+          {
+            "in": "query",
+            "name": "min_revision",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Return objects with revision greater than this value (exclusive). Omit for initial sync to get all items."
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number. Default: 1"
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "schema": {
+              "type": "integer",
+              "default": 100
+            },
+            "description": "Number of items per page. Default: 100, Max: 1000"
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedCategoryList"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "categories_api_v1_categories_create",
+        "description": "ViewSet for Category with revision-based synchronization.\n\n**Sync flow:**\n1. Initial sync: ``GET /categories/`` — returns all categories with revision info\n2. Store ``revisions.global_max`` from the response\n3. Subsequent sync: ``GET /categories/?min_revision={stored_max}`` — only changes\n4. Handle items with ``deleted=true`` by removing them locally\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "tags": [
+          "Categories"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Category"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Category"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Category"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_retrieve",
+        "description": "ViewSet for Category with revision-based synchronization.\n\n**Sync flow:**\n1. Initial sync: ``GET /categories/`` — returns all categories with revision info\n2. Store ``revisions.global_max`` from the response\n3. Subsequent sync: ``GET /categories/?min_revision={stored_max}`` — only changes\n4. Handle items with ``deleted=true`` by removing them locally\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "categories_api_v1_categories_update",
+        "description": "ViewSet for Category with revision-based synchronization.\n\n**Sync flow:**\n1. Initial sync: ``GET /categories/`` — returns all categories with revision info\n2. Store ``revisions.global_max`` from the response\n3. Subsequent sync: ``GET /categories/?min_revision={stored_max}`` — only changes\n4. Handle items with ``deleted=true`` by removing them locally\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Category"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Category"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Category"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "categories_api_v1_categories_partial_update",
+        "description": "ViewSet for Category with revision-based synchronization.\n\n**Sync flow:**\n1. Initial sync: ``GET /categories/`` — returns all categories with revision info\n2. Store ``revisions.global_max`` from the response\n3. Subsequent sync: ``GET /categories/?min_revision={stored_max}`` — only changes\n4. Handle items with ``deleted=true`` by removing them locally\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedCategory"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedCategory"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedCategory"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "categories_api_v1_categories_destroy",
+        "description": "ViewSet for Category with revision-based synchronization.\n\n**Sync flow:**\n1. Initial sync: ``GET /categories/`` — returns all categories with revision info\n2. Store ``revisions.global_max`` from the response\n3. Subsequent sync: ``GET /categories/?min_revision={stored_max}`` — only changes\n4. Handle items with ``deleted=true`` by removing them locally\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/children/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_children_list",
+        "description": "Get all non-deleted children of this category, sorted by tn_priority descending.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Category"
+                  }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/deleted-children/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_deleted_children_list",
+        "description": "Get all deleted children of this category.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Category"
+                  }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/feature-editor/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_feature_editor_retrieve",
+        "description": "Get feature editor state for admin UI.\n\n**Permissions:** `IsStaffUser`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Feature Editor"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureEditorState"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/feature-editor/apply/": {
+      "post": {
+        "operationId": "categories_api_v1_categories_feature_editor_apply_create",
+        "description": "Apply feature editor actions to category and descendants.\n\n**Permissions:** `IsStaffUser`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Feature Editor"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureEditorApply"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureEditorApply"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureEditorApply"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureEditorState"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/feature-editor/draft/": {
+      "post": {
+        "operationId": "categories_api_v1_categories_feature_editor_draft_create",
+        "description": "Save feature editor draft without applying changes.\n\n**Permissions:** `IsStaffUser`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Feature Editor"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureEditorDraft"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureEditorDraft"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureEditorDraft"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeatureEditorDraftResponse"
+                },
+                "examples": {
+                  "FeatureEditorDraftResponse": {
+                    "value": {
+                      "draft": {
+                        "features": []
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/features/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_features_list",
+        "description": "Get all features for this category, sorted by order. Includes inherited features.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FeatureCompact"
+                  }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/undelete/": {
+      "post": {
+        "operationId": "categories_api_v1_categories_undelete_create",
+        "description": "Restore deleted category and all its descendants.\n\n**Permissions:** `IsStaffUser`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Category"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Category"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Category"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndeleteResponse"
+                },
+                "examples": {
+                  "UndeleteResponse": {
+                    "value": {
+                      "restored": [
+                        1,
+                        2,
+                        3
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/validate-configs/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_validate_configs_retrieve",
+        "description": "Validate all feature configs in this category.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationBatchResult"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/validate-dto/": {
+      "post": {
+        "operationId": "categories_api_v1_categories_validate_dto_create",
+        "description": "Validate a features DTO against this category's schema.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateDtoRequest"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateDtoRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateDtoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationBatchResult"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/bulk-commands/": {
+      "post": {
+        "operationId": "categories_api_v1_categories_bulk_commands_create",
+        "description": "Execute bulk commands on categories (add/edit/delete/reorder).\n\n**Permissions:** `IsStaffUser`",
+        "tags": [
+          "Categories"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryBulkCommand"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryBulkCommand"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryBulkCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/bulk_add/": {
+      "post": {
+        "operationId": "categories_api_v1_categories_bulk_add_create",
+        "description": "Bulk create or update categories. Provide an array of category objects with IDs.\n\n**Permissions:** `IsStaffUser`",
+        "tags": [
+          "Categories"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CategoryBulk"
+                }
+              },
+              "examples": {
+                "BulkAddCategories": {
+                  "value": [
+                    [
+                      {
+                        "id": 1,
+                        "name": "Electronics",
+                        "tn_priority": 10
+                      },
+                      {
+                        "id": 2,
+                        "name": "Vehicles",
+                        "tn_parent": 1
+                      }
+                    ]
+                  ],
+                  "summary": "Bulk add categories"
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CategoryBulk"
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/CategoryBulk"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkUpdateResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/carousel/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_carousel_list",
+        "description": "Get categories for carousel display (active and carousel_enabled).\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Category"
+                  }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/data.json/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_data.json_retrieve",
+        "description": "Get all data as a cacheable JSON array.\n\nThe `revision` parameter is required for cache busting - clients should use the current\nmax revision from `/revision` endpoint. Response includes Cache-Control header for 30 days.\n\n**Usage:**\n1. Call `/revision` to get current max revision\n2. Call `/data.json?revision={max_revision}` to get all data\n3. Cache the response locally - it won't change until revision changes\n\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Current revision number (for cache busting). Get from /revision endpoint.",
+            "required": true,
+            "examples": {
+              "CurrentRevision": {
+                "value": 1,
+                "summary": "Current revision",
+                "description": "Use the value from /revision endpoint"
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/revision/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_revision_retrieve",
+        "description": "Get the current maximum revision number for this resource.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaxRevision"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/translation-keys/": {
+      "get": {
+        "operationId": "collect_translation_keys",
+        "description": "Collect translation keys from categories, features and feature config options.\n\n**Permissions:** `IsServiceRequest`",
+        "summary": "Collect all translation keys",
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/features/": {
+      "get": {
+        "operationId": "categories_api_v1_features_list",
+        "description": "List features with revision-based pagination.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_deleted",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            },
+            "description": "Include soft-deleted items in response. Default: true"
+          },
+          {
+            "in": "query",
+            "name": "max_revision",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Return objects with revision less than or equal to this value (inclusive). Default: no limit"
+          },
+          {
+            "in": "query",
+            "name": "min_revision",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Return objects with revision greater than this value (exclusive). Omit for initial sync to get all items."
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number. Default: 1"
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "schema": {
+              "type": "integer",
+              "default": 100
+            },
+            "description": "Number of items per page. Default: 100, Max: 1000"
+          }
+        ],
+        "tags": [
+          "Features"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedFeatureCompactList"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "categories_api_v1_features_create",
+        "description": "Create a new feature with polymorphic config.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "tags": [
+          "Features"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureCreateUpdate"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureCreateUpdate"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureCreateUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feature"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/features/{id}/": {
+      "get": {
+        "operationId": "categories_api_v1_features_retrieve",
+        "description": "Get feature details with tree structure info.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this feature.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Features"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feature"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "categories_api_v1_features_update",
+        "description": "Update an existing feature with polymorphic config.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this feature.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Features"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureCreateUpdate"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureCreateUpdate"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureCreateUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feature"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "categories_api_v1_features_partial_update",
+        "description": "Partially update a feature.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this feature.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Features"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedFeatureCreateUpdate"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedFeatureCreateUpdate"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedFeatureCreateUpdate"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feature"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "delete": {
+        "operationId": "categories_api_v1_features_destroy",
+        "description": "Mixin for ViewSets working with RevisionMixin models.\n\nProvides:\n- Automatic revision-based filtering\n- OpenAPI documentation for revision query parameters\n- Optional filtering of soft-deleted items\n- /revision endpoint to get current max revision\n\nUsage:\n    class MyModelViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):\n        queryset = MyModel.objects.all()\n        serializer_class = MyModelSerializer\n        pagination_class = RevisionPagination\n\nQuery parameters:\n- min_revision: Return objects with revision > min_revision (default: 0)\n- max_revision: Return objects with revision <= max_revision (default: None)\n- include_deleted: Include soft-deleted items (default: true)\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this feature.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Features"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          }
+        }
+      }
+    },
+    "/categories/api/v1/features/{id}/convert-type/": {
+      "post": {
+        "operationId": "categories_api_v1_features_convert_type_create",
+        "description": "Convert feature type between select and string, optionally propagating to descendants.\n\n**Permissions:** `IsStaffUser`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this feature.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Features"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureConvertType"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureConvertType"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FeatureConvertType"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feature"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/features/bulk_add/": {
+      "post": {
+        "operationId": "categories_api_v1_features_bulk_add_create",
+        "description": "Bulk create or update features. Provide an array of feature objects with IDs.\n\n**Permissions:** `IsStaffUser`",
+        "tags": [
+          "Features"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FeatureBulk"
+                }
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FeatureBulk"
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FeatureBulk"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkUpdateResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/features/data.json/": {
+      "get": {
+        "operationId": "categories_api_v1_features_data.json_retrieve",
+        "description": "Get all data as a cacheable JSON array.\n\nThe `revision` parameter is required for cache busting - clients should use the current\nmax revision from `/revision` endpoint. Response includes Cache-Control header for 30 days.\n\n**Usage:**\n1. Call `/revision` to get current max revision\n2. Call `/data.json?revision={max_revision}` to get all data\n3. Cache the response locally - it won't change until revision changes\n\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "revision",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Current revision number (for cache busting). Get from /revision endpoint.",
+            "required": true,
+            "examples": {
+              "CurrentRevision": {
+                "value": 1,
+                "summary": "Current revision",
+                "description": "Use the value from /revision endpoint"
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Features"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feature"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/features/revision/": {
+      "get": {
+        "operationId": "categories_api_v1_features_revision_retrieve",
+        "description": "Get the current maximum revision number for this resource.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "tags": [
+          "Features"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaxRevision"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ActionEnum": {
+        "enum": [
+          "keep",
+          "add",
+          "edit",
+          "inherit",
+          "remove",
+          "create",
+          "replace"
+        ],
+        "type": "string",
+        "description": "* `keep` - keep\n* `add` - add\n* `edit` - edit\n* `inherit` - inherit\n* `remove` - remove\n* `create` - create\n* `replace` - replace"
+      },
+      "AvailableActionsEnum": {
+        "enum": [
+          "keep",
+          "add",
+          "edit",
+          "inherit",
+          "remove",
+          "create",
+          "replace"
+        ],
+        "type": "string",
+        "description": "* `keep` - keep\n* `add` - add\n* `edit` - edit\n* `inherit` - inherit\n* `remove` - remove\n* `create` - create\n* `replace` - replace"
+      },
+      "BoolConfig": {
+        "type": "object",
+        "description": "Serializer for boolean feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/TypeE3eEnum"
+          },
+          "trueLabel": {
+            "type": "string",
+            "nullable": true
+          },
+          "falseLabel": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BoolDto": {
+        "type": "object",
+        "description": "Serializer for boolean feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/TypeE3eEnum"
+          },
+          "value": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BulkUpdateResponse": {
+        "type": "object",
+        "description": "Response for bulk create/update operations.",
+        "properties": {
+          "updated_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "List of created/updated object IDs"
+          }
+        },
+        "required": [
+          "updated_ids"
+        ]
+      },
+      "Category": {
+        "type": "object",
+        "description": "Category serializer with feature references and revision tracking.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "catalog_icon": {
+            "type": "string",
+            "description": "CDN catalog icon reference (opaque string, e.g. catalog/asset-name)",
+            "maxLength": 255
+          },
+          "carousel_icon": {
+            "type": "string",
+            "description": "CDN carousel icon reference (opaque string, e.g. carousel/asset-name)",
+            "maxLength": 255
+          },
+          "carousel_enabled": {
+            "type": "boolean",
+            "description": "Whether this category appears in the carousel"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether this category is active"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "readOnly": true
+          },
+          "translatable": {
+            "type": "boolean",
+            "description": "If True, category name is a translation key"
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          },
+          "tn_priority": {
+            "type": "integer",
+            "maximum": 9999999999,
+            "minimum": 0,
+            "format": "int64",
+            "title": "Priority"
+          },
+          "tn_ancestors_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Ancestors pks"
+          },
+          "tn_children_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Children pks"
+          },
+          "revision": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "features",
+          "id",
+          "name",
+          "revision",
+          "slug",
+          "tn_ancestors_pks",
+          "tn_children_pks"
+        ]
+      },
+      "CategoryBulk": {
+        "type": "object",
+        "description": "Serializer for bulk add/update operations — id is required.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "catalog_icon": {
+            "type": "string",
+            "description": "CDN catalog icon reference (opaque string, e.g. catalog/asset-name)",
+            "maxLength": 255
+          },
+          "carousel_icon": {
+            "type": "string",
+            "description": "CDN carousel icon reference (opaque string, e.g. carousel/asset-name)",
+            "maxLength": 255
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "readOnly": true
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          },
+          "tn_priority": {
+            "type": "integer",
+            "maximum": 9999999999,
+            "minimum": 0,
+            "format": "int64",
+            "title": "Priority"
+          }
+        },
+        "required": [
+          "features",
+          "id",
+          "name",
+          "slug"
+        ]
+      },
+      "CategoryBulkCommand": {
+        "type": "object",
+        "description": "Serializer for bulk category commands.",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategoryCommand"
+            }
+          }
+        },
+        "required": [
+          "categories"
+        ]
+      },
+      "CategoryCommand": {
+        "type": "object",
+        "description": "Serializer for category command pattern.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Category ID (null for add command)"
+          },
+          "command": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CommandEnum"
+              }
+            ],
+            "description": "Command to execute\n\n* `keep` - keep\n* `add` - add\n* `edit` - edit\n* `delete` - delete\n* `reorder` - reorder"
+          },
+          "name": {
+            "type": "string",
+            "description": "Category name (for add/edit)"
+          },
+          "slug": {
+            "type": "string",
+            "description": "Category slug (for add/edit)"
+          },
+          "translatable": {
+            "type": "boolean",
+            "default": true,
+            "description": "If True, name is translation key"
+          },
+          "parent_id": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Parent category ID (for add)"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Tree node priority (for add/reorder)"
+          }
+        },
+        "required": [
+          "command"
+        ]
+      },
+      "CommandEnum": {
+        "enum": [
+          "keep",
+          "add",
+          "edit",
+          "delete",
+          "reorder"
+        ],
+        "type": "string",
+        "description": "* `keep` - keep\n* `add` - add\n* `edit` - edit\n* `delete` - delete\n* `reorder` - reorder"
+      },
+      "ConvertibleUnitConfig": {
+        "type": "object",
+        "description": "Serializer for convertible-unit feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type104Enum"
+          },
+          "unitType": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit_m": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit_i": {
+            "type": "string",
+            "nullable": true
+          },
+          "precision": {
+            "type": "integer"
+          },
+          "prefix": {
+            "type": "string",
+            "nullable": true
+          },
+          "min": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "max": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        }
+      },
+      "ConvertibleUnitDto": {
+        "type": "object",
+        "description": "Serializer for convertible-unit feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type104Enum"
+          },
+          "value": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "unit": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DateConfig": {
+        "type": "object",
+        "description": "Serializer for date feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type37eEnum"
+          },
+          "precision": {
+            "$ref": "#/components/schemas/PrecisionEnum"
+          },
+          "minDate": {
+            "type": "integer",
+            "nullable": true
+          },
+          "maxDate": {
+            "type": "integer",
+            "nullable": true
+          },
+          "allowFuture": {
+            "type": "boolean"
+          },
+          "allowPast": {
+            "type": "boolean"
+          },
+          "default": {
+            "type": "integer",
+            "nullable": true
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "lockInput": {
+            "type": "boolean"
+          },
+          "placeholder": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "DateDto": {
+        "type": "object",
+        "description": "Serializer for date feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type37eEnum"
+          },
+          "value": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "ErrorEnum": {
+        "enum": [
+          "below_minimum",
+          "above_maximum",
+          "not_in_options",
+          "invalid_type",
+          "invalid_format",
+          "mandatory_missing",
+          "duplicate_slug",
+          "unknown_feature_type",
+          "not_allowed",
+          "unknown_feature",
+          "description_too_short",
+          "description_too_long",
+          "invalid_config",
+          "min_greater_than_max",
+          "empty_options"
+        ],
+        "type": "string",
+        "description": "* `below_minimum` - below_minimum\n* `above_maximum` - above_maximum\n* `not_in_options` - not_in_options\n* `invalid_type` - invalid_type\n* `invalid_format` - invalid_format\n* `mandatory_missing` - mandatory_missing\n* `duplicate_slug` - duplicate_slug\n* `unknown_feature_type` - unknown_feature_type\n* `not_allowed` - not_allowed\n* `unknown_feature` - unknown_feature\n* `description_too_short` - description_too_short\n* `description_too_long` - description_too_long\n* `invalid_config` - invalid_config\n* `min_greater_than_max` - min_greater_than_max\n* `empty_options` - empty_options"
+      },
+      "Feature": {
+        "type": "object",
+        "description": "Feature serializer with polymorphic config support.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FeatureConfig"
+              }
+            ],
+            "readOnly": true
+          },
+          "mandatory": {
+            "type": "boolean"
+          },
+          "show_as_badge": {
+            "type": "boolean"
+          },
+          "show_at_title": {
+            "type": "boolean"
+          },
+          "translate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Translate2c2Enum"
+              }
+            ],
+            "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          },
+          "tn_priority": {
+            "type": "integer",
+            "maximum": 9999999999,
+            "minimum": 0,
+            "format": "int64",
+            "title": "Priority"
+          },
+          "tn_ancestors_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Ancestors pks"
+          },
+          "tn_children_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Children pks"
+          },
+          "tn_descendants_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Descendants pks"
+          },
+          "tn_siblings_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Siblings pks"
+          }
+        },
+        "required": [
+          "config",
+          "id",
+          "name",
+          "tn_ancestors_pks",
+          "tn_children_pks",
+          "tn_descendants_pks",
+          "tn_siblings_pks"
+        ]
+      },
+      "FeatureBulk": {
+        "type": "object",
+        "description": "Serializer for bulk add/update operations — id is required.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/FeatureConfig"
+          },
+          "revision": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "tn_ancestors_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Ancestors pks"
+          },
+          "tn_ancestors_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Ancestors count"
+          },
+          "tn_children_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Children pks"
+          },
+          "tn_children_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Children count"
+          },
+          "tn_depth": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Depth"
+          },
+          "tn_descendants_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Descendants pks"
+          },
+          "tn_descendants_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Descendants count"
+          },
+          "tn_index": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Index"
+          },
+          "tn_level": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Level"
+          },
+          "tn_priority": {
+            "type": "integer",
+            "maximum": 9999999999,
+            "minimum": 0,
+            "format": "int64",
+            "title": "Priority"
+          },
+          "tn_order": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Order"
+          },
+          "tn_siblings_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Siblings pks"
+          },
+          "tn_siblings_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Siblings count"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "mandatory": {
+            "type": "boolean"
+          },
+          "show_as_badge": {
+            "type": "boolean"
+          },
+          "show_at_title": {
+            "type": "boolean"
+          },
+          "translate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Translate2c2Enum"
+              }
+            ],
+            "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
+          },
+          "is_test": {
+            "type": "boolean",
+            "description": "Test/scratch data — excluded from export_catalog fixtures."
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "revision",
+          "tn_ancestors_count",
+          "tn_ancestors_pks",
+          "tn_children_count",
+          "tn_children_pks",
+          "tn_depth",
+          "tn_descendants_count",
+          "tn_descendants_pks",
+          "tn_index",
+          "tn_level",
+          "tn_order",
+          "tn_siblings_count",
+          "tn_siblings_pks"
+        ]
+      },
+      "FeatureCompact": {
+        "type": "object",
+        "description": "Compact feature serializer for list endpoints and embedded feature data.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FeatureConfig"
+              }
+            ],
+            "readOnly": true
+          },
+          "mandatory": {
+            "type": "boolean"
+          },
+          "show_as_badge": {
+            "type": "boolean"
+          },
+          "show_at_title": {
+            "type": "boolean"
+          },
+          "translate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Translate2c2Enum"
+              }
+            ],
+            "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
+          }
+        },
+        "required": [
+          "config",
+          "id",
+          "name"
+        ]
+      },
+      "FeatureConfig": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/IntConfig"
+          },
+          {
+            "$ref": "#/components/schemas/FloatConfig"
+          },
+          {
+            "$ref": "#/components/schemas/StringConfig"
+          },
+          {
+            "$ref": "#/components/schemas/BoolConfig"
+          },
+          {
+            "$ref": "#/components/schemas/HexColorConfig"
+          },
+          {
+            "$ref": "#/components/schemas/SelectConfig"
+          },
+          {
+            "$ref": "#/components/schemas/DateConfig"
+          },
+          {
+            "$ref": "#/components/schemas/HeaderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/HierarchicalSelectConfig"
+          },
+          {
+            "$ref": "#/components/schemas/ConvertibleUnitConfig"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "null": "#/components/schemas/ConvertibleUnitConfig"
+          }
+        }
+      },
+      "FeatureConvertType": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FeatureConfig"
+              }
+            ],
+            "description": "New config after conversion"
+          },
+          "propagate": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to propagate to all descendants"
+          }
+        },
+        "required": [
+          "config"
+        ]
+      },
+      "FeatureCreateUpdate": {
+        "type": "object",
+        "description": "Serializer for creating/updating features with polymorphic config.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "config": {
+            "$ref": "#/components/schemas/FeatureConfig"
+          },
+          "revision": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "tn_ancestors_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Ancestors pks"
+          },
+          "tn_ancestors_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Ancestors count"
+          },
+          "tn_children_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Children pks"
+          },
+          "tn_children_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Children count"
+          },
+          "tn_depth": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Depth"
+          },
+          "tn_descendants_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Descendants pks"
+          },
+          "tn_descendants_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Descendants count"
+          },
+          "tn_index": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Index"
+          },
+          "tn_level": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Level"
+          },
+          "tn_priority": {
+            "type": "integer",
+            "maximum": 9999999999,
+            "minimum": 0,
+            "format": "int64",
+            "title": "Priority"
+          },
+          "tn_order": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Order"
+          },
+          "tn_siblings_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Siblings pks"
+          },
+          "tn_siblings_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Siblings count"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "mandatory": {
+            "type": "boolean"
+          },
+          "show_as_badge": {
+            "type": "boolean"
+          },
+          "show_at_title": {
+            "type": "boolean"
+          },
+          "translate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Translate2c2Enum"
+              }
+            ],
+            "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
+          },
+          "is_test": {
+            "type": "boolean",
+            "description": "Test/scratch data — excluded from export_catalog fixtures."
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "revision",
+          "tn_ancestors_count",
+          "tn_ancestors_pks",
+          "tn_children_count",
+          "tn_children_pks",
+          "tn_depth",
+          "tn_descendants_count",
+          "tn_descendants_pks",
+          "tn_index",
+          "tn_level",
+          "tn_order",
+          "tn_siblings_count",
+          "tn_siblings_pks"
+        ]
+      },
+      "FeatureDto": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/IntDto"
+          },
+          {
+            "$ref": "#/components/schemas/FloatDto"
+          },
+          {
+            "$ref": "#/components/schemas/StringDto"
+          },
+          {
+            "$ref": "#/components/schemas/BoolDto"
+          },
+          {
+            "$ref": "#/components/schemas/HexColorDto"
+          },
+          {
+            "$ref": "#/components/schemas/SelectDto"
+          },
+          {
+            "$ref": "#/components/schemas/DateDto"
+          },
+          {
+            "$ref": "#/components/schemas/HeaderDto"
+          },
+          {
+            "$ref": "#/components/schemas/HierarchicalSelectDto"
+          },
+          {
+            "$ref": "#/components/schemas/ConvertibleUnitDto"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "null": "#/components/schemas/ConvertibleUnitDto"
+          }
+        }
+      },
+      "FeatureEditorApply": {
+        "type": "object",
+        "description": "Request payload for applying feature editor changes.",
+        "properties": {
+          "features": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeatureEditorItem"
+            }
+          },
+          "draft": {
+            "type": "string",
+            "nullable": true
+          },
+          "base_revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base_revision",
+          "features"
+        ]
+      },
+      "FeatureEditorDraft": {
+        "type": "object",
+        "description": "Draft serializer for feature editor.",
+        "properties": {
+          "draft": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      },
+      "FeatureEditorDraftResponse": {
+        "type": "object",
+        "description": "Feature editor draft state.",
+        "properties": {
+          "draft": {
+            "type": "string",
+            "nullable": true,
+            "description": "JSON-encoded draft string, null if no draft saved",
+            "example": {
+              "features": []
+            }
+          }
+        },
+        "required": [
+          "draft"
+        ]
+      },
+      "FeatureEditorFeature": {
+        "type": "object",
+        "description": "Writable feature payload for the category feature editor.\n\nUses Serializer instead of ModelSerializer to avoid model-level\nvalidation (like the unique slug constraint) since this is just a data\ncontainer for the editor.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "default": ""
+          },
+          "slug": {
+            "type": "string",
+            "default": ""
+          },
+          "icon": {
+            "type": "string",
+            "nullable": true
+          },
+          "comment": {
+            "type": "string",
+            "default": ""
+          },
+          "config": {
+            "$ref": "#/components/schemas/FeatureConfig"
+          },
+          "mandatory": {
+            "type": "boolean",
+            "default": false
+          },
+          "show_as_badge": {
+            "type": "boolean",
+            "default": false
+          },
+          "show_at_title": {
+            "type": "boolean",
+            "default": false
+          },
+          "translate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FeatureEditorFeatureTranslateEnum"
+              }
+            ],
+            "default": "all",
+            "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - all\n* `title` - title\n* `none` - none"
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tn_priority": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      },
+      "FeatureEditorFeatureTranslateEnum": {
+        "enum": [
+          "all",
+          "title",
+          "none"
+        ],
+        "type": "string",
+        "description": "* `all` - all\n* `title` - title\n* `none` - none"
+      },
+      "FeatureEditorItem": {
+        "type": "object",
+        "description": "Item from the feature editor list.",
+        "properties": {
+          "order": {
+            "type": "integer"
+          },
+          "action": {
+            "$ref": "#/components/schemas/ActionEnum"
+          },
+          "feature": {
+            "$ref": "#/components/schemas/FeatureEditorFeature"
+          },
+          "replace_with": {
+            "type": "integer",
+            "nullable": true
+          }
+        },
+        "required": [
+          "action",
+          "feature",
+          "order"
+        ]
+      },
+      "FeatureEditorState": {
+        "type": "object",
+        "description": "Response serializer for feature editor state.",
+        "properties": {
+          "features": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeatureEditorStateItem"
+            }
+          },
+          "available_root_features": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Feature"
+            }
+          },
+          "draft": {
+            "type": "string",
+            "default": ""
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "available_root_features",
+          "features"
+        ]
+      },
+      "FeatureEditorStateItem": {
+        "type": "object",
+        "description": "Single item in feature editor state.",
+        "properties": {
+          "order": {
+            "type": "integer"
+          },
+          "available_actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvailableActionsEnum"
+            }
+          },
+          "action": {
+            "$ref": "#/components/schemas/ActionEnum"
+          },
+          "feature": {
+            "$ref": "#/components/schemas/Feature"
+          },
+          "parent_feature": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Feature"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "action",
+          "available_actions",
+          "feature",
+          "order"
+        ]
+      },
+      "FeatureValidationResult": {
+        "type": "object",
+        "description": "Serializer for FeatureValidationResult.",
+        "properties": {
+          "id": {
+            "nullable": true
+          },
+          "slug": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StatusEnum"
+          },
+          "error": {
+            "nullable": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ErrorEnum"
+              },
+              {
+                "$ref": "#/components/schemas/NullEnum"
+              }
+            ]
+          },
+          "ref_value": {
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "localizable_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {},
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "required": [
+          "slug",
+          "status"
+        ]
+      },
+      "FloatConfig": {
+        "type": "object",
+        "description": "Serializer for float feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/TypeD7cEnum"
+          },
+          "min": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "max": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "precision": {
+            "type": "integer"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "nullable": true
+          },
+          "allowCustom": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "type": "string",
+            "nullable": true
+          },
+          "postfix": {
+            "type": "string",
+            "nullable": true
+          },
+          "postfix1000": {
+            "type": "string",
+            "nullable": true
+          },
+          "placeholder": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "FloatDto": {
+        "type": "object",
+        "description": "Serializer for float feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/TypeD7cEnum"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "HeaderConfig": {
+        "type": "object",
+        "description": "Serializer for header feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type3feEnum"
+          },
+          "style": {
+            "$ref": "#/components/schemas/StyleEnum"
+          }
+        }
+      },
+      "HeaderDto": {
+        "type": "object",
+        "description": "Serializer for header feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type3feEnum"
+          },
+          "value": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "HexColorConfig": {
+        "type": "object",
+        "description": "Serializer for hex color feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type515Enum"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HexColorOption"
+            }
+          },
+          "allowCustom": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HexColorDto": {
+        "type": "object",
+        "description": "Serializer for hex color feature DTO.",
+        "properties": {
+          "value": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HexColorValue"
+              }
+            ],
+            "nullable": true
+          },
+          "type": {
+            "$ref": "#/components/schemas/Type515Enum"
+          }
+        }
+      },
+      "HexColorOption": {
+        "type": "object",
+        "properties": {
+          "simple": {
+            "type": "string"
+          },
+          "hex": {
+            "type": "string",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "simple"
+        ]
+      },
+      "HexColorValue": {
+        "type": "object",
+        "description": "Serializer for hex color value.",
+        "properties": {
+          "simple": {
+            "type": "string"
+          },
+          "hex": {
+            "type": "string",
+            "nullable": true
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "simple"
+        ]
+      },
+      "HierarchicalOption": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "icon": {
+            "type": "string",
+            "nullable": true
+          },
+          "childrenTitle": {
+            "type": "string",
+            "nullable": true
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HierarchicalOption"
+            }
+          }
+        },
+        "required": [
+          "value"
+        ]
+      },
+      "HierarchicalSelectConfig": {
+        "type": "object",
+        "description": "Serializer for hierarchical select feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type5beEnum"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HierarchicalOption"
+            }
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "minDepth": {
+            "type": "integer"
+          },
+          "maxDepth": {
+            "type": "integer",
+            "nullable": true
+          },
+          "translatable_options": {
+            "type": "boolean"
+          }
+        }
+      },
+      "HierarchicalSelectDto": {
+        "type": "object",
+        "description": "Serializer for hierarchical select feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type5beEnum"
+          },
+          "value": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "IntConfig": {
+        "type": "object",
+        "description": "Serializer for integer feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/TypeC1bEnum"
+          },
+          "min": {
+            "type": "integer",
+            "nullable": true
+          },
+          "max": {
+            "type": "integer",
+            "nullable": true
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "nullable": true
+          },
+          "allowCustom": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "type": "string",
+            "nullable": true
+          },
+          "postfix": {
+            "type": "string",
+            "nullable": true
+          },
+          "postfix1000": {
+            "type": "string",
+            "nullable": true
+          },
+          "placeholder": {
+            "type": "string",
+            "nullable": true
+          },
+          "precision": {
+            "type": "integer"
+          }
+        }
+      },
+      "IntDto": {
+        "type": "object",
+        "description": "Serializer for integer feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/TypeC1bEnum"
+          },
+          "value": {
+            "type": "integer"
+          }
+        }
+      },
+      "MaxRevision": {
+        "type": "object",
+        "description": "Serializer for /revision endpoint response.",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "description": "Current maximum revision number"
+          }
+        },
+        "required": [
+          "revision"
+        ]
+      },
+      "NullEnum": {
+        "enum": [
+          null
+        ]
+      },
+      "PaginatedCategoryList": {
+        "type": "object",
+        "required": [
+          "pagination",
+          "revisions",
+          "results"
+        ],
+        "properties": {
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer",
+                "description": "Current page number"
+              },
+              "page_size": {
+                "type": "integer",
+                "description": "Number of items per page"
+              },
+              "total_pages": {
+                "type": "integer",
+                "description": "Total number of pages"
+              },
+              "total_count": {
+                "type": "integer",
+                "description": "Total number of items"
+              },
+              "has_next": {
+                "type": "boolean",
+                "description": "Whether there is a next page"
+              },
+              "has_previous": {
+                "type": "boolean",
+                "description": "Whether there is a previous page"
+              }
+            },
+            "required": [
+              "page",
+              "page_size",
+              "total_pages",
+              "total_count",
+              "has_next",
+              "has_previous"
+            ]
+          },
+          "revisions": {
+            "type": "object",
+            "properties": {
+              "min": {
+                "type": "integer",
+                "nullable": true,
+                "description": "Minimum revision in current response"
+              },
+              "max": {
+                "type": "integer",
+                "nullable": true,
+                "description": "Maximum revision in current response"
+              },
+              "global_max": {
+                "type": "integer",
+                "description": "Global maximum revision in the table"
+              },
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "IDs of soft-deleted items since min_revision"
+              }
+            },
+            "required": [
+              "min",
+              "max",
+              "global_max",
+              "deleted_ids"
+            ]
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Category"
+            }
+          }
+        }
+      },
+      "PaginatedFeatureCompactList": {
+        "type": "object",
+        "required": [
+          "pagination",
+          "revisions",
+          "results"
+        ],
+        "properties": {
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer",
+                "description": "Current page number"
+              },
+              "page_size": {
+                "type": "integer",
+                "description": "Number of items per page"
+              },
+              "total_pages": {
+                "type": "integer",
+                "description": "Total number of pages"
+              },
+              "total_count": {
+                "type": "integer",
+                "description": "Total number of items"
+              },
+              "has_next": {
+                "type": "boolean",
+                "description": "Whether there is a next page"
+              },
+              "has_previous": {
+                "type": "boolean",
+                "description": "Whether there is a previous page"
+              }
+            },
+            "required": [
+              "page",
+              "page_size",
+              "total_pages",
+              "total_count",
+              "has_next",
+              "has_previous"
+            ]
+          },
+          "revisions": {
+            "type": "object",
+            "properties": {
+              "min": {
+                "type": "integer",
+                "nullable": true,
+                "description": "Minimum revision in current response"
+              },
+              "max": {
+                "type": "integer",
+                "nullable": true,
+                "description": "Maximum revision in current response"
+              },
+              "global_max": {
+                "type": "integer",
+                "description": "Global maximum revision in the table"
+              },
+              "deleted_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "description": "IDs of soft-deleted items since min_revision"
+              }
+            },
+            "required": [
+              "min",
+              "max",
+              "global_max",
+              "deleted_ids"
+            ]
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeatureCompact"
+            }
+          }
+        }
+      },
+      "PatchedCategory": {
+        "type": "object",
+        "description": "Category serializer with feature references and revision tracking.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "catalog_icon": {
+            "type": "string",
+            "description": "CDN catalog icon reference (opaque string, e.g. catalog/asset-name)",
+            "maxLength": 255
+          },
+          "carousel_icon": {
+            "type": "string",
+            "description": "CDN carousel icon reference (opaque string, e.g. carousel/asset-name)",
+            "maxLength": 255
+          },
+          "carousel_enabled": {
+            "type": "boolean",
+            "description": "Whether this category appears in the carousel"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether this category is active"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "readOnly": true
+          },
+          "translatable": {
+            "type": "boolean",
+            "description": "If True, category name is a translation key"
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          },
+          "tn_priority": {
+            "type": "integer",
+            "maximum": 9999999999,
+            "minimum": 0,
+            "format": "int64",
+            "title": "Priority"
+          },
+          "tn_ancestors_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Ancestors pks"
+          },
+          "tn_children_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Children pks"
+          },
+          "revision": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PatchedFeatureCreateUpdate": {
+        "type": "object",
+        "description": "Serializer for creating/updating features with polymorphic config.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "config": {
+            "$ref": "#/components/schemas/FeatureConfig"
+          },
+          "revision": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "tn_ancestors_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Ancestors pks"
+          },
+          "tn_ancestors_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Ancestors count"
+          },
+          "tn_children_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Children pks"
+          },
+          "tn_children_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Children count"
+          },
+          "tn_depth": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Depth"
+          },
+          "tn_descendants_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Descendants pks"
+          },
+          "tn_descendants_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Descendants count"
+          },
+          "tn_index": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Index"
+          },
+          "tn_level": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Level"
+          },
+          "tn_priority": {
+            "type": "integer",
+            "maximum": 9999999999,
+            "minimum": 0,
+            "format": "int64",
+            "title": "Priority"
+          },
+          "tn_order": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Order"
+          },
+          "tn_siblings_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Siblings pks"
+          },
+          "tn_siblings_count": {
+            "type": "integer",
+            "readOnly": true,
+            "title": "Siblings count"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "mandatory": {
+            "type": "boolean"
+          },
+          "show_as_badge": {
+            "type": "boolean"
+          },
+          "show_at_title": {
+            "type": "boolean"
+          },
+          "translate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Translate2c2Enum"
+              }
+            ],
+            "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
+          },
+          "is_test": {
+            "type": "boolean",
+            "description": "Test/scratch data — excluded from export_catalog fixtures."
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          }
+        }
+      },
+      "PrecisionEnum": {
+        "enum": [
+          "year",
+          "month",
+          "date",
+          "datetime"
+        ],
+        "type": "string",
+        "description": "* `year` - year\n* `month` - month\n* `date` - date\n* `datetime` - datetime"
+      },
+      "SelectConfig": {
+        "type": "object",
+        "description": "Serializer for select feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type63eEnum"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SelectOption"
+            }
+          },
+          "uiStyle": {
+            "$ref": "#/components/schemas/UiStyleEnum"
+          },
+          "minSelected": {
+            "type": "integer"
+          },
+          "maxSelected": {
+            "type": "integer",
+            "nullable": true
+          },
+          "lockUserInput": {
+            "type": "boolean"
+          },
+          "translatable_options": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SelectDto": {
+        "type": "object",
+        "description": "Serializer for select feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type63eEnum"
+          },
+          "value": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SelectOption": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string",
+            "nullable": true
+          },
+          "default": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ]
+      },
+      "StatusEnum": {
+        "enum": [
+          "ok",
+          "validation_failed"
+        ],
+        "type": "string",
+        "description": "* `ok` - ok\n* `validation_failed` - validation_failed"
+      },
+      "StringConfig": {
+        "type": "object",
+        "description": "Serializer for string feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type839Enum"
+          },
+          "minLength": {
+            "type": "integer",
+            "nullable": true
+          },
+          "maxLength": {
+            "type": "integer",
+            "nullable": true
+          },
+          "pattern": {
+            "type": "string",
+            "nullable": true
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "allowCustom": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "type": "string",
+            "nullable": true
+          },
+          "postfix": {
+            "type": "string",
+            "nullable": true
+          },
+          "placeholder": {
+            "type": "string",
+            "nullable": true
+          },
+          "translatable_options": {
+            "type": "boolean"
+          },
+          "multiline": {
+            "type": "boolean"
+          }
+        }
+      },
+      "StringDto": {
+        "type": "object",
+        "description": "Serializer for string feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type839Enum"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "StyleEnum": {
+        "enum": [
+          "l",
+          "m"
+        ],
+        "type": "string",
+        "description": "* `l` - l\n* `m` - m"
+      },
+      "Translate2c2Enum": {
+        "enum": [
+          "all",
+          "title",
+          "none"
+        ],
+        "type": "string",
+        "description": "* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
+      },
+      "Type104Enum": {
+        "enum": [
+          "convertible_unit"
+        ],
+        "type": "string",
+        "description": "* `convertible_unit` - convertible_unit"
+      },
+      "Type37eEnum": {
+        "enum": [
+          "date"
+        ],
+        "type": "string",
+        "description": "* `date` - date"
+      },
+      "Type3feEnum": {
+        "enum": [
+          "header"
+        ],
+        "type": "string",
+        "description": "* `header` - header"
+      },
+      "Type515Enum": {
+        "enum": [
+          "hex_color"
+        ],
+        "type": "string",
+        "description": "* `hex_color` - hex_color"
+      },
+      "Type5beEnum": {
+        "enum": [
+          "hierarchical_select"
+        ],
+        "type": "string",
+        "description": "* `hierarchical_select` - hierarchical_select"
+      },
+      "Type63eEnum": {
+        "enum": [
+          "select"
+        ],
+        "type": "string",
+        "description": "* `select` - select"
+      },
+      "Type839Enum": {
+        "enum": [
+          "string"
+        ],
+        "type": "string",
+        "description": "* `string` - string"
+      },
+      "TypeC1bEnum": {
+        "enum": [
+          "int"
+        ],
+        "type": "string",
+        "description": "* `int` - int"
+      },
+      "TypeD7cEnum": {
+        "enum": [
+          "float"
+        ],
+        "type": "string",
+        "description": "* `float` - float"
+      },
+      "TypeE3eEnum": {
+        "enum": [
+          "bool"
+        ],
+        "type": "string",
+        "description": "* `bool` - bool"
+      },
+      "UiStyleEnum": {
+        "enum": [
+          "dropdown",
+          "checkboxes",
+          "chips"
+        ],
+        "type": "string",
+        "description": "* `dropdown` - dropdown\n* `checkboxes` - checkboxes\n* `chips` - chips"
+      },
+      "UndeleteResponse": {
+        "type": "object",
+        "description": "Restored soft-deleted categories.",
+        "properties": {
+          "restored": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "List of restored category IDs",
+            "example": [
+              1,
+              2,
+              3
+            ]
+          }
+        },
+        "required": [
+          "restored"
+        ]
+      },
+      "ValidateDtoRequest": {
+        "type": "object",
+        "description": "Request serializer for validate_dto endpoint.",
+        "properties": {
+          "features": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FeatureDto"
+            },
+            "description": "Features DTO object keyed by feature slug: {slug: {type, value, ...}}"
+          }
+        },
+        "required": [
+          "features"
+        ]
+      },
+      "ValidationBatchResult": {
+        "type": "object",
+        "description": "Serializer for ValidationBatchResult.",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeatureValidationResult"
+            }
+          }
+        },
+        "required": [
+          "results",
+          "valid"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "JWTCookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "stapel_jwt",
+        "description": "JWT token stored in cookie. Login via /auth/admin/ to get the cookie."
+      }
+    }
+  }
+}

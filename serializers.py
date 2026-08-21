@@ -8,7 +8,11 @@ from drf_spectacular.extensions import OpenApiSerializerFieldExtension
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from stapel_attributes import get_feature_config_proxy_serializer
+from stapel_attributes import (
+    get_feature_config_proxy_serializer,
+    get_feature_dto_proxy_serializer,
+    get_feature_dto_serializer_class,
+)
 from stapel_core.django.api.serializers import StapelDataclassSerializer
 
 from .dto import FeatureEditorDraftResponse, UndeleteResponse
@@ -28,6 +32,30 @@ class FeatureConfigFieldExtension(OpenApiSerializerFieldExtension):
 
     def map_serializer_field(self, auto_schema, direction):
         return {"$ref": "#/components/schemas/FeatureConfig"}
+
+
+class FeaturesDtoField(serializers.DictField):
+    """``{slug: FeatureDto}`` — a values-DTO object keyed by feature slug.
+
+    Same shape stapel-listings' ``ListingFeaturesInputField`` types for the
+    publish path; ``validate-dto`` takes the identical envelope (A1 delta:
+    typed instead of the bare ``JSONField`` this endpoint shipped with).
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(child=get_feature_dto_serializer_class()(), **kwargs)
+
+
+class FeaturesDtoFieldExtension(OpenApiSerializerFieldExtension):
+    target_class = FeaturesDtoField
+
+    def map_serializer_field(self, auto_schema, direction):
+        dto_proxy = get_feature_dto_proxy_serializer()
+        auto_schema.resolve_serializer(dto_proxy, direction)
+        return {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/components/schemas/FeatureDto"},
+        }
 
 
 # =============================================================================
@@ -78,7 +106,7 @@ class FeatureBulkSerializer(serializers.ModelSerializer):
     """Serializer for bulk add/update operations — id is required."""
 
     id = serializers.IntegerField(required=True)
-    config = serializers.JSONField(required=False)
+    config = FeatureConfigSchemaField(required=False, default=dict)
 
     class Meta:
         model = Feature
@@ -310,7 +338,7 @@ class CategoryBulkCommandSerializer(serializers.Serializer):
 class ValidateDtoRequestSerializer(serializers.Serializer):
     """Request serializer for validate_dto endpoint."""
 
-    features = serializers.JSONField(
+    features = FeaturesDtoField(
         help_text="Features DTO object keyed by feature slug: {slug: {type, value, ...}}"
     )
 

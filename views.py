@@ -62,6 +62,7 @@ from .serializers import (
     CategorySerializer,
     FeatureBulkSerializer,
     FeatureCompactSerializer,
+    FeatureConfigSchemaField,
     FeatureCreateUpdateSerializer,
     FeatureEditorApplySerializer,
     FeatureEditorDraftResponseSerializer,
@@ -549,7 +550,12 @@ class FeatureViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         request=inline_serializer(
             name="FeatureConvertType",
             fields={
-                "config": drf_serializers.DictField(help_text="New config after conversion"),
+                # Narrower than the full FeatureConfig union in practice (only
+                # select<->string is a supported conversion,
+                # ERR_400_INVALID_CONVERSION), but the FeatureConfig $ref is
+                # still the honest upper bound — a bare DictField described
+                # nothing at all.
+                "config": FeatureConfigSchemaField(help_text="New config after conversion"),
                 "propagate": drf_serializers.BooleanField(
                     required=False, default=False, help_text="Whether to propagate to all descendants"
                 ),

@@ -1,17 +1,28 @@
-"""Drift gate for ``docs/llms.txt``, the fifth contract artifact
-(stapel_tools.llms_txt).
+"""The committed contract artifacts must describe the API that ships.
 
-``docs/capabilities.json`` in this module is otherwise HAND-WRITTEN (authored
-in the stapel-catalog sweep, commit 1c69898) — there is no gate registry and
-no codegen step to derive axes from, so this gate does NOT cover
+``make contract-check`` re-emits docs/{schema,flows,errors}.json via
+``stapel_categories._codegen`` and diffs them, but it needs the pinned
+Python 3.12 interpreter plus stapel-tools, so it is a dev-loop and release
+gate rather than something a wider CI matrix can run unpinned. The tests
+below are the part that runs everywhere: they read the COMMITTED artifacts
+and assert the two properties a stale artifact silently breaks — every
+route this module mounts is described, and every error key it can return is
+declared (A1, darom-storefront-design.md §3.10 — the contract triad the
+react codegen pipeline, ``gen:api``/``gen:errors``/``gen:manifest``, stands
+on).
+
+``docs/capabilities.json`` remains HAND-WRITTEN (authored in the
+stapel-catalog sweep, commit 1c69898) — there is no gate registry and no
+codegen step to derive axes from, so this gate does NOT cover
 capabilities.json itself (that is tests/test_capabilities_surface.py's job,
-for the derived ``surface`` section). It covers ``docs/llms.txt``, which IS
-generated (from capabilities.json) and therefore CAN drift the moment the
-hand-written source OR the derived surface changes underneath it without a
-`make contract` re-run — exactly the silent-rot failure mode the fifth
-artifact exists to catch.
+for the derived ``surface`` section). ``docs/llms.txt`` and README.md ARE
+fully generated and gated below, same as before.
 """
+import json
+import re
 from pathlib import Path
+
+import pytest
 
 try:
     import stapel_tools  # noqa: F401  (probe: the emitter must be importable)
@@ -31,7 +42,101 @@ except ImportError as exc:  # pragma: no cover - environment failure, not a bran
 from stapel_tools.llms_txt import load_inputs, render  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
-COMMITTED = REPO / "docs" / "llms.txt"
+DOCS = REPO / "docs"
+COMMITTED = DOCS / "llms.txt"
+
+# stapel-categories' surface + the new errors/operations sections push the
+# rendered file past the generator's default 4000-token budget — the same
+# deliberate exception stapel-forms (5000), stapel-recordings (5000) and
+# stapel-workspaces (4500) already take (see the Makefile `contract` target).
+LLMS_TXT_BUDGET = 5000
+
+
+@pytest.fixture(scope="module")
+def errors_artifact():
+    return {entry["code"]: entry for entry in json.loads((DOCS / "errors.json").read_text())}
+
+
+@pytest.fixture(scope="module")
+def schema_artifact():
+    return json.loads((DOCS / "schema.json").read_text())
+
+
+# ── errors.json ──────────────────────────────────────────────────────
+
+
+def test_categories_owned_keys_are_declared(errors_artifact):
+    from stapel_categories.errors import STAPEL_CATEGORIES_ERRORS
+
+    for code, text in STAPEL_CATEGORIES_ERRORS.items():
+        assert code in errors_artifact, f"{code} missing from docs/errors.json"
+        assert errors_artifact[code]["owner"] == "stapel_categories"
+        assert errors_artifact[code]["en"] == text
+
+
+def test_the_attributes_validation_family_is_declared(errors_artifact):
+    """The feature-editor / validate-dto paths reach stapel-attributes' codes too.
+
+    Owned by (and translated by) stapel-attributes: this module only forces
+    the registration (``import stapel_attributes.errors`` in errors.py) so
+    the keys land wherever categories is mounted. Asserting the OWNER too is
+    the half that keeps this honest — copying the strings into
+    ``STAPEL_CATEGORIES_ERRORS`` would take on a catalogue obligation that is
+    upstream's.
+    """
+    from stapel_attributes.errors import ATTRIBUTES_ERRORS
+
+    assert ATTRIBUTES_ERRORS, "the attributes registry came back empty"
+    for code in ATTRIBUTES_ERRORS:
+        assert code in errors_artifact, f"{code} missing from docs/errors.json"
+        assert errors_artifact[code]["owner"] == "stapel_attributes"
+
+
+def test_the_error_keys_stay_categories_owned():
+    """This module's own catalogue must not claim upstream's keys as its own."""
+    from stapel_attributes.errors import ATTRIBUTES_ERRORS
+    from stapel_categories.errors import STAPEL_CATEGORIES_ERRORS
+
+    assert not set(STAPEL_CATEGORIES_ERRORS) & set(ATTRIBUTES_ERRORS)
+
+
+# ── schema.json ──────────────────────────────────────────────────────
+
+
+def test_every_mounted_route_is_described(schema_artifact):
+    """A route added without regenerating the triad fails here.
+
+    The gap this closes is not hypothetical: the pair reads ``schema.json``
+    to generate its typed client, so an endpoint missing from the artifact is
+    an endpoint the frontend cannot call.
+    """
+    from stapel_categories import urls_v1
+
+    described = set(schema_artifact["paths"])
+    seen_names = set()
+    for pattern in urls_v1.urlpatterns:
+        name = getattr(pattern, "name", None)
+        # DefaultRouter also emits the format-suffix twin of every route
+        # (`categories.json`) and the browsable api-root — neither is a real
+        # product endpoint.
+        if name is None or name in seen_names or name == "api-root":
+            continue
+        seen_names.add(name)
+        route = str(pattern.pattern)
+        if "format" in route:
+            continue
+        # `(?P<pk>[^/.]+)` -> `{id}` (the model's pk field is `id`);
+        # any other named group -> `{name}` verbatim.
+        route = re.sub(r"\(\?P<pk>[^)]+\)", "{id}", route)
+        route = re.sub(r"\(\?P<([a-zA-Z_]+)>[^)]+\)", r"{\1}", route)
+        route = route.strip("^$")
+        assert f"/categories/api/v1/{route}" in described, (
+            f"{route} is mounted but absent from docs/schema.json — "
+            "run 'make contract' and commit the artifacts"
+        )
+
+
+# ── docs/llms.txt — the fifth contract artifact -----------------------------
 
 
 def test_llms_txt_committed():
@@ -39,7 +144,7 @@ def test_llms_txt_committed():
 
 
 def test_llms_txt_has_no_drift():
-    rendered = render(load_inputs(REPO))
+    rendered = render(load_inputs(REPO), budget=LLMS_TXT_BUDGET)
     assert COMMITTED.read_text() == rendered, (
         "docs/llms.txt is stale — run `make contract` and commit it"
     )
@@ -47,8 +152,8 @@ def test_llms_txt_has_no_drift():
 
 def test_llms_txt_emission_is_deterministic():
     """Two independent renders are byte-identical (the drift gate is meaningful)."""
-    a = render(load_inputs(REPO))
-    b = render(load_inputs(REPO))
+    a = render(load_inputs(REPO), budget=LLMS_TXT_BUDGET)
+    b = render(load_inputs(REPO), budget=LLMS_TXT_BUDGET)
     assert a == b
 
 
