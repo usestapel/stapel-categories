@@ -10,11 +10,22 @@ are no-ops. Other modules call by name, no import of this package needed:
     call("categories.features", {"category_id": 42})
     # -> {"category_id": 42, "revision": 7, "features": [ {slug, config, ...} ]}
 
+    call("categories.path", {"category_ids": [42]})
+    # -> {"42": ["7", "19", "42"]}
+
 ``categories.features`` returns the *resolved* feature definitions for a
 category (own + inherited, config merged with type defaults). stapel-listings
 calls it to validate listing attribute values against the category schema
 WITHOUT importing this module; the payload is cacheable by ``revision``.
 Mutations emit ``category.changed`` (see events.py) for cache invalidation.
+
+``categories.path`` answers root->leaf ancestry for a batch of categories.
+This module owns the tree, so it is the only place that can answer it
+without re-deriving the hierarchy from the outside; the canonical name was
+declared by stapel-search before a provider existed
+(``STAPEL_SEARCH["CATEGORY_PATH_FUNCTION"]``), and without an answer a
+search index degrades to a single path segment — a filter on a parent
+category finds none of its descendants.
 """
 import json
 from pathlib import Path
@@ -81,4 +92,40 @@ def features_function(payload: dict) -> dict:
         "category_id": category.pk,
         "revision": revision_after,
         "features": features,
+    }
+
+
+@function("categories.path", schema=_schema("categories.path"))
+def path_function(payload: dict) -> dict:
+    """Root->leaf ancestry for a batch of categories.
+
+    Payload: ``{"category_ids": [<id>, ...]}``. Returns
+    ``{"<id>": ["<root_id>", ..., "<id>"]}`` — one flat mapping, ids as
+    strings on both sides so a JSON round trip cannot change the key type.
+    An id with no row is simply absent (the ``projections.read()``
+    convention), which is what lets a consumer tell "no such category" from
+    "a root category" — the latter answers a one-element path.
+
+    Segments are IDS, not slugs. The consumer (stapel-search) feeds the last
+    segment of a requested path straight back into ``categories.features``,
+    whose payload is typed as an integer id; slugs would silently fail that
+    call and take the facet plan down with it.
+
+    One query, no tree walk: django-treenode denormalizes the ancestry into
+    ``tn_ancestors_pks``, so this is a read of a column the tree already
+    maintains rather than a second hierarchy of our own.
+    """
+    from treenode.utils import split_pks
+
+    from .models import Category
+
+    wanted = {str(value) for value in (payload.get("category_ids") or [])}
+    numeric = [value for value in wanted if value.lstrip("-").isdigit()]
+    if not numeric:
+        return {}
+    rows = Category.objects.filter(pk__in=numeric).values_list(
+        "pk", "tn_ancestors_pks"
+    )
+    return {
+        str(pk): [*split_pks(ancestors), str(pk)] for pk, ancestors in rows
     }

@@ -40,10 +40,14 @@ flat setting, or env var — resolved lazily):
 | Kind | Name | Contract |
 |---|---|---|
 | Function | `categories.features` | `{"category_id": int}` -> `{"category_id", "revision", "features":[{id,slug,name,mandatory,config}]}` — resolved schema (own + inherited), cacheable by `revision` |
+| Function | `categories.path` | `{"category_ids": [int, ...]}` -> `{"<id>": ["<root_id>", ..., "<id>"]}` — root->leaf ancestry, one query for the batch; segments are ids, an unknown id is absent |
 | Action (emit) | `category.changed` | `{"category_id": int, "revision": int}` on any category/feature mutation — for downstream cache invalidation |
 
 `categories.features` lets stapel-listings validate attribute values against a
-category's schema without importing this module.
+category's schema without importing this module. `categories.path` is the
+provider stapel-search declares by canonical name for category rollup — without
+it a search index degrades to a single path segment and a filter on a parent
+category finds none of its descendants.
 
 ## Extension points
 

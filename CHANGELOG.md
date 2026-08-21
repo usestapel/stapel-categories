@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.5.6] — 2026-08-21
+
+### Added — `categories.path`, the ancestry provider the fleet declared before anything answered it
+
+stapel-search 0.1.0 named `CATEGORY_PATH_FUNCTION = "categories.path"` as the
+canonical way to resolve a category's ancestors, raised `search.W006` because
+nothing in the fleet answered it, and degraded `category_path` to a single
+segment — meaning an exact category filter worked and a filter on a *parent*
+category found none of its descendants. This module owns the tree, so it is
+the only place that can answer without re-deriving the hierarchy from outside.
+
+`{"category_ids": [id, ...]}` -> `{"<id>": ["<root_id>", ..., "<id>"]}`.
+Root first, the category itself last; a root answers a one-element path; an id
+with no row is **absent** from the mapping rather than mapped to an empty path,
+so "no such category" stays distinguishable from "a root". Segments are
+category **ids**, not slugs — the declared consumer feeds the last segment of a
+requested path straight back into `categories.features`, whose payload is typed
+as an integer id, and slugs would fail that call silently and take the whole
+facet plan down with them.
+
+One query for a whole batch: django-treenode already denormalizes ancestry into
+`tn_ancestors_pks`, so this is a read of a column the tree maintains, not a
+second hierarchy of ours. Held by a test that counts the queries.
+
+### Fixed — `emit-check` was red on two signal receivers
+
+`EMIT005` flagged `emit_category_changed_on_save` /
+`emit_category_changed_on_feature_save` as "declared but never called": both are
+`@receiver(post_save)` handlers, dispatched by Django rather than from a call
+site in this package. Annotated with the lint's own escape hatch, so the gate
+is green *and* says why — it was failing CI for every commit, which is the same
+as having no gate.
+
 ## [0.5.5] — 2026-08-15
 
 ### Changed — `stapel-core` floor raised to 0.26.0

@@ -96,6 +96,52 @@ class TestFeaturesFunction:
 
 
 @pytest.mark.django_db
+class TestPathFunction:
+    """``categories.path`` — the ancestry provider stapel-search declared by
+    canonical name before anything answered it (``search.W006``)."""
+
+    def test_root_answers_a_single_segment(self, db):
+        root = Category.objects.create(name="Electronics", slug="electronics")
+        assert call("categories.path", {"category_ids": [root.pk]}) == {
+            str(root.pk): [str(root.pk)]
+        }
+
+    def test_descendant_answers_root_first_and_itself_last(self, db):
+        root = Category.objects.create(name="Electronics", slug="electronics")
+        mid = Category.objects.create(name="Phones", slug="phones", tn_parent=root)
+        leaf = Category.objects.create(name="Smart", slug="smart", tn_parent=mid)
+
+        result = call("categories.path", {"category_ids": [leaf.pk]})
+        assert result[str(leaf.pk)] == [str(root.pk), str(mid.pk), str(leaf.pk)]
+
+    def test_batch_is_one_query_and_keys_are_strings(self, db):
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+
+        root = Category.objects.create(name="Electronics", slug="electronics")
+        a = Category.objects.create(name="Phones", slug="phones", tn_parent=root)
+        b = Category.objects.create(name="Laptops", slug="laptops", tn_parent=root)
+
+        with CaptureQueriesContext(connection) as captured:
+            result = call("categories.path", {"category_ids": [a.pk, b.pk]})
+        assert len(captured) == 1, [q["sql"] for q in captured]
+        assert set(result) == {str(a.pk), str(b.pk)}
+
+    def test_unknown_id_is_absent_not_guessed(self, db):
+        root = Category.objects.create(name="Electronics", slug="electronics")
+        result = call("categories.path", {"category_ids": [root.pk, 999999]})
+        assert set(result) == {str(root.pk)}
+
+    def test_empty_and_non_numeric_ids_answer_empty(self, db):
+        assert call("categories.path", {"category_ids": []}) == {}
+        assert call("categories.path", {"category_ids": ["electronics"]}) == {}
+
+    def test_schema_rejects_a_bare_id(self, db):
+        with pytest.raises(Exception):
+            call("categories.path", {"category_id": 1})
+
+
+@pytest.mark.django_db
 class TestCategoryChangedAction:
     def test_emitted_on_category_save(self):
         received = []

@@ -20,8 +20,9 @@
 - A revision-sync **HTTP API** for Category & Feature (list/retrieve, carousel,
   `/features`, `/children`, bulk-commands, feature-editor draft/apply,
   validate-dto / validate-configs).
-- A **comm surface**: Function `categories.features` (resolved schema for a
-  category) and emitted Action `category.changed`.
+- A **comm surface**: Functions `categories.features` (resolved schema for a
+  category) and `categories.path` (root->leaf ancestry for a batch of
+  categories), plus emitted Action `category.changed`.
 - **Catalog fixtures sync** (`export_catalog` / `load_catalog` management
   commands): a byte-stable, natural-key JSON snapshot of the live catalog in a
   host project's `fixtures/catalog/`, reconciled back into a DB via a 3-way
@@ -134,6 +135,7 @@ through `StapelModelAdmin`.
 | Kind | Name | Payload | Schema |
 |---|---|---|---|
 | Function (provides) | `categories.features` | `{category_id}` -> `{category_id, revision, features:[{id,slug,name,mandatory,config}]}` | `schemas/functions/categories.features.json` |
+| Function (provides) | `categories.path` | `{category_ids:[id,...]}` -> `{"<id>": ["<root_id>",…,"<id>"]}` | `schemas/functions/categories.path.json` |
 | Action (emits) | `category.changed` | `{category_id, revision}` | `schemas/emits/category.changed.json` |
 
 `category.changed` is emitted from post-save signals on Category (and per
@@ -146,6 +148,16 @@ revision. Emission goes through the transactional
 outbox; `Category.save` / `Feature.save` wrap the row write and the signal
 emits in one `stapel_core.comm.mutate_and_emit()` block, so the row and its
 invalidation events commit together or not at all.
+
+`categories.path` answers ancestry from django-treenode's denormalized
+`tn_ancestors_pks` — one query for a whole batch, no tree walk and no second
+hierarchy of our own. Its segments are category **ids**, not slugs: the
+declared consumer (stapel-search's `CATEGORY_PATH_FUNCTION`, canonical name
+`categories.path`) feeds the last segment of a requested path straight back
+into `categories.features`, whose payload is typed as an integer id. An id
+with no row is absent from the answer rather than mapped to an empty path, so
+"no such category" stays distinguishable from "a root category" (whose path is
+one element long).
 
 ## Catalog fixtures (`export_catalog` / `load_catalog`)
 

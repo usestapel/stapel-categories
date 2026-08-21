@@ -386,7 +386,7 @@ def copy_parent_features(sender, instance, created, **kwargs):
 
 
 @receiver(post_save, sender=Category)
-def emit_category_changed_on_save(sender, instance, **kwargs):
+def emit_category_changed_on_save(sender, instance, **kwargs):  # emit-check: ok — post_save receiver, called by Django's signal dispatcher, not by a call site
     """Emit ``category.changed`` so downstream caches (e.g. listings) invalidate."""
     from .events import publish_category_changed
 
@@ -394,7 +394,7 @@ def emit_category_changed_on_save(sender, instance, **kwargs):
 
 
 @receiver(post_save, sender=Feature)
-def emit_category_changed_on_feature_save(sender, instance, **kwargs):
+def emit_category_changed_on_feature_save(sender, instance, **kwargs):  # emit-check: ok — post_save receiver, called by Django's signal dispatcher, not by a call site
     """A feature edit changes every category referencing it — emit for each.
 
     Cost note: this is an N-fanout (N emits + N outbox rows) synchronous in the

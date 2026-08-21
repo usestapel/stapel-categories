@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "categories.path",
+  "description": "Resolve root->leaf ancestry for a batch of categories. This object validates the request payload; the response is a flat mapping {\"<category_id>\": [\"<root_id>\", ..., \"<leaf_id>\"]} — see $defs.Path. A category id with no row is simply absent from the mapping, mirroring the projections read() convention. The segments are category IDS (as strings), not slugs: the consumer feeds the last segment straight back into categories.features, whose payload is typed as an integer id.",
+  "type": "object",
+  "required": ["category_ids"],
+  "properties": {
+    "category_ids": {
+      "type": "array",
+      "description": "IDs of the categories whose ancestry to resolve.",
+      "items": { "type": ["integer", "string"] },
+      "maxItems": 1000
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Path": {
+      "type": "array",
+      "description": "One response value: the category's own ancestry, root first and the category itself last. A root category answers a single-element path.",
+      "items": { "type": "string" },
+      "minItems": 1
+    }
+  }
+}
