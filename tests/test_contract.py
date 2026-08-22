@@ -7,7 +7,7 @@ gate rather than something a wider CI matrix can run unpinned. The tests
 below are the part that runs everywhere: they read the COMMITTED artifacts
 and assert the two properties a stale artifact silently breaks — every
 route this module mounts is described, and every error key it can return is
-declared (A1, darom-storefront-design.md §3.10 — the contract triad the
+declared (A1, the storefront spec §3.10 — the contract triad the
 react codegen pipeline, ``gen:api``/``gen:errors``/``gen:manifest``, stands
 on).
 

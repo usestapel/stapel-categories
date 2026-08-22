@@ -5,7 +5,7 @@
 Patch (pre-1.0 semver: minor = breaking, patch = compatible). Bug fix
 inherited from upstream — no route/component/error-key change of its own.
 
-Filed by @stapel/categories-react (tasks/darom-storefront-design.md §13.7
+Filed by @stapel/categories-react (the storefront spec §13.7
 note 5): `docs/schema.json`'s `FeatureConfig`/`FeatureDto` discriminator
 mapping had a single bogus `"null"` entry instead of the ten feature-type
 slug entries, because stapel-attributes' `PolymorphicProxySerializer` was
@@ -32,7 +32,7 @@ root-cause writeup).
 `docs/flows.json` and `docs/errors.json` did not exist before this release —
 the Makefile said so out loud — which blocked the react codegen pipeline
 (`gen:api`/`gen:errors`/`gen:manifest`) for any `-react` pair generated
-against this module (darom-storefront-design.md §1.8, §3.10, A1).
+against this module (the storefront spec §1.8, §3.10, A1).
 
 ### Added
 
