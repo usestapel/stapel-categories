@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.6.0"
+version = "0.6.1"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,7 +27,9 @@ dependencies = [
     # Floor: 0.26.0 emits docs/errors.json with the `owner` field the
     # committed artifact and its drift gate require.
     "stapel-core>=0.26.0,<1.0",
-    "stapel-attributes>=0.4,<0.5",
+    # Floor: 0.4.7 fixes the FeatureConfig/Dto/Dao discriminator.mapping
+    # null-collapse bug (all ten type slugs mapped to one bogus "null" key).
+    "stapel-attributes>=0.4.7,<0.5",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
 ]

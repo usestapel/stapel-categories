@@ -2236,7 +2236,16 @@
         "discriminator": {
           "propertyName": "type",
           "mapping": {
-            "null": "#/components/schemas/ConvertibleUnitConfig"
+            "int": "#/components/schemas/IntConfig",
+            "float": "#/components/schemas/FloatConfig",
+            "string": "#/components/schemas/StringConfig",
+            "bool": "#/components/schemas/BoolConfig",
+            "hex_color": "#/components/schemas/HexColorConfig",
+            "select": "#/components/schemas/SelectConfig",
+            "date": "#/components/schemas/DateConfig",
+            "header": "#/components/schemas/HeaderConfig",
+            "hierarchical_select": "#/components/schemas/HierarchicalSelectConfig",
+            "convertible_unit": "#/components/schemas/ConvertibleUnitConfig"
           }
         }
       },
@@ -2443,7 +2452,16 @@
         "discriminator": {
           "propertyName": "type",
           "mapping": {
-            "null": "#/components/schemas/ConvertibleUnitDto"
+            "int": "#/components/schemas/IntDto",
+            "float": "#/components/schemas/FloatDto",
+            "string": "#/components/schemas/StringDto",
+            "bool": "#/components/schemas/BoolDto",
+            "hex_color": "#/components/schemas/HexColorDto",
+            "select": "#/components/schemas/SelectDto",
+            "date": "#/components/schemas/DateDto",
+            "header": "#/components/schemas/HeaderDto",
+            "hierarchical_select": "#/components/schemas/HierarchicalSelectDto",
+            "convertible_unit": "#/components/schemas/ConvertibleUnitDto"
           }
         }
       },

@@ -136,6 +136,46 @@ def test_every_mounted_route_is_described(schema_artifact):
         )
 
 
+def test_feature_config_discriminator_is_slug_keyed(schema_artifact):
+    """Regression: discriminator.mapping used to collapse to one "null" key.
+
+    stapel-attributes' PolymorphicProxySerializer used to be built from a
+    bare list of serializer classes; drf-spectacular then *inferred* each
+    resource_type by calling ``to_representation(None)`` on the sub-
+    serializer's ``type`` field. DRF's ``ChoiceField.to_representation``
+    short-circuits ``None``/``''`` straight back to ``None`` instead of
+    resolving the field's constant value, so every one of the ten feature
+    types inferred as ``None`` — the mapping dict comprehension collapsed to
+    a single ``{None: <last schema>}``, serialized as one bogus ``"null"``
+    key. openapi-typescript then stripped ``type`` from generated call
+    sites and re-added a synthetic wrong one (fixed upstream in
+    stapel-attributes 0.4.7, see its CHANGELOG).
+    """
+    from stapel_attributes.registry import get_all_type_slugs
+
+    slugs = set(get_all_type_slugs())
+    assert len(slugs) == 10
+
+    for component_name in ("FeatureConfig", "FeatureDto"):
+        component = schema_artifact["components"]["schemas"][component_name]
+        discriminator = component["discriminator"]
+        mapping = discriminator["mapping"]
+
+        assert "null" not in mapping, (
+            f"{component_name}.discriminator.mapping has a bogus \"null\" key — "
+            "stapel-attributes floor needs bumping to >=0.4.7 and 'make contract' re-run"
+        )
+        assert set(mapping) == slugs, (
+            f"{component_name}.discriminator.mapping keys {sorted(mapping)} "
+            f"don't match the registered type slugs {sorted(slugs)}"
+        )
+        for slug, ref in mapping.items():
+            assert ref.startswith("#/components/schemas/"), (
+                f"{component_name}.discriminator.mapping[{slug!r}] = {ref!r} "
+                "is not a component ref"
+            )
+
+
 # ── docs/llms.txt — the fifth contract artifact -----------------------------
 
 

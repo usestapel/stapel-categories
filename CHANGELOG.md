@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.6.1] — 2026-08-22
+
+Patch (pre-1.0 semver: minor = breaking, patch = compatible). Bug fix
+inherited from upstream — no route/component/error-key change of its own.
+
+Filed by @stapel/categories-react (tasks/darom-storefront-design.md §13.7
+note 5): `docs/schema.json`'s `FeatureConfig`/`FeatureDto` discriminator
+mapping had a single bogus `"null"` entry instead of the ten feature-type
+slug entries, because stapel-attributes' `PolymorphicProxySerializer` was
+built from a bare list of serializer classes and drf-spectacular's
+resource-type inference collapsed every sub-serializer to `None` (fixed
+upstream in stapel-attributes 0.4.7 — see its CHANGELOG for the full
+root-cause writeup).
+
+### Fixed
+- Floor bumped to `stapel-attributes>=0.4.7,<0.5` and `docs/schema.json`
+  regenerated (`make contract`): `FeatureConfig`/`FeatureDto`'s
+  `discriminator.mapping` now carries all ten slug-keyed entries
+  (`int`, `float`, `string`, `bool`, `hex_color`, `select`, `date`,
+  `header`, `hierarchical_select`, `convertible_unit`), fixing the
+  openapi-typescript codegen that previously stripped `type` from call
+  sites and re-added a synthetic wrong one.
+- Added `tests/test_contract.py::test_feature_config_discriminator_is_slug_keyed`
+  asserting the committed `docs/schema.json` mapping is slug-keyed, matches
+  the registered type slugs 1:1, and never contains `"null"`.
+
 ## [0.6.0] — 2026-08-22
 
 **This module now emits its own contract triad.** `docs/schema.json`,
