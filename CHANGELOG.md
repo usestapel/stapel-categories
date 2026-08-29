@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.6.2] — 2026-08-30
+
+Patch (pre-1.0 semver: minor = breaking, patch = compatible). Tests only —
+no behaviour, route, schema or settings change.
+
+### The public read was true but unowned
+
+The category tree and the feature schema are the navigation of a storefront:
+every page a search engine indexes renders them, and none of that traffic
+carries a session. That anonymous reads work rests on one line on each
+viewset — `permission_classes = [ReadOnlyOrStaff]` — and nothing asserted it.
+
+Every existing HTTP test in this repo authenticates a superuser first
+(`force_authenticate`, `test_category_commands.py`), so the whole suite is
+blind to exactly this: swap `ReadOnlyOrStaff` for `IsStaffUser` and it stays
+green while every catalogue page on the internet answers 401. A green gate
+that cannot see the thing it is supposed to protect is worse than none,
+because it is trusted.
+
+### Added
+- `tests/test_public_read.py`. A client with **no credentials at all** gets
+  200 on the category list, retrieve and `children/`, and on the feature list,
+  retrieve and a category's `features/`. None of those responses carries a
+  `Set-Cookie` — the read must stay cacheable at the edge and must not start
+  a session per crawler. Anonymous `POST`/`PATCH` of a category is refused
+  and writes nothing, and is **401** rather than 403 wherever the deployment's
+  authenticator offers a challenge, which is what a fleet on
+  `JWTCookieAuthentication` returns. Both permission classes are asserted by
+  name, so a regression fails a test that says what broke instead of eight
+  that say `401 != 200`.
+
 ## [0.6.1] — 2026-08-22
 
 Patch (pre-1.0 semver: minor = breaking, patch = compatible). Bug fix
