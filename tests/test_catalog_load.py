@@ -1420,3 +1420,102 @@ class SourceIdentityTests(_CatalogTestCase):
             self.assertFalse(report.failed)
             self.assertEqual(report.renames, 0)   # already applied — not a rename
             self.assertEqual(Category.objects.get(pk=self.phones.pk).revision, before)
+
+
+# ---------------------------------------------------------------------------
+# The tree rebuild is deferred to the end of the load (one rebuild, not N)
+# ---------------------------------------------------------------------------
+
+
+class DeferredTreeRebuildTests(_CatalogTestCase):
+    """django-treenode rebuilds the whole table from a post_save receiver.
+
+    Left armed, a load of N rows costs O(N^2) statements — see
+    ``catalog_load._deferred_tree_rebuild`` for the measured curve. These tests
+    pin the two halves of the fix: the receivers are suspended for the write
+    phase and the rebuild happens exactly once, AND the denormalized columns
+    are correct afterwards, so nothing is traded for the speed.
+    """
+
+    def _export_wipe(self):
+        out = tempfile.mkdtemp()
+        _export(out)
+        _wipe_db()
+        return out
+
+    def test_the_tree_is_rebuilt_once_per_model_for_the_whole_load(self):
+        from unittest import mock
+
+        self.seed_catalog()
+        out = self._export_wipe()
+        with mock.patch.object(Category, "update_tree",
+                               wraps=Category.update_tree) as cat_tree, \
+             mock.patch.object(Feature, "update_tree",
+                               wraps=Feature.update_tree) as feat_tree:
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE,
+                                     deletions=cl.DELETIONS_IGNORE)
+        self.assertFalse(report.failed)
+        # Three categories and three feature rows were written (two roots and
+        # the child's inline override); one rebuild each, not one per row.
+        self.assertEqual(Category.objects.count(), 3)
+        self.assertEqual(Feature.objects.count(), 3)
+        self.assertEqual(cat_tree.call_count, 1)
+        self.assertEqual(feat_tree.call_count, 1)
+
+    def test_the_denormalized_tree_columns_are_correct_after_a_load(self):
+        self.seed_catalog()
+        # A third level, so ancestry is more than "root or child".
+        Category.objects.create(name="Smartphones", slug="smartphones",
+                                tn_parent=self.phones)
+        out = self._export_wipe()
+        report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE,
+                                 deletions=cl.DELETIONS_IGNORE)
+        self.assertFalse(report.failed)
+
+        electronics = Category.objects.get(slug="electronics")
+        phones = Category.objects.get(slug="phones")
+        smartphones = Category.objects.get(slug="smartphones")
+        # tn_level is 1-based; tn_depth is the height of the subtree below.
+        self.assertEqual(
+            [electronics.tn_level, phones.tn_level, smartphones.tn_level], [1, 2, 3]
+        )
+        self.assertEqual(electronics.tn_depth, 2)
+        self.assertEqual(smartphones.get_ancestors_pks(),
+                         [str(electronics.pk), str(phones.pk)])
+        self.assertEqual(electronics.tn_descendants_count, 2)
+        self.assertEqual(phones.tn_children_count, 1)
+        # The feature tree too: an override hangs under its root.
+        override = Feature.objects.get(slug="color", tn_parent__isnull=False)
+        self.assertEqual(override.tn_level, 2)
+        self.assertEqual(
+            override.get_ancestors_pks(),
+            [str(Feature.objects.get(slug="color", tn_parent__isnull=True).pk)],
+        )
+
+    def test_the_receivers_are_live_again_after_a_load(self):
+        self.seed_catalog()
+        out = self._export_wipe()
+        cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE,
+                        deletions=cl.DELETIONS_IGNORE)
+        # An ordinary save after the load still maintains the tree by itself.
+        parent = Category.objects.get(slug="electronics")
+        child = Category.objects.create(name="Cameras", slug="cameras",
+                                        tn_parent=parent)
+        self.assertEqual(Category.objects.get(pk=child.pk).tn_level, 2)
+        self.assertEqual(
+            Category.objects.get(pk=child.pk).get_ancestors_pks(), [str(parent.pk)]
+        )
+
+    def test_the_receivers_are_live_again_after_a_load_that_raises(self):
+        self.seed_catalog()
+        out = self._export_wipe()
+        # A sidecar from the future makes load_catalog raise out of the apply
+        # path; the receivers must not stay disconnected process-wide.
+        _write_json(out, cf.STATE_FILE,
+                    {"version": "not-a-version", "features": {}, "categories": {}})
+        with self.assertRaises(ValueError):
+            cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+
+        parent = Category.objects.create(name="Books", slug="books")
+        child = Category.objects.create(name="Comics", slug="comics", tn_parent=parent)
+        self.assertEqual(Category.objects.get(pk=child.pk).tn_level, 2)

@@ -43,6 +43,7 @@ reconciled keys advance to their new DB hash, deleted keys drop out, and keys we
 deliberately did **not** touch (DB-only drift, unresolved conflicts) keep their
 old base hash so they stay flagged on the next run — never a silent resolution.
 """
+import contextlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -637,6 +638,55 @@ def _rename_order(idents: _Identities) -> List[str]:
 # ---------------------------------------------------------------------------
 
 
+@contextlib.contextmanager
+def _deferred_tree_rebuild(*models):
+    """Rebuild django-treenode's denormalized columns ONCE per load, not per row.
+
+    django-treenode keeps ``tn_ancestors_pks`` / ``tn_depth`` / ``tn_order`` and
+    friends up to date from a ``post_save`` / ``post_delete`` receiver that
+    rebuilds the **entire** table: one read of every row plus one ``UPDATE`` per
+    row, for every single row written. A load of N rows therefore costs O(N²)
+    statements against a heap that cannot be vacuumed inside the load's
+    transaction, so the real curve is worse than quadratic. Measured on the
+    Avito catalog fixtures (postgres 16, one transaction, no deletes):
+
+                                        before   after
+        32 features / 3 categories       0.6 s    0.4 s
+        64 features / 4 categories       1.5 s    0.7 s
+       134 features / 8 categories       5.1 s    1.4 s
+       240 features / 17 categories     63.3 s    3.8 s
+       430 features / 51 categories     killed    6.0 s
+     14409 features / 3444 categories   killed  185.2 s
+
+    Suspending the receivers for the write phase and rebuilding once at the end
+    is exactly what treenode itself does inside its own bulk operations
+    (``TreeNodeModel.delete_tree`` / ``update_tree`` use ``no_signals()``), and
+    it changes no row's final state: ``update_tree`` is a pure function of the
+    ``tn_parent`` edges, which the writes have already committed by then.
+
+    What this does NOT suspend is anything the loader's H-2 rule is about —
+    ``full_clean``, ``save``, the revision bump, ``category.changed`` and
+    ``copy_parent_features`` all still run per row, because they are model and
+    stapel receivers, not treenode's.
+
+    The rebuild runs only on a clean exit, and inside the caller's transaction,
+    so a failed load rolls the denormalized columns back with the rows.
+    """
+    from treenode.signals import connect_signals, disconnect_signals
+
+    disconnect_signals()
+    try:
+        yield
+        # treenode's own delete() re-arms the receivers on its way out (its
+        # no_signals() exits by connecting), so a hard-delete phase can leave
+        # them live. Idempotent either way.
+        disconnect_signals()
+        for model in models:
+            model.update_tree()
+    finally:
+        connect_signals()
+
+
 def _save_feature(feat) -> None:
     """Validate (slug-bearing rows only) and save.
 
@@ -1225,6 +1275,8 @@ def _run_plan(
     while something still references it. Returns the new sidecar state (or
     ``None`` for a dry run).
     """
+    from .models import Category, Feature
+
     # DB view (excludes is_test + soft-deleted, exactly like export).
     _, _, db_state = cf.build_catalog(include_test=False)
     db_feat = db_state["features"]
@@ -1270,15 +1322,19 @@ def _run_plan(
     )
 
     if apply:
-        _apply_phase(report, "features", [p for p in feat_plan if p.decision.op == "upsert"],
-                     _apply_feature_upsert)
-        _apply_phase(report, "categories", cat_upserts,
-                     _apply_category_upsert)
-        _apply_delete_phase(report, "categories", cat_deletes,
-                            _apply_category_delete, deletions)
-        _apply_delete_phase(report, "features",
-                            [p for p in feat_plan if p.decision.op == "delete"],
-                            _apply_feature_delete, deletions)
+        # One tree rebuild for the whole load, not one per row — see
+        # _deferred_tree_rebuild. Everything else about a write is unchanged:
+        # full_clean, revision bump, category.changed, copy_parent_features.
+        with _deferred_tree_rebuild(Feature, Category):
+            _apply_phase(report, "features", [p for p in feat_plan if p.decision.op == "upsert"],
+                         _apply_feature_upsert)
+            _apply_phase(report, "categories", cat_upserts,
+                         _apply_category_upsert)
+            _apply_delete_phase(report, "categories", cat_deletes,
+                                _apply_category_delete, deletions)
+            _apply_delete_phase(report, "features",
+                                [p for p in feat_plan if p.decision.op == "delete"],
+                                _apply_feature_delete, deletions)
         # Non-mutating outcomes (skip/warn/note/touch_base/drop_base).
         _record_passive(report, "features", feat_plan)
         _record_passive(report, "categories", cat_plan)

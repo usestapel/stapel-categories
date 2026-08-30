@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.8.1] — 2026-08-31
+
+### Fixed
+
+- **`load_catalog` rebuilds the tree cache once per load, not once per row.**
+  django-treenode maintains its denormalized columns (`tn_ancestors_pks`,
+  `tn_level`, `tn_order`, …) from a `post_save` / `post_delete` receiver that
+  rebuilds the **whole table**: one read of every row plus one `UPDATE` per row,
+  for every single row written. A load of N rows therefore cost O(N²)
+  statements against a heap no autovacuum can touch inside the load's own
+  transaction, so the real curve was worse than quadratic. Measured on the Avito
+  catalog fixtures (postgres 16, one transaction, no deletes):
+
+  | rows written | 0.8.0 | 0.8.1 |
+  |---|---|---|
+  | 32 features / 3 categories | 0.6 s | 0.4 s |
+  | 64 features / 4 categories | 1.5 s | 0.7 s |
+  | 134 features / 8 categories | 5.1 s | 1.4 s |
+  | 240 features / 17 categories | 63.3 s | 3.8 s |
+  | 430 features / 51 categories | did not finish (killed at 10 min) | 6.0 s |
+  | 14 409 features / 3444 categories (52 488 links) | did not finish (killed at 15 min, still in the feature phase) | 185 s |
+
+  The write phase now runs with those two receivers suspended and calls
+  `Feature.update_tree()` / `Category.update_tree()` once at the end, inside the
+  load's transaction — which is what treenode itself does inside its own bulk
+  operations. `update_tree` is a pure function of the committed `tn_parent`
+  edges, so no row ends in a different state; a failed load rolls the
+  denormalized columns back with the rows, and the receivers are restored even
+  when the load raises. A re-run of that last row with nothing changed is 23 s
+  of pure diffing — the load is still idempotent to the record.
+
+  Nothing the H-2 rule is about is suspended: `full_clean`, `save`, the revision
+  bump, `category.changed` and `copy_parent_features` still run per row, because
+  they are model and stapel receivers rather than treenode's.
+
 ## [0.8.0] — 2026-08-31
 
 **Minor = breaking** (pre-1.0). `load_catalog` stops keying a re-import on the
