@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.2] — 2026-08-31
+
+### Fixed
+
+- **`stapel-attributes>=0.5,<1.0` → `>=0.5,<0.6`.** Pre-1.0 house semver reads
+  a minor as breaking, and this line was the exception that proved it:
+  stapel-attributes 0.6.0 adds a thirteenth built-in type (`group`), which
+  changes the discriminator mapping this module emits, so a published release
+  of that package started failing `tests/test_contract.py` here
+  (`assert 13 == 12`) with nothing in this repository having changed — 0.8.1's
+  own publish run is where it surfaced.
+
+  Lifting the cap to `<0.7` is work rather than a number: regenerate the
+  contract triad against 0.6 and extend the `ResolvedFeature` gate for the
+  composite kind. Until then this release states the range it is actually
+  built and tested against, which is also the range stapel-shop (`<0.6`) and
+  stapel-classified (`>=0.5.1,<0.6`) install.
+
+  No code change: 0.8.2 is 0.8.1 with a cap that matches its own test matrix.
+
 ## [0.8.1] — 2026-08-31
 
 ### Fixed
