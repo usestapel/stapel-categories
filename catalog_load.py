@@ -70,7 +70,10 @@ ERROR = "error"          # bad fixture record (validation / dangling reference)
 
 # Inline (override) feature-list entries carry at least these keys; a bare
 # reference is just ``{"slug": ...}``.
-_INLINE_KEYS = ("config", "mandatory", "show_as_badge", "show_at_title", "translate")
+_INLINE_KEYS = (
+    "config", "mandatory", "show_as_badge", "show_at_title", "translate",
+    "rules", "description", "example", "default", "hints", "group",
+)
 
 
 class RecordError(Exception):
@@ -259,6 +262,12 @@ def _normalize_feature_record(rec: dict) -> dict:
         "show_as_badge": bool(rec.get("show_as_badge", False)),
         "show_at_title": bool(rec.get("show_at_title", False)),
         "translate": rec.get("translate", "all"),
+        "rules": rec.get("rules") or [],
+        "description": rec.get("description", ""),
+        "example": rec.get("example", ""),
+        "default": rec.get("default"),
+        "hints": rec.get("hints") or [],
+        "group": rec.get("group", ""),
     }
     if rec.get("is_test"):
         out["is_test"] = True
@@ -277,6 +286,12 @@ def _normalize_entry(entry: dict) -> dict:
         "show_as_badge": bool(entry.get("show_as_badge", False)),
         "show_at_title": bool(entry.get("show_at_title", False)),
         "translate": entry.get("translate", "all"),
+        "rules": entry.get("rules") or [],
+        "description": entry.get("description", ""),
+        "example": entry.get("example", ""),
+        "default": entry.get("default"),
+        "hints": entry.get("hints") or [],
+        "group": entry.get("group", ""),
     }
     if not slug:
         # Slug-less rows carry their identity inline (no features.json home).
@@ -299,6 +314,7 @@ def _normalize_category_record(rec: dict) -> dict:
         "carousel_icon": rec.get("carousel_icon", ""),
         "carousel_enabled": bool(rec.get("carousel_enabled", False)),
         "active": bool(rec.get("active", True)),
+        "external_id": rec.get("external_id", ""),
         "translatable": bool(rec.get("translatable", True)),
         "features": [_normalize_entry(e) for e in rec.get("features", [])],
     }
@@ -358,10 +374,12 @@ def _save_feature(feat) -> None:
 # state is unchanged — e.g. hand-written fixtures with unreachable parts).
 _FEATURE_SCALARS = (
     "slug", "name", "icon", "comment", "config", "mandatory",
-    "show_as_badge", "show_at_title", "translate", "is_test", "deleted",
+    "show_as_badge", "show_at_title", "translate",
+    "rules", "description", "example", "default", "hints", "group",
+    "is_test", "deleted",
 )
 _CATEGORY_SCALARS = (
-    "slug", "name", "comment", "catalog_icon", "carousel_icon",
+    "slug", "name", "external_id", "comment", "catalog_icon", "carousel_icon",
     "carousel_enabled", "active", "translatable", "is_test", "deleted",
     "tn_parent_id",
 )
@@ -391,6 +409,12 @@ def _apply_feature_upsert(record: dict):
     feat.show_as_badge = bool(record.get("show_as_badge", False))
     feat.show_at_title = bool(record.get("show_at_title", False))
     feat.translate = record.get("translate", "all")
+    feat.rules = record.get("rules") or []
+    feat.description = record.get("description", "")
+    feat.example = record.get("example", "")
+    feat.default = record.get("default")
+    feat.hints = record.get("hints") or []
+    feat.group = record.get("group", "")
     feat.is_test = bool(record.get("is_test", False))
     feat.deleted = False  # restore if it had been soft-deleted
     if before is not None and before == _snapshot(feat, _FEATURE_SCALARS):
@@ -421,9 +445,14 @@ def _is_inline(entry: dict) -> bool:
     return any(k in entry for k in _INLINE_KEYS)
 
 
+#: "This entry says nothing about that field" — distinct from a stored ``None``,
+#: which ``default`` uses as a real value ("the form starts empty").
+_UNSET = object()
+
+
 def _entry_matches(feat, desired: dict) -> bool:
     return all(
-        v is None or getattr(feat, k) == v for k, v in desired.items()
+        v is _UNSET or getattr(feat, k) == v for k, v in desired.items()
     )
 
 
@@ -453,14 +482,20 @@ def _materialize_override(cat, slug: str, entry: dict, used: set):
     root = _root_feature(slug, cat.slug) if slug else None
 
     desired = {
-        "name": entry.get("name", "") if not slug else None,
-        "icon": entry.get("icon", "") if not slug else None,
-        "comment": entry.get("comment", "") if not slug else None,
+        "name": entry.get("name", "") if not slug else _UNSET,
+        "icon": entry.get("icon", "") if not slug else _UNSET,
+        "comment": entry.get("comment", "") if not slug else _UNSET,
         "config": entry.get("config") or {},
         "mandatory": bool(entry.get("mandatory", False)),
         "show_as_badge": bool(entry.get("show_as_badge", False)),
         "show_at_title": bool(entry.get("show_at_title", False)),
         "translate": entry.get("translate", "all"),
+        "rules": entry.get("rules") or [],
+        "description": entry.get("description", ""),
+        "example": entry.get("example", ""),
+        "default": entry.get("default"),
+        "hints": entry.get("hints") or [],
+        "group": entry.get("group", ""),
     }
 
     # Candidate rows already linked to this category that export would render
@@ -485,7 +520,7 @@ def _materialize_override(cat, slug: str, entry: dict, used: set):
         shared = feat.feature_categories.exclude(category=cat).exists()
         if not shared:
             for k, v in desired.items():
-                if v is not None and getattr(feat, k) != v:
+                if v is not _UNSET and getattr(feat, k) != v:
                     setattr(feat, k, v)
             _save_feature(feat)
             used.add(feat.pk)
@@ -499,7 +534,7 @@ def _materialize_override(cat, slug: str, entry: dict, used: set):
         feat.icon = root.icon
         feat.comment = root.comment
     for k, v in desired.items():
-        if v is not None:
+        if v is not _UNSET:
             setattr(feat, k, v)
     feat.is_test = bool(entry.get("is_test", False))
     _save_feature(feat)
@@ -619,6 +654,7 @@ def _apply_category_upsert(record: dict):
 
     cat.slug = slug
     cat.name = record.get("name", "")
+    cat.external_id = record.get("external_id", "")
     cat.comment = record.get("comment", "")
     cat.catalog_icon = record.get("catalog_icon", "")
     cat.carousel_icon = record.get("carousel_icon", "")

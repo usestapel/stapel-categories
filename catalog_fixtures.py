@@ -17,7 +17,8 @@ Design: ``docs/catalog-fixtures-sync.md``. Key decisions realized here:
   a diff from its parent. A list entry is either a bare ``{"slug": ...}``
   reference to a shared/root feature, or an inline override
   (``{"slug", "config", "mandatory", "show_as_badge", "show_at_title",
-  "translate"}``) when the linked row is a tree override (``tn_parent`` set).
+  "translate", "rules", "description", "example", "default", "hints",
+  "group"}``) when the linked row is a tree override (``tn_parent`` set).
 * **Override owner heuristic (§2).** When one override row is propagated to a
   category + its descendants, several categories reference it. We deliberately
   do *not* pick an "owning" category: every referencing category inlines its
@@ -41,9 +42,12 @@ FEATURES_FILE = "features.json"
 CATEGORIES_FILE = "categories.json"
 STATE_FILE = ".sync-state.json"
 
-# Sidecar schema version — bump if the sidecar shape changes so CAT-2 can
-# detect an incompatible base.
-STATE_VERSION = 1
+# Sidecar schema version — bump whenever a stored content-hash stops meaning
+# what it meant, so CAT-2 rejects an incompatible base loudly instead of
+# reading every key as a conflict. Bumped to 2 in 0.7.0: the feature record
+# grew `rules` + the five form-metadata keys and the category record grew
+# `external_id`, so every hash a 0.6.x export wrote is now stale.
+STATE_VERSION = 2
 
 
 def canonical_json(obj) -> str:
@@ -73,6 +77,12 @@ def _feature_record(feature, include_test: bool) -> dict:
         "show_as_badge": feature.show_as_badge,
         "show_at_title": feature.show_at_title,
         "translate": feature.translate,
+        "rules": feature.rules or [],
+        "description": feature.description,
+        "example": feature.example,
+        "default": feature.default,
+        "hints": feature.hints or [],
+        "group": feature.group,
     }
     # is_test is only ever written under --include-test (default export filters
     # test rows out entirely, so this key never appears in a committed fixture).
@@ -102,6 +112,12 @@ def _feature_list_entry(feature, include_test: bool) -> dict:
             "show_as_badge": feature.show_as_badge,
             "show_at_title": feature.show_at_title,
             "translate": feature.translate,
+            "rules": feature.rules or [],
+            "description": feature.description,
+            "example": feature.example,
+            "default": feature.default,
+            "hints": feature.hints or [],
+            "group": feature.group,
         }
         if not slug:
             # No canonical (features.json) home for the display attributes —
@@ -149,6 +165,7 @@ def _category_record(category, include_test: bool, parent_slug) -> dict:
         "carousel_icon": category.carousel_icon,
         "carousel_enabled": category.carousel_enabled,
         "active": category.active,
+        "external_id": category.external_id,
         "translatable": category.translatable,
         "features": features,
     }
