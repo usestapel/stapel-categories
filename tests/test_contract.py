@@ -149,12 +149,15 @@ def test_feature_config_discriminator_is_slug_keyed(schema_artifact):
     a single ``{None: <last schema>}``, serialized as one bogus ``"null"``
     key. openapi-typescript then stripped ``type`` from generated call
     sites and re-added a synthetic wrong one (fixed upstream in
-    stapel-attributes 0.4.7, see its CHANGELOG).
+    stapel-attributes 0.4.7, see its CHANGELOG). Ten types at the time;
+    twelve since 0.5.0 added ``ref_select`` / ``ref_hierarchical_select``.
     """
     from stapel_attributes.registry import get_all_type_slugs
 
     slugs = set(get_all_type_slugs())
-    assert len(slugs) == 10
+    # Pinned so a registry that silently loses a type cannot pass by matching
+    # an equally-truncated mapping.
+    assert len(slugs) == 12
 
     for component_name in ("FeatureConfig", "FeatureDto"):
         component = schema_artifact["components"]["schemas"][component_name]

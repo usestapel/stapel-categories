@@ -14,16 +14,55 @@
   "$defs": {
     "ResolvedFeature": {
       "type": "object",
-      "description": "One resolved feature in the response 'features' array. Fed to stapel-attributes' coerce_feature_defs / FeatureDef. show_at_title, show_as_badge and translate MUST be present: attributes' dto_to_dao reads them to build the title/badge projections.",
-      "required": ["id", "slug", "name", "mandatory", "show_at_title", "show_as_badge", "translate", "config"],
+      "description": "One resolved feature in the response 'features' array. Fed to stapel-attributes' coerce_feature_defs / FeatureDef. Every property of the canon (stapel-attributes docs/feature-def.schema.json $defs.FeatureDef) except 'config' — which has its own per-type shape there — MUST be present here; tests/test_resolved_feature_contract.py gates that. show_at_title, show_as_badge and translate carry the title/badge projections attributes' dto_to_dao builds; 'rules' carries requiredness and visibility, without which the whole category silently reverts to static 'mandatory'.",
+      "required": ["id", "slug", "name", "mandatory", "show_at_title", "show_as_badge", "translate", "rules", "description", "example", "default", "hints", "group", "config"],
       "properties": {
         "id": { "type": ["integer", "string"], "description": "Stable feature identifier." },
         "slug": { "type": "string", "description": "Payload key the feature is submitted under." },
         "name": { "type": "string", "description": "Display name / translation key." },
-        "mandatory": { "type": "boolean", "description": "Whether a value is required." },
+        "mandatory": { "type": "boolean", "description": "Whether a value is STATICALLY required; conditional requirement comes from 'rules'." },
         "show_at_title": { "type": "boolean", "description": "Whether the value is shown in the listing title." },
         "show_as_badge": { "type": "boolean", "description": "Whether the value is shown as a badge." },
         "translate": { "type": "string", "enum": ["all", "title", "none"], "description": "Translation mode." },
+        "rules": {
+          "type": "array",
+          "items": { "type": "object" },
+          "description": "Conditional rules over sibling values, in stapel-attributes' closed grammar ($defs.Rule of the canon). Default: [] (no rules — requiredness is 'mandatory', the feature is always visible).",
+          "default": []
+        },
+        "description": {
+          "type": "string",
+          "description": "Help text under the field; translation key or literal. Default: \"\" (no help text).",
+          "default": ""
+        },
+        "example": {
+          "type": "string",
+          "description": "Placeholder text; translation key or literal. Default: \"\" (no placeholder).",
+          "default": ""
+        },
+        "default": {
+          "description": "Initial form value in DTO 'value' shape (for a select, a list of option codes); any JSON. Default: null (the form starts empty).",
+          "default": null
+        },
+        "hints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "content"],
+            "additionalProperties": false,
+            "properties": {
+              "title": { "type": "string" },
+              "content": { "type": "string" }
+            }
+          },
+          "description": "Notices rendered with the field; titles and contents are translation keys or literals. Default: [] (no notices).",
+          "default": []
+        },
+        "group": {
+          "type": "string",
+          "description": "Form section this feature belongs to; sections order by first appearance. Default: \"\" (the unnamed leading section).",
+          "default": ""
+        },
         "config": { "type": "object", "description": "Type-specific config (merged with type defaults), with a 'type' discriminator." }
       }
     }
