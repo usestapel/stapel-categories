@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.8.2"
+version = "0.8.3"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -32,20 +32,23 @@ dependencies = [
     # stores, validate_configs_structured(known_slugs=...) and
     # docs/feature-def.schema.json — the canon the ResolvedFeature contract
     # gate reads out of the installed package.
-    # Cap: <0.6, not <1.0. Pre-1.0 house semver reads a MINOR as breaking, and
+    # Cap: <0.7, not <1.0. Pre-1.0 house semver reads a MINOR as breaking, and
     # this line was the exception that proved it — stapel-attributes 0.6.0 adds
     # a thirteenth built-in type (`group`), which changes the discriminator
     # mapping this module emits into docs/schema.json, so a published release
     # of THAT package started failing tests/test_contract.py here
     # (`assert 13 == 12`) with nothing in this repository having changed.
-    # 0.8.1's own publish run is where it surfaced.
+    # 0.8.1's own publish run is where it surfaced, and 0.8.2 capped at <0.6 to
+    # state the range it was tested against.
     #
-    # Lifting the cap to <0.7 is work rather than a number: regenerate the
-    # contract triad against 0.6 and extend the ResolvedFeature gate for the
-    # composite kind. Until then this module states the range it is actually
-    # built and tested against, which is also the range stapel-shop (<0.6) and
-    # stapel-classified (>=0.5.1,<0.6) install.
-    "stapel-attributes>=0.5,<0.6",
+    # 0.8.3 does the work instead: the contract triad is regenerated against
+    # 0.6 and the composite crosses every boundary under test. So the FLOOR is
+    # 0.6 too — the committed schema NAMES `group`, and on 0.5 the mapping
+    # would advertise a type the installed registry does not have, which is the
+    # same lie pointing the other way. A host on stapel-attributes 0.5.x stays
+    # on stapel-categories 0.8.2 (which is what stapel-shop's `<0.6` and
+    # stapel-classified's `>=0.5.1,<0.6` still resolve to).
+    "stapel-attributes>=0.6,<0.7",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
 ]

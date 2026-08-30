@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.8.3] — 2026-08-31
+
+### Changed — the composite `group` crosses this module, and the cap widens to `<0.7`
+
+0.8.2 capped `stapel-attributes` at `<0.6` to state the range it was tested
+against. This release does the work instead.
+
+- **`stapel-attributes>=0.6,<0.7`.** The floor moves with the cap, not just the
+  cap: the committed `docs/schema.json` NAMES `group` in both
+  `FeatureConfig.discriminator.mapping` and `FeatureDto`'s, and on 0.5 that
+  mapping would advertise a type the installed registry does not have — the
+  same lie as a missing one, pointing the other way. A host on
+  stapel-attributes 0.5.x stays on stapel-categories 0.8.2.
+- **Contract triad regenerated**: `GroupConfig` / `GroupDto` and their two
+  mapping entries; `tests/test_contract.py` pins thirteen registered types.
+- **`translation_keys` walks a composite's children.** A group's `config.fields`
+  are full feature definitions, and they are *not* catalog rows — `walk_features`
+  never sees them — so without this branch a child's name, help text and option
+  labels reached no `.po` file and a subform rendered raw keys to the user with
+  nothing failing. Order is `fields` order; depth is 1 by the engine's own rule.
+- **`tests/test_resolved_feature_contract.py` covers the composite's shape.**
+  `config` is exempt from the property gate because both sides describe it as
+  an opaque `{type, ...}` object — an exemption that is only safe while nothing
+  of consequence hides inside it. A group puts FeatureDefs in there, so the new
+  check asserts the canon declares them by `$ref` to `FeatureDef` itself: a
+  child's `rules` dropped in transit would be the same silent revert to static
+  `mandatory`, one level down, and an inlined narrower child shape would ride
+  inside the exemption ungated.
+- **`tests/test_feature_group_kind.py`** (new, 12 cases) pins the crossings
+  rather than the semantics: `Feature.clean()` accepts a composite and reports
+  the engine's three refusals on the `config` field; `feature_defs()` and the
+  `categories.features` Function carry the nested `fields` verbatim (with comm
+  schema validation ON); the payload still builds a FeatureDef the engine
+  validates values against; both read serializers carry the children; and an
+  export → load → export round-trip of a composite is byte-identical.
+
+No model, migration or view change.
+
 ## [0.8.2] — 2026-08-31
 
 ### Fixed

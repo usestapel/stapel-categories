@@ -116,3 +116,53 @@ def test_the_exemption_is_the_documented_one(resolved_feature, canon):
     """``config`` is exempt because both sides describe it in their own words."""
     assert "config" in _feature_def_properties(canon)
     assert resolved_feature["properties"]["config"]["type"] == "object"
+
+
+def test_a_composite_child_is_the_same_shape_the_gate_already_covers(canon):
+    """The composite is the one config that carries FeatureDefs INSIDE it.
+
+    ``config`` is exempt from the property gate above — both sides describe it
+    as an opaque ``{type, ...}`` object — and that exemption is safe only while
+    nothing of consequence hides inside it. ``group`` (stapel-attributes 0.6.0)
+    puts full feature definitions in ``config.fields``, so the exemption would
+    quietly cover a SECOND, ungated copy of the very shape this file exists to
+    gate: a child's ``rules`` dropped in transit is the same silent revert to
+    static ``mandatory``, one level down.
+
+    It does not, and this is why: the canon declares those children by
+    ``$ref`` to ``FeatureDef`` itself, so every property the gate above checks
+    is the same property a child carries, and `categories.features` ships the
+    whole object verbatim. A canon that ever inlined a narrower child shape
+    would fail here.
+    """
+    group = canon["$defs"].get("GroupConfig")
+    assert group is not None, (
+        "the canon no longer describes GroupConfig — either the composite kind "
+        "was removed upstream or its shape stopped being part of the contract, "
+        "and this module's schema names `group` in its discriminator either way"
+    )
+    assert group["properties"]["fields"]["items"] == {"$ref": "#/$defs/FeatureDef"}, (
+        "a group's children must be FeatureDefs by reference: an inlined, "
+        "narrower child shape would ride inside the `config` exemption ungated"
+    )
+    assert set(group["required"]) >= {"type", "fields"}
+
+
+def test_the_schema_names_the_composite_in_both_discriminators():
+    """The published contract has to list every type the engine registers.
+
+    Not a duplicate of ``tests/test_contract.py``'s registry check: that one
+    asks whether the mapping matches the registry SIZE, this one names the
+    composite, so a regeneration against a 0.5 sibling cannot pass by being
+    consistently twelve everywhere.
+    """
+    schema = json.loads(
+        (_MODULE_ROOT / "docs" / "schema.json").read_text(encoding="utf-8")
+    )
+    schemas = schema["components"]["schemas"]
+    for component, member in (("FeatureConfig", "GroupConfig"), ("FeatureDto", "GroupDto")):
+        mapping = schemas[component]["discriminator"]["mapping"]
+        assert mapping.get("group") == f"#/components/schemas/{member}", (
+            f"{component}.discriminator.mapping does not point `group` at {member}"
+        )
+        assert member in schemas

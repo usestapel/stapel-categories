@@ -2330,6 +2330,9 @@
           },
           {
             "$ref": "#/components/schemas/RefHierarchicalSelectConfig"
+          },
+          {
+            "$ref": "#/components/schemas/GroupConfig"
           }
         ],
         "discriminator": {
@@ -2346,7 +2349,8 @@
             "hierarchical_select": "#/components/schemas/HierarchicalSelectConfig",
             "convertible_unit": "#/components/schemas/ConvertibleUnitConfig",
             "ref_select": "#/components/schemas/RefSelectConfig",
-            "ref_hierarchical_select": "#/components/schemas/RefHierarchicalSelectConfig"
+            "ref_hierarchical_select": "#/components/schemas/RefHierarchicalSelectConfig",
+            "group": "#/components/schemas/GroupConfig"
           }
         }
       },
@@ -2578,6 +2582,9 @@
           },
           {
             "$ref": "#/components/schemas/RefHierarchicalSelectDto"
+          },
+          {
+            "$ref": "#/components/schemas/GroupDto"
           }
         ],
         "discriminator": {
@@ -2594,7 +2601,8 @@
             "hierarchical_select": "#/components/schemas/HierarchicalSelectDto",
             "convertible_unit": "#/components/schemas/ConvertibleUnitDto",
             "ref_select": "#/components/schemas/RefSelectDto",
-            "ref_hierarchical_select": "#/components/schemas/RefHierarchicalSelectDto"
+            "ref_hierarchical_select": "#/components/schemas/RefHierarchicalSelectDto",
+            "group": "#/components/schemas/GroupDto"
           }
         }
       },
@@ -2948,6 +2956,58 @@
           "value": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "GroupConfig": {
+        "type": "object",
+        "description": "Serializer for group feature configuration.\n\n``fields`` passes through as raw dicts on purpose: each child carries its\nown ``config`` discriminated by ``type``, parsed by that type's own strict\nserializer when the group validates its children.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type312Enum"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          },
+          "repeat": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GroupRepeat"
+              }
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "GroupDto": {
+        "type": "object",
+        "description": "Serializer for group feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type312Enum"
+          },
+          "value": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          }
+        }
+      },
+      "GroupRepeat": {
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": "integer"
+          },
+          "max": {
+            "type": "integer",
+            "nullable": true
           }
         }
       },
@@ -3892,6 +3952,13 @@
         ],
         "type": "string",
         "description": "* `convertible_unit` - convertible_unit"
+      },
+      "Type312Enum": {
+        "enum": [
+          "group"
+        ],
+        "type": "string",
+        "description": "* `group` - group"
       },
       "Type37eEnum": {
         "enum": [

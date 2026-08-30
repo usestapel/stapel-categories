@@ -140,6 +140,10 @@ def _extract_option_keys_as_list(config: dict) -> List[str]:
     """
     Extract translation keys from feature config options, preserving order.
 
+    ``group`` (the composite) is the one type whose keys are not options at
+    all: its ``fields`` are child feature definitions carrying their own name,
+    help text and options, and no other walk in this module reaches them.
+
     Returns:
         List of option label translation keys in config order
     """
@@ -165,6 +169,42 @@ def _extract_option_keys_as_list(config: dict) -> List[str]:
         if not config.get('translatable_options', True):
             return keys
         _collect_hierarchical_option_keys_ordered(config.get('options', []), keys, seen)
+
+    elif feature_type == 'group':
+        # A composite's children are FULL feature definitions living inside
+        # `config`, and nothing else in this module walks them — they are not
+        # catalog rows, so `walk_features` never sees them and this is the only
+        # place their names, help text and option labels can reach the
+        # catalogue. Order is `fields` order, which is the order a person is
+        # asked. Depth is 1 by the engine's own rule (a child may not be a
+        # group), so this recurses exactly one level and cannot loop.
+        for child in config.get('fields', []) or []:
+            if not isinstance(child, dict):
+                continue
+            child_config = child.get('config') or {}
+            for value in (
+                child.get('name'),
+                child.get('description'),
+                child.get('example'),
+                child_config.get('placeholder'),
+                child_config.get('prefix'),
+                child_config.get('postfix'),
+                child_config.get('postfix1000'),
+            ):
+                if value and isinstance(value, str) and value not in seen:
+                    keys.append(value)
+                    seen.add(value)
+            for hint in child.get('hints') or []:
+                if not isinstance(hint, dict):
+                    continue
+                for part in (hint.get('title'), hint.get('content')):
+                    if part and isinstance(part, str) and part not in seen:
+                        keys.append(part)
+                        seen.add(part)
+            for option_key in _extract_option_keys_as_list(child_config):
+                if option_key not in seen:
+                    keys.append(option_key)
+                    seen.add(option_key)
 
     elif feature_type == 'string':
         for suggestion in config.get('suggestions', []):
@@ -224,7 +264,8 @@ def collect_feature_translation_keys_with_refs() -> List[Dict]:
     1. Feature name, then its form metadata — description, example, group,
        and each hint's title/content (if translate mode = TITLE or ALL)
     2. Config UI keys: placeholder, prefix, postfix, postfix1000
-    3. Option labels (select/hierarchical_select, preserving order)
+    3. Option labels (select/hierarchical_select, preserving order), and for
+       the composite ``group`` its children's names, help text and options
     4. Recurse into child features
 
     Returns:

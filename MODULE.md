@@ -21,6 +21,17 @@
   reports (never raises) a rule condition or `optionsRef.parentFeature` naming
   a slug the category does not define — the only question the *whole* resolved
   set can answer.
+- **The composite `group`** (stapel-attributes 0.6.0) is the one feature type
+  whose `config` carries other feature definitions: `config.fields` is a list
+  of full FeatureDefs and the value is a list of rows keyed by child slug.
+  Nothing here special-cases it — `config` is stored verbatim and validated by
+  the engine, which enforces the boundaries (nesting depth 1, no `header`
+  child, no `rules` on a child) and reports them on the `config` field. Two
+  places DO have to know: `translation_keys` walks a group's children (they are
+  not catalog rows, so nothing else reaches their names and option labels), and
+  `docs/schema.json` names `GroupConfig`/`GroupDto` in both discriminators.
+  Both are gated — `tests/test_feature_group_kind.py` for the crossings,
+  `tests/test_resolved_feature_contract.py` for the shape.
 - The **feature editor**: a keep/add/edit/inherit/remove/create/replace action
   model with descendant propagation and a draft→apply lifecycle (draft is API
   state, not a textarea). Plus children CRUD/reorder/undelete and convert-type
