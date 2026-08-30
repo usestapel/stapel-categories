@@ -32,6 +32,28 @@ from .translation import cache_feature_translation, translate, translate_feature
 from .validators import validate_features
 
 
+#: Keys a ``hints`` entry may carry — the canon's ``$defs.Hint``.
+HINT_KEYS = ("title", "content")
+
+
+def _validate_hints(hints) -> None:
+    """Reject anything that is not ``[{"title": str, "content": str}, ...]``."""
+    if not isinstance(hints, list):
+        raise ValidationError({"hints": _("Hints must be a list")})
+    for index, hint in enumerate(hints):
+        if not isinstance(hint, dict):
+            raise ValidationError({"hints": _("Hint %(index)d must be an object") % {"index": index}})
+        if set(hint) != set(HINT_KEYS):
+            raise ValidationError(
+                {"hints": _("Hint %(index)d must have exactly 'title' and 'content'") % {"index": index}}
+            )
+        for key in HINT_KEYS:
+            if not isinstance(hint[key], str):
+                raise ValidationError(
+                    {"hints": _("Hint %(index)d '%(key)s' must be a string") % {"index": index, "key": key}}
+                )
+
+
 class Feature(RevisionMixin, TreeNodeModel):
     """Polymorphic feature with a typed ``config``.
 
@@ -62,6 +84,38 @@ class Feature(RevisionMixin, TreeNodeModel):
     mandatory = models.BooleanField(default=False)
     show_as_badge = models.BooleanField(default=False)
     show_at_title = models.BooleanField(default=False)
+
+    # Conditional rules over sibling values — a sibling of ``mandatory``, never
+    # part of ``config``: a rule is type-independent, while ``config`` is parsed
+    # by the per-type serializer. Grammar and evaluator live in
+    # stapel-attributes (``rules.py``); this model only stores and validates.
+    rules = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Conditional rules (closed grammar). Validated by stapel-attributes.",
+    )
+
+    # Form metadata. Each value is a translation key or a literal, resolved the
+    # same way ``name`` is. None of it ever reaches a stored listing value.
+    description = models.TextField(
+        blank=True, default="", help_text="Help text under the field; translation key or literal."
+    )
+    example = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Placeholder text; translation key or literal.",
+    )
+    default = models.JSONField(
+        null=True, blank=True,
+        help_text="Initial form value in DTO 'value' shape (for a select, a list of option codes).",
+    )
+    hints = models.JSONField(
+        default=list, blank=True,
+        help_text="Notices rendered with the field: [{\"title\": ..., \"content\": ...}].",
+    )
+    group = models.CharField(
+        max_length=100, blank=True, default="",
+        help_text="Form section; sections order by first appearance.",
+    )
 
     class TranslateMode(models.TextChoices):
         ALL = "all", "All (title + options)"
@@ -110,8 +164,9 @@ class Feature(RevisionMixin, TreeNodeModel):
         ]
 
     def clean(self):
-        """Validate the feature configuration via stapel-attributes."""
+        """Validate the feature configuration and rules via stapel-attributes."""
         from stapel_attributes import validate_feature_config
+        from stapel_attributes.rules import parse_rules
 
         if not self.config:
             self.config = {}
@@ -123,6 +178,17 @@ class Feature(RevisionMixin, TreeNodeModel):
             validate_feature_config(self.config)
         except (ValidationError, ValueError) as e:
             raise ValidationError({"config": str(e)})
+
+        if self.rules is None:
+            self.rules = []
+        try:
+            parse_rules(self.rules)
+        except ValidationError as e:
+            raise ValidationError({"rules": e.messages})
+
+        if self.hints is None:
+            self.hints = []
+        _validate_hints(self.hints)
 
         # Slug rules
         slug = (self.slug or "").strip()
@@ -191,6 +257,13 @@ class Category(RevisionMixin, TreeNodeModel):
     treenode_display_field = "slug"
     name = models.CharField(max_length=255)
     slug = models.CharField(max_length=100, unique=True, db_index=True)
+    # Identifier this category carries in the source it was imported from
+    # (e.g. an Avito tree node id). Opaque, not unique — two imports may reuse
+    # an id — and never a natural key: the fixtures address categories by slug.
+    external_id = models.CharField(
+        max_length=64, blank=True, default="", db_index=True,
+        help_text="Identifier in the source catalogue this category was imported from.",
+    )
     comment = models.CharField(
         max_length=255, blank=True, default="", help_text="Comment for translators"
     )
@@ -319,6 +392,12 @@ class Category(RevisionMixin, TreeNodeModel):
                 "mandatory": feature.mandatory,
                 "showAsBadge": feature.show_as_badge,
                 "showAtTitle": feature.show_at_title,
+                "rules": feature.rules or [],
+                "description": feature.description,
+                "example": feature.example,
+                "default": feature.default,
+                "hints": feature.hints or [],
+                "group": feature.group,
                 "config": feature.get_config_with_defaults(),
             }
         return schema
@@ -335,7 +414,11 @@ class Category(RevisionMixin, TreeNodeModel):
         ``show_at_title`` / ``show_as_badge`` / ``translate`` MUST cross the
         boundary: attributes' ``dto_to_dao`` reads them off the FeatureDef to
         build the title/badge projections — omitting them yields empty
-        ``features_title`` / ``features_badges`` downstream.
+        ``features_title`` / ``features_badges`` downstream. ``rules`` MUST
+        cross it for the same reason: requiredness and visibility come from
+        ``evaluate_rules``, so a dropped rule set silently reverts the whole
+        category to static ``mandatory``. The form metadata crosses so a
+        consumer renders help/placeholder/sections without a second call.
         """
         return [
             {
@@ -346,6 +429,12 @@ class Category(RevisionMixin, TreeNodeModel):
                 "show_at_title": feature.show_at_title,
                 "show_as_badge": feature.show_as_badge,
                 "translate": feature.translate,
+                "rules": feature.rules or [],
+                "description": feature.description,
+                "example": feature.example,
+                "default": feature.default,
+                "hints": feature.hints or [],
+                "group": feature.group,
                 "config": feature.get_config_with_defaults(),
             }
             for feature in self.get_all_features()
