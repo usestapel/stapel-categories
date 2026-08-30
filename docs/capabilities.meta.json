@@ -25,6 +25,11 @@
       "intent": "Reject a category that carries two features sharing the same root (two versions of one inherited feature the host must pick between) — call this from wherever a category's feature set is validated (Category.clean() already does) instead of writing your own root-collision scan over category.features.",
       "instead_of": ["a hand-rolled scan for duplicate root_pk across category.features"]
     },
+    "feature_warnings": {
+      "kind": "factory",
+      "intent": "Collect the non-blocking findings only a category's WHOLE resolved feature set can answer: a rule condition, or a ref-type's optionsRef.parentFeature, naming a slug no feature in the category defines. Reach for it when reviewing or importing a category schema. It never raises — the same feature is reused across categories with different field sets, where an unknown controlling slug legitimately reads as empty — so treat the result as review material, not a gate.",
+      "instead_of": ["reading FeatureDef.rules by hand to work out which controlling slugs a category actually defines"]
+    },
     "canonical_json": {
       "kind": "factory",
       "intent": "Byte-stable JSON text (sorted keys, no ASCII-escaping, trailing newline) for anything meant to diff cleanly across runs — a committed fixture file or a hash input. Use this instead of calling json.dumps with your own parameter choices, or the file stops being byte-identical for identical DB state.",

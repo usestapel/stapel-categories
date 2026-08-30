@@ -1,8 +1,8 @@
-# stapel-categories 0.6.2
+# stapel-categories 0.7.0
 
 Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.
 
-Contract: axes 1 · surface 18 · extension points 4 · operations 31 · error codes 62.
+Contract: axes 1 · surface 19 · extension points 4 · operations 31 · error codes 63.
 Generated from docs/capabilities.json by `stapel-llms-txt` — do not edit; drift-gated by `make contract-check`.
 
 ## Configuration axes — what a product switches on
@@ -50,6 +50,9 @@ This is the answer to "does Stapel already have something for X?". `instead of` 
 - content_hash — stapel_categories.catalog_fixtures.content_hash
   instead of: a hand-rolled hashlib.sha256(json.dumps(record)) with its own key-ordering/whitespace choices
   Content hash of one canonical fixture record (compact sorted-key encoding), for comparing a fixture record's identity against the DB or a previous sync-state sidecar. Use this exact hashing wherever you need two tools to agree on whether a record changed — a different key order or whitespace choice hashes differently.
+- feature_warnings — stapel_categories.validators.feature_warnings
+  instead of: reading FeatureDef.rules by hand to work out which controlling slugs a category actually defines
+  Collect the non-blocking findings only a category's WHOLE resolved feature set can answer: a rule condition, or a ref-type's optionsRef.parentFeature, naming a slug no feature in the category defines. Reach for it when reviewing or importing a category schema. It never raises — the same feature is reused across categories with different field sets, where an unknown controlling slug legitimately reads as empty — so treat the result as review material, not a gate.
 - get_feature_key — stapel_categories.translation.get_feature_key
   The exact cache key for a feature's memoized admin display label (per feature + active language) — use this wherever you read or invalidate that cache entry, so a custom invalidation path can't drift from the key cache_feature_translation writes under.
 - identity_translator — stapel_categories.translation.identity_translator
@@ -112,7 +115,7 @@ Paths are relative to `/categories/api/v1/`.
 - GET /features/revision/ — categories_api_v1_features_revision_retrieve
 - PUT /features/{id}/ — categories_api_v1_features_update
 
-## Error codes (62) — the StapelError envelope
+## Error codes (63) — the StapelError envelope
 Render `t(code, params)`; branch UX on the remediation. Localized text lives in docs/errors.<lang>.md, not here.
 - error.400.bad_request [400] fix_input
 - error.400.captcha_invalid [400] retry
@@ -131,6 +134,7 @@ Render `t(code, params)`; branch UX on the remediation. Localized text lives in 
 - error.400.feature_below_minimum [400] fix_input {feature}
 - error.400.feature_invalid_config [400] fix_input {feature}
 - error.400.feature_invalid_format [400] fix_input {feature}
+- error.400.feature_invalid_rules [400] fix_input {feature}
 - error.400.feature_invalid_type [400] fix_input {feature}
 - error.400.feature_mandatory_missing [400] fix_input {feature}
 - error.400.feature_not_allowed [400] fix_input {feature}

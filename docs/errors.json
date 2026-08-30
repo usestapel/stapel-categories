@@ -152,6 +152,16 @@
     "owner": "stapel_attributes"
   },
   {
+    "code": "error.400.feature_invalid_rules",
+    "status": 400,
+    "params": [
+      "feature"
+    ],
+    "remediation": "fix_input",
+    "en": "Invalid rules for {feature}",
+    "owner": "stapel_attributes"
+  },
+  {
     "code": "error.400.feature_invalid_type",
     "status": 400,
     "params": [

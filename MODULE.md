@@ -13,6 +13,14 @@
   **stapel-attributes**. Feature inheritance walks self + ancestors
   (`Category.get_all_features`); `copy_parent_features` seeds a new child from
   its parent.
+- **Conditional rules and form metadata** on each Feature, siblings of the
+  flags rather than parts of `config`: `rules` (stapel-attributes' closed
+  grammar — require/show/hide/forbid_option/limit), plus `description`,
+  `example`, `default`, `hints` and `group`. `Feature.clean()` parses the rule
+  set and checks the hint shape; `validators.feature_warnings(category)`
+  reports (never raises) a rule condition or `optionsRef.parentFeature` naming
+  a slug the category does not define — the only question the *whole* resolved
+  set can answer.
 - The **feature editor**: a keep/add/edit/inherit/remove/create/replace action
   model with descendant propagation and a draft→apply lifecycle (draft is API
   state, not a textarea). Plus children CRUD/reorder/undelete and convert-type
@@ -38,6 +46,17 @@ serializers, and the schema-driven admin config-editor widget — lives in
 **stapel-attributes** and is imported. Do not re-add a `feature_types` module
 here; register new attribute types in stapel-attributes (its `EXTRA_TYPES`
 registry), not here.
+
+The **shape** of a feature definition is likewise upstream's:
+`stapel-attributes/docs/feature-def.schema.json` is the canon (§68 — one JSON,
+a fan of emitters). `schemas/functions/categories.features.json`'s
+`$defs.ResolvedFeature` is one of those emitters and is gated against it by
+`tests/test_resolved_feature_contract.py`: every canon property except `config`
+must be present and required here. The canon is read from a sibling checkout
+when the workspace has one and from the installed package otherwise (it is
+package data), so the gate never degrades to a skip. When upstream adds a
+`FeatureDef` field, that test fails until this module carries it — through
+`feature_defs()`, the serializers, the editor, the fixtures and the admin.
 
 ## Extension points (fork-free)
 
@@ -134,7 +153,7 @@ through `StapelModelAdmin`.
 
 | Kind | Name | Payload | Schema |
 |---|---|---|---|
-| Function (provides) | `categories.features` | `{category_id}` -> `{category_id, revision, features:[{id,slug,name,mandatory,config}]}` | `schemas/functions/categories.features.json` |
+| Function (provides) | `categories.features` | `{category_id}` -> `{category_id, revision, features:[ResolvedFeature]}` | `schemas/functions/categories.features.json` |
 | Function (provides) | `categories.path` | `{category_ids:[id,...]}` -> `{"<id>": ["<root_id>",…,"<id>"]}` | `schemas/functions/categories.path.json` |
 | Action (emits) | `category.changed` | `{category_id, revision}` | `schemas/emits/category.changed.json` |
 
@@ -197,7 +216,11 @@ something other than `load_catalog` (e.g. an editor action).
   `Feature.slug` (unique among roots). A category feature list entry is either
   a bare `{"slug": …}` reference to a shared root feature, or an inline
   override (`{"slug", "config", "mandatory", "show_as_badge", "show_at_title",
-  "translate"}`) when the linked row is a tree override (`tn_parent` set).
+  "translate", "rules", "description", "example", "default", "hints",
+  "group"}`) when the linked row is a tree override (`tn_parent` set).
+  Category records carry `external_id` (the id in the catalogue they were
+  imported from) — opaque and *not* a natural key: the fixtures address
+  categories by slug.
   Override rows get **no** invented natural key — every referencing category
   inlines its config independently (no dedup/owner heuristic; §2).
 - **`is_test` is an export filter, transitively.** A test category or feature,
@@ -209,6 +232,11 @@ something other than `load_catalog` (e.g. an editor action).
   newline; no timestamps/UUIDs in bodies (provenance lives in the git commit).
   Identical DB state ⇒ byte-identical files — the same contract as
   `dump_translations` / codegen artifacts.
+- **The sidecar carries a version** (`catalog_fixtures.STATE_VERSION`, 2 since
+  0.7.0). Bump it whenever a stored content-hash stops meaning what it meant —
+  a record gaining a key invalidates every hash a previous export wrote, and a
+  loader reading that base without the bump would classify the whole catalog as
+  conflicted instead of saying so.
 - Flags: `--dry-run` (report, write nothing), `--include-test` (local debug
   dump only — requires an explicit `--out`, never clobbers the canonical
   fixtures), `--force` (ignore the revision pre-filter).

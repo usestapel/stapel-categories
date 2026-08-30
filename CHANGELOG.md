@@ -1,5 +1,120 @@
 # Changelog
 
+## [0.7.0] — 2026-08-30
+
+**Minor = breaking** (pre-1.0). Slice S3 of the attributes-v2 architecture:
+`Feature` grows conditional rules and form metadata, `Category` grows
+`external_id`, and every seam those cross now carries them.
+
+What is breaking: the fixture record shape changed on both sides (a feature
+record gained six keys, a category record gained one), so **every content
+hash a 0.6.x export wrote is stale** — `.sync-state.json` version goes 1 → 2
+and `load_catalog` refuses an older sidecar with "regenerate via
+export_catalog" rather than reading the whole catalog as conflicted. The
+`categories.features` payload gained six required properties. And the
+stapel-attributes floor moves to `>=0.5,<1.0`, whose own breaking changes
+(requiredness is `RuleState.required`, not `FeatureDef.mandatory`; a `ref_*`
+config needs a registered resolver) reach anything mounting this module.
+
+### The half of a feature definition that was not crossing
+
+99.9 % of the fields in the Avito dataset carry a description and an example,
+31 % carry a dependency (a conditional rule), and none of that had anywhere to
+live here. stapel-attributes 0.5.0 gave `FeatureDef` the six fields for it;
+this release stores them and — the actual work — walks every place a feature
+definition crosses a boundary and makes it carry them.
+
+That walk is the point. Nothing *fails* when a serializer field list, the
+fixture writer or the editor's create path quietly omits `rules`: the answer
+just comes back smaller, the category silently reverts to static `mandatory`,
+and the form renders without its help text. So the new
+`tests/test_resolved_feature_contract.py` gates
+`schemas/functions/categories.features.json`'s `$defs.ResolvedFeature`
+against **the canon** — `stapel-attributes/docs/feature-def.schema.json`,
+§68's one-JSON-many-emitters — asserting it covers and requires every canon
+property except `config`. It reads the canon from a sibling checkout when the
+workspace has one and from the installed package otherwise (the schema is
+package data), so it never degrades to a skip: the next `FeatureDef` field
+upstream adds fails this module's suite until it is carried through.
+
+### Added
+
+- `Feature.rules` (`JSONField`, default `[]`) — conditional rules in
+  stapel-attributes' closed grammar (require / show / hide / forbid_option /
+  limit). A **sibling of `mandatory`, never part of `config`**: a rule is
+  type-independent, while `config` is parsed by the per-type serializer.
+- `Feature.description` / `example` / `default` / `hints` / `group` — the form
+  metadata (help text, placeholder, initial value, notices, section). Each is
+  a translation key or a literal, resolved like `name`, and none of it ever
+  lands in a stored listing value.
+- `Category.external_id` (`CharField(64)`, indexed, blank) — the identifier
+  the category carries in the catalogue it was imported from. Opaque, not
+  unique, and **not** a natural key: fixtures still address categories by slug.
+- Migration `0003_feature_rules_form_metadata_category_external_id` —
+  expand-only, seven `AddField`s.
+- `Feature.clean()` parses `rules` through `parse_rules` and reports a
+  deviation on the `rules` field (not on `config`), and checks that `hints` is
+  exactly `[{"title": str, "content": str}, …]`.
+- `validators.feature_warnings(category) -> list[str]` — the findings only the
+  *whole* resolved feature set can answer: a rule condition, or a ref type's
+  `optionsRef.parentFeature`, naming a slug the category does not define. It
+  **never raises**, deliberately: the same feature is reused across categories
+  with different field sets, where an unknown controlling slug legitimately
+  reads as `empty`. Review material, not a gate. Exported on the surface.
+- `tests/test_resolved_feature_contract.py` (5 tests) — the canon gate above.
+- `tests/test_feature_rules_metadata.py` (41) and
+  `tests/test_catalog_rules_metadata.py` (12) — one assertion per crossing:
+  `feature_defs()` rebuilding a lossless `FeatureDef`, the five serializers,
+  the editor's create/edit/inherit, the fixture pair (byte-stable, an
+  idempotent all-skips second load, a sidecar hash that actually moves when a
+  rule set does), `validate-dto` requiring a feature only once a rule shows
+  it, the admin changelist/changeform, and `GET /features` serving a
+  `ref_select` config verbatim.
+- `tests/fake_vocabulary.py` — a local in-memory `VocabularyResolver`, since
+  0.5.0 makes a `ref_*` config loud without one and stapel-attributes' own
+  test fake is not shipped in its wheel.
+
+### Changed
+
+- **Every feature-carrying boundary now carries the six fields**:
+  `Category.feature_defs()` and `get_feature_schema()`; `FeatureSerializer`,
+  `FeatureCompactSerializer`, `FeatureBulkSerializer` /
+  `FeatureCreateUpdateSerializer` (via `__all__`) and
+  `FeatureEditorFeatureSerializer`; `feature_editor.py`'s create / edit /
+  inherit; `catalog_fixtures.py`'s root record and inline-override entry (and
+  therefore the content hash); `catalog_load.py`'s `_INLINE_KEYS`,
+  normalizers, `_FEATURE_SCALARS`, upsert and override materialization;
+  `admin.py` (a "Form" fieldset and a "Rules" fieldset, plus `group` on the
+  changelist) and `forms.py`. `external_id` rides the Category serializers,
+  fixtures, loader and admin.
+- `translation_keys.py` collects `description`, `example`, `group` and each
+  hint's `title`/`content` alongside `name`, under the same `translate` gate —
+  so the `collect translation keys` endpoint lists what the form actually
+  renders instead of leaving raw keys on screen.
+- `$defs.ResolvedFeature` gains the six properties, **all required with a
+  documented default**. Required, not optional: "the producer may omit it"
+  means "requiredness may silently fall back to `mandatory`", so the response
+  sends them blank/empty rather than absent.
+- `catalog_fixtures.STATE_VERSION` 1 → 2 (see above).
+- `catalog_load._materialize_override` distinguishes "this entry says nothing
+  about that field" from a stored `None` with an `_UNSET` sentinel instead of
+  `None`. Latent before, load-bearing now: `default = None` is a real value
+  ("the form starts empty"), and conflating the two would leave a fixture edit
+  unapplied and re-detected on every subsequent load.
+- Floor `stapel-attributes>=0.5,<1.0`.
+- `tests/test_contract.py` pins twelve registered type slugs (was ten):
+  0.5.0 added `ref_select` and `ref_hierarchical_select`.
+
+### Unchanged, deliberately
+
+- `GET /categories/{id}/features` still serves `config` **verbatim** — a
+  `ref_select` arrives as its `optionsRef` pointer and nothing else. The
+  vocabularies behind it run to ~15 000 terms per level; inlining them at this
+  endpoint is not a size problem to optimize later, it is the wrong contract.
+  Pinned by a test.
+- `Feature.mandatory` stays a static flag. Conditional requirement is a rule;
+  the two are siblings, not replacements.
+
 ## [0.6.2] — 2026-08-30
 
 Patch (pre-1.0 semver: minor = breaking, patch = compatible). Tests only —

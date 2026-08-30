@@ -1578,6 +1578,11 @@
             "type": "string",
             "maxLength": 100
           },
+          "external_id": {
+            "type": "string",
+            "description": "Identifier in the source catalogue this category was imported from.",
+            "maxLength": 64
+          },
           "catalog_icon": {
             "type": "string",
             "description": "CDN catalog icon reference (opaque string, e.g. catalog/asset-name)",
@@ -1661,6 +1666,11 @@
           "slug": {
             "type": "string",
             "maxLength": 100
+          },
+          "external_id": {
+            "type": "string",
+            "description": "Identifier in the source catalogue this category was imported from.",
+            "maxLength": 64
           },
           "catalog_icon": {
             "type": "string",
@@ -1897,10 +1907,11 @@
           "description_too_long",
           "invalid_config",
           "min_greater_than_max",
-          "empty_options"
+          "empty_options",
+          "invalid_rules"
         ],
         "type": "string",
-        "description": "* `below_minimum` - below_minimum\n* `above_maximum` - above_maximum\n* `not_in_options` - not_in_options\n* `invalid_type` - invalid_type\n* `invalid_format` - invalid_format\n* `mandatory_missing` - mandatory_missing\n* `duplicate_slug` - duplicate_slug\n* `unknown_feature_type` - unknown_feature_type\n* `not_allowed` - not_allowed\n* `unknown_feature` - unknown_feature\n* `description_too_short` - description_too_short\n* `description_too_long` - description_too_long\n* `invalid_config` - invalid_config\n* `min_greater_than_max` - min_greater_than_max\n* `empty_options` - empty_options"
+        "description": "* `below_minimum` - below_minimum\n* `above_maximum` - above_maximum\n* `not_in_options` - not_in_options\n* `invalid_type` - invalid_type\n* `invalid_format` - invalid_format\n* `mandatory_missing` - mandatory_missing\n* `duplicate_slug` - duplicate_slug\n* `unknown_feature_type` - unknown_feature_type\n* `not_allowed` - not_allowed\n* `unknown_feature` - unknown_feature\n* `description_too_short` - description_too_short\n* `description_too_long` - description_too_long\n* `invalid_config` - invalid_config\n* `min_greater_than_max` - min_greater_than_max\n* `empty_options` - empty_options\n* `invalid_rules` - invalid_rules"
       },
       "Feature": {
         "type": "object",
@@ -1950,6 +1961,30 @@
               }
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
+          },
+          "rules": {
+            "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
+          },
+          "description": {
+            "type": "string",
+            "description": "Help text under the field; translation key or literal."
+          },
+          "example": {
+            "type": "string",
+            "description": "Placeholder text; translation key or literal.",
+            "maxLength": 255
+          },
+          "default": {
+            "nullable": true,
+            "description": "Initial form value in DTO 'value' shape (for a select, a list of option codes)."
+          },
+          "hints": {
+            "description": "Notices rendered with the field: [{\"title\": ..., \"content\": ...}]."
+          },
+          "group": {
+            "type": "string",
+            "description": "Form section; sections order by first appearance.",
+            "maxLength": 100
           },
           "tn_parent": {
             "type": "integer",
@@ -2103,6 +2138,30 @@
           "show_at_title": {
             "type": "boolean"
           },
+          "rules": {
+            "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
+          },
+          "description": {
+            "type": "string",
+            "description": "Help text under the field; translation key or literal."
+          },
+          "example": {
+            "type": "string",
+            "description": "Placeholder text; translation key or literal.",
+            "maxLength": 255
+          },
+          "default": {
+            "nullable": true,
+            "description": "Initial form value in DTO 'value' shape (for a select, a list of option codes)."
+          },
+          "hints": {
+            "description": "Notices rendered with the field: [{\"title\": ..., \"content\": ...}]."
+          },
+          "group": {
+            "type": "string",
+            "description": "Form section; sections order by first appearance.",
+            "maxLength": 100
+          },
           "translate": {
             "allOf": [
               {
@@ -2192,6 +2251,30 @@
               }
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
+          },
+          "rules": {
+            "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
+          },
+          "description": {
+            "type": "string",
+            "description": "Help text under the field; translation key or literal."
+          },
+          "example": {
+            "type": "string",
+            "description": "Placeholder text; translation key or literal.",
+            "maxLength": 255
+          },
+          "default": {
+            "nullable": true,
+            "description": "Initial form value in DTO 'value' shape (for a select, a list of option codes)."
+          },
+          "hints": {
+            "description": "Notices rendered with the field: [{\"title\": ..., \"content\": ...}]."
+          },
+          "group": {
+            "type": "string",
+            "description": "Form section; sections order by first appearance.",
+            "maxLength": 100
           }
         },
         "required": [
@@ -2231,6 +2314,12 @@
           },
           {
             "$ref": "#/components/schemas/ConvertibleUnitConfig"
+          },
+          {
+            "$ref": "#/components/schemas/RefSelectConfig"
+          },
+          {
+            "$ref": "#/components/schemas/RefHierarchicalSelectConfig"
           }
         ],
         "discriminator": {
@@ -2245,7 +2334,9 @@
             "date": "#/components/schemas/DateConfig",
             "header": "#/components/schemas/HeaderConfig",
             "hierarchical_select": "#/components/schemas/HierarchicalSelectConfig",
-            "convertible_unit": "#/components/schemas/ConvertibleUnitConfig"
+            "convertible_unit": "#/components/schemas/ConvertibleUnitConfig",
+            "ref_select": "#/components/schemas/RefSelectConfig",
+            "ref_hierarchical_select": "#/components/schemas/RefHierarchicalSelectConfig"
           }
         }
       },
@@ -2380,6 +2471,30 @@
           "show_at_title": {
             "type": "boolean"
           },
+          "rules": {
+            "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
+          },
+          "description": {
+            "type": "string",
+            "description": "Help text under the field; translation key or literal."
+          },
+          "example": {
+            "type": "string",
+            "description": "Placeholder text; translation key or literal.",
+            "maxLength": 255
+          },
+          "default": {
+            "nullable": true,
+            "description": "Initial form value in DTO 'value' shape (for a select, a list of option codes)."
+          },
+          "hints": {
+            "description": "Notices rendered with the field: [{\"title\": ..., \"content\": ...}]."
+          },
+          "group": {
+            "type": "string",
+            "description": "Form section; sections order by first appearance.",
+            "maxLength": 100
+          },
           "translate": {
             "allOf": [
               {
@@ -2447,6 +2562,12 @@
           },
           {
             "$ref": "#/components/schemas/ConvertibleUnitDto"
+          },
+          {
+            "$ref": "#/components/schemas/RefSelectDto"
+          },
+          {
+            "$ref": "#/components/schemas/RefHierarchicalSelectDto"
           }
         ],
         "discriminator": {
@@ -2461,7 +2582,9 @@
             "date": "#/components/schemas/DateDto",
             "header": "#/components/schemas/HeaderDto",
             "hierarchical_select": "#/components/schemas/HierarchicalSelectDto",
-            "convertible_unit": "#/components/schemas/ConvertibleUnitDto"
+            "convertible_unit": "#/components/schemas/ConvertibleUnitDto",
+            "ref_select": "#/components/schemas/RefSelectDto",
+            "ref_hierarchical_select": "#/components/schemas/RefHierarchicalSelectDto"
           }
         }
       },
@@ -2562,6 +2685,39 @@
             ],
             "default": "all",
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - all\n* `title` - title\n* `none` - none"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            "description": "Conditional rules over sibling values (stapel-attributes' closed grammar)."
+          },
+          "description": {
+            "type": "string",
+            "default": ""
+          },
+          "example": {
+            "type": "string",
+            "default": ""
+          },
+          "default": {
+            "nullable": true
+          },
+          "hints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "description": "Notices rendered with the field: [{title, content}]."
+          },
+          "group": {
+            "type": "string",
+            "default": ""
           },
           "tn_parent": {
             "type": "integer",
@@ -3032,6 +3188,21 @@
           null
         ]
       },
+      "OptionsRef": {
+        "type": "object",
+        "properties": {
+          "vocabulary": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string"
+          },
+          "parentFeature": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "PaginatedCategoryList": {
         "type": "object",
         "required": [
@@ -3218,6 +3389,11 @@
             "type": "string",
             "maxLength": 100
           },
+          "external_id": {
+            "type": "string",
+            "description": "Identifier in the source catalogue this category was imported from.",
+            "maxLength": 64
+          },
           "catalog_icon": {
             "type": "string",
             "description": "CDN catalog icon reference (opaque string, e.g. catalog/asset-name)",
@@ -3388,6 +3564,30 @@
           "show_at_title": {
             "type": "boolean"
           },
+          "rules": {
+            "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
+          },
+          "description": {
+            "type": "string",
+            "description": "Help text under the field; translation key or literal."
+          },
+          "example": {
+            "type": "string",
+            "description": "Placeholder text; translation key or literal.",
+            "maxLength": 255
+          },
+          "default": {
+            "nullable": true,
+            "description": "Initial form value in DTO 'value' shape (for a select, a list of option codes)."
+          },
+          "hints": {
+            "description": "Notices rendered with the field: [{\"title\": ..., \"content\": ...}]."
+          },
+          "group": {
+            "type": "string",
+            "description": "Form section; sections order by first appearance.",
+            "maxLength": 100
+          },
           "translate": {
             "allOf": [
               {
@@ -3417,6 +3617,97 @@
         "type": "string",
         "description": "* `year` - year\n* `month` - month\n* `date` - date\n* `datetime` - datetime"
       },
+      "RefHierarchicalSelectConfig": {
+        "type": "object",
+        "description": "Serializer for the ref_hierarchical_select feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type565Enum"
+          },
+          "vocabulary": {
+            "type": "string",
+            "nullable": true
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "minDepth": {
+            "type": "integer"
+          },
+          "maxDepth": {
+            "type": "integer",
+            "nullable": true
+          }
+        }
+      },
+      "RefHierarchicalSelectDto": {
+        "type": "object",
+        "description": "Serializer for the ref_hierarchical_select feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/Type565Enum"
+          },
+          "value": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RefSelectConfig": {
+        "type": "object",
+        "description": "Serializer for the ref_select feature configuration.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/TypeCcbEnum"
+          },
+          "optionsRef": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OptionsRef"
+              }
+            ],
+            "nullable": true
+          },
+          "minSelected": {
+            "type": "integer"
+          },
+          "maxSelected": {
+            "type": "integer",
+            "nullable": true
+          },
+          "uiStyle": {
+            "$ref": "#/components/schemas/RefSelectConfigUiStyleEnum"
+          }
+        }
+      },
+      "RefSelectConfigUiStyleEnum": {
+        "enum": [
+          "dropdown",
+          "chips"
+        ],
+        "type": "string",
+        "description": "* `dropdown` - dropdown\n* `chips` - chips"
+      },
+      "RefSelectDto": {
+        "type": "object",
+        "description": "Serializer for the ref_select feature DTO.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/TypeCcbEnum"
+          },
+          "value": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "SelectConfig": {
         "type": "object",
         "description": "Serializer for select feature configuration.",
@@ -3431,7 +3722,7 @@
             }
           },
           "uiStyle": {
-            "$ref": "#/components/schemas/UiStyleEnum"
+            "$ref": "#/components/schemas/SelectConfigUiStyleEnum"
           },
           "minSelected": {
             "type": "integer"
@@ -3447,6 +3738,15 @@
             "type": "boolean"
           }
         }
+      },
+      "SelectConfigUiStyleEnum": {
+        "enum": [
+          "dropdown",
+          "checkboxes",
+          "chips"
+        ],
+        "type": "string",
+        "description": "* `dropdown` - dropdown\n* `checkboxes` - checkboxes\n* `chips` - chips"
       },
       "SelectDto": {
         "type": "object",
@@ -3599,6 +3899,13 @@
         "type": "string",
         "description": "* `hex_color` - hex_color"
       },
+      "Type565Enum": {
+        "enum": [
+          "ref_hierarchical_select"
+        ],
+        "type": "string",
+        "description": "* `ref_hierarchical_select` - ref_hierarchical_select"
+      },
       "Type5beEnum": {
         "enum": [
           "hierarchical_select"
@@ -3627,6 +3934,13 @@
         "type": "string",
         "description": "* `int` - int"
       },
+      "TypeCcbEnum": {
+        "enum": [
+          "ref_select"
+        ],
+        "type": "string",
+        "description": "* `ref_select` - ref_select"
+      },
       "TypeD7cEnum": {
         "enum": [
           "float"
@@ -3640,15 +3954,6 @@
         ],
         "type": "string",
         "description": "* `bool` - bool"
-      },
-      "UiStyleEnum": {
-        "enum": [
-          "dropdown",
-          "checkboxes",
-          "chips"
-        ],
-        "type": "string",
-        "description": "* `dropdown` - dropdown\n* `checkboxes` - checkboxes\n* `chips` - chips"
       },
       "UndeleteResponse": {
         "type": "object",

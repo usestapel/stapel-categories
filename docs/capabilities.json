@@ -1,6 +1,6 @@
 {
   "module": "stapel-categories",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "provides": "Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.",
   "axes": [
     {
@@ -165,6 +165,15 @@
       "intent": "Every feature translation key (name + config UI keys + option labels) in tree-walk order with admin refs/comments — use this, not a naive tree-walk, since it already knows to descend into polymorphic config option labels (select/hierarchical_select) that a generic walk would miss.",
       "instead_of": [
         "a hand-written feature tree-walk that reads only feature.name and misses config option-label keys"
+      ]
+    },
+    {
+      "name": "feature_warnings",
+      "kind": "factory",
+      "path": "stapel_categories.validators.feature_warnings",
+      "intent": "Collect the non-blocking findings only a category's WHOLE resolved feature set can answer: a rule condition, or a ref-type's optionsRef.parentFeature, naming a slug no feature in the category defines. Reach for it when reviewing or importing a category schema. It never raises — the same feature is reused across categories with different field sets, where an unknown controlling slug legitimately reads as empty — so treat the result as review material, not a gate.",
+      "instead_of": [
+        "reading FeatureDef.rules by hand to work out which controlling slugs a category actually defines"
       ]
     },
     {
