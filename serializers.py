@@ -78,6 +78,7 @@ class FeatureSerializer(serializers.ModelSerializer):
             "id", "name", "slug", "icon", "comment",
             "config",
             "mandatory", "show_as_badge", "show_at_title", "translate",
+            "rules", "description", "example", "default", "hints", "group",
             "tn_parent", "tn_priority",
             "tn_ancestors_pks", "tn_children_pks",
             "tn_descendants_pks", "tn_siblings_pks",
@@ -99,6 +100,7 @@ class FeatureCompactSerializer(serializers.ModelSerializer):
             "id", "tn_parent", "name", "slug", "icon", "comment",
             "config",
             "mandatory", "show_as_badge", "show_at_title", "translate",
+            "rules", "description", "example", "default", "hints", "group",
         ]
 
 
@@ -134,7 +136,8 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = [
-            "id", "name", "slug", "catalog_icon", "carousel_icon", "carousel_enabled", "active",
+            "id", "name", "slug", "external_id",
+            "catalog_icon", "carousel_icon", "carousel_enabled", "active",
             "features", "translatable",
             "tn_parent", "tn_priority",
             "tn_ancestors_pks", "tn_children_pks",
@@ -169,7 +172,10 @@ class CategoryBulkSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ["id", "name", "slug", "catalog_icon", "carousel_icon", "features", "tn_parent", "tn_priority"]
+        fields = [
+            "id", "name", "slug", "external_id", "catalog_icon", "carousel_icon",
+            "features", "tn_parent", "tn_priority",
+        ]
 
 
 # =============================================================================
@@ -202,6 +208,22 @@ class FeatureEditorFeatureSerializer(serializers.Serializer):
         default="all",
         help_text="What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing",
     )
+    rules = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+        help_text="Conditional rules over sibling values (stapel-attributes' closed grammar).",
+    )
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    example = serializers.CharField(required=False, allow_blank=True, default="")
+    default = serializers.JSONField(required=False, allow_null=True, default=None)
+    hints = serializers.ListField(
+        child=serializers.DictField(child=serializers.CharField()),
+        required=False,
+        default=list,
+        help_text="Notices rendered with the field: [{title, content}].",
+    )
+    group = serializers.CharField(required=False, allow_blank=True, default="")
     tn_parent = serializers.IntegerField(required=False, allow_null=True)
     tn_priority = serializers.IntegerField(required=False, default=0)
 

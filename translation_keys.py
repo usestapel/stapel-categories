@@ -195,13 +195,34 @@ def _collect_hierarchical_option_keys_ordered(
                 _collect_hierarchical_option_keys_ordered(option['children'], keys, seen)
 
 
+def _form_metadata_keys(feature: Feature) -> List[str]:
+    """Form-metadata translation keys of one feature, in render order.
+
+    ``description`` / ``example`` / ``group`` and each hint's ``title`` and
+    ``content`` are key-or-literal exactly like ``name`` — a catalog that does
+    not list them leaves the form rendering raw keys to the user.
+    """
+    keys: List[str] = []
+    for value in (feature.description, feature.example, feature.group):
+        if value and value not in keys:
+            keys.append(value)
+    for hint in feature.hints or []:
+        if not isinstance(hint, dict):
+            continue
+        for part in (hint.get('title'), hint.get('content')):
+            if part and isinstance(part, str) and part not in keys:
+                keys.append(part)
+    return keys
+
+
 def collect_feature_translation_keys_with_refs() -> List[Dict]:
     """
     Collect all translation keys from features with refs and comments.
     Uses recursive tree-walk order (depth-first, ordered by tn_priority desc).
 
     For each feature, keys are collected in this order:
-    1. Feature name (if translate mode = TITLE or ALL)
+    1. Feature name, then its form metadata — description, example, group,
+       and each hint's title/content (if translate mode = TITLE or ALL)
     2. Config UI keys: placeholder, prefix, postfix, postfix1000
     3. Option labels (select/hierarchical_select, preserving order)
     4. Recurse into child features
@@ -225,10 +246,14 @@ def collect_feature_translation_keys_with_refs() -> List[Dict]:
                 walk_features(feature)
                 continue
 
-            # 1. Feature name
+            # 1. Feature name + form metadata (help, placeholder, section,
+            # hints) — every one of them is a key-or-literal resolved through
+            # the same host catalog as ``name``, so they ride the same gate.
             if feature.translate in [Feature.TranslateMode.TITLE, Feature.TranslateMode.ALL]:
                 if feature.name:
                     ordered_items.append((feature.name, feature, False, None))
+                for key in _form_metadata_keys(feature):
+                    ordered_items.append((key, feature, False, None))
 
             # 2. Config UI keys + 3. Option labels
             if feature.translate == Feature.TranslateMode.ALL:

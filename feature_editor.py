@@ -401,6 +401,12 @@ def apply_feature_editor_changes(
                 feature_obj.show_as_badge = payload.get("show_as_badge", False)
                 feature_obj.show_at_title = payload.get("show_at_title", False)
                 feature_obj.translate = payload.get("translate", "all")
+                feature_obj.rules = payload.get("rules") or []
+                feature_obj.description = payload.get("description", "")
+                feature_obj.example = payload.get("example", "")
+                feature_obj.default = payload.get("default")
+                feature_obj.hints = payload.get("hints") or []
+                feature_obj.group = payload.get("group", "")
                 if "icon" in payload:
                     feature_obj.icon = payload.get("icon") or ""
                 # Validate the config (and slug rules) via the model's clean()
@@ -425,6 +431,12 @@ def apply_feature_editor_changes(
                     show_as_badge=payload.get("show_as_badge", False),
                     show_at_title=payload.get("show_at_title", False),
                     translate=payload.get("translate", "all"),
+                    rules=payload.get("rules") or [],
+                    description=payload.get("description", ""),
+                    example=payload.get("example", ""),
+                    default=payload.get("default"),
+                    hints=payload.get("hints") or [],
+                    group=payload.get("group", ""),
                     tn_priority=payload.get("tn_priority", 0),
                 )
                 final_features.append(feature_obj)
@@ -447,6 +459,12 @@ def apply_feature_editor_changes(
                 show_as_badge=payload.get("show_as_badge", False),
                 show_at_title=payload.get("show_at_title", False),
                 translate=payload.get("translate", "all"),
+                rules=payload.get("rules") or [],
+                description=payload.get("description", ""),
+                example=payload.get("example", ""),
+                default=payload.get("default"),
+                hints=payload.get("hints") or [],
+                group=payload.get("group", ""),
                 tn_priority=payload.get("tn_priority", 0),
             )
             final_features.append(feature_obj)

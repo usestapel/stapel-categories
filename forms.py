@@ -23,10 +23,13 @@ class FeatureAdminForm(TreeNodeForm):
         model = Feature
         fields = [
             "tn_parent", "name", "slug", "icon", "comment", "config",
-            "mandatory", "show_as_badge", "show_at_title", "tn_priority",
+            "mandatory", "show_as_badge", "show_at_title",
+            "rules", "description", "example", "default", "hints", "group",
+            "tn_priority",
         ]
         widgets = {
             "comment": forms.Textarea(attrs={"rows": 2, "cols": 50}),
+            "description": forms.Textarea(attrs={"rows": 3, "cols": 50}),
         }
 
     def __init__(self, *args, **kwargs):

@@ -60,7 +60,10 @@ class CategoryAdmin(RevisionAdmin, TreeNodeModelAdmin):
 
     fieldsets = (
         ("Basic Information", {
-            "fields": ("tn_parent", "translatable", "slug", "name", "comment", "active", "is_test", "tn_priority"),
+            "fields": (
+                "tn_parent", "translatable", "slug", "name", "external_id",
+                "comment", "active", "is_test", "tn_priority",
+            ),
         }),
         ("Icons", {
             "fields": ("catalog_icon", "carousel_icon", "carousel_enabled"),
@@ -150,7 +153,7 @@ class FeatureAdmin(TreeNodeModelAdmin):
     autocomplete_fields = ["tn_parent"]
     list_display = [
         "name", "slug", "feature_type_display", "config_status", "mandatory",
-        "show_as_badge", "show_at_title", "translate", "is_test", "tn_priority",
+        "show_as_badge", "show_at_title", "translate", "group", "is_test", "tn_priority",
     ]
     list_filter = ["mandatory", "show_as_badge", "show_at_title", "translate", "is_test"]
     search_fields = ["name", "slug", "comment"]
@@ -162,6 +165,21 @@ class FeatureAdmin(TreeNodeModelAdmin):
         }),
         ("Type Configuration", {"fields": ("config",)}),
         ("Display Options", {"fields": ("mandatory", "show_as_badge", "show_at_title")}),
+        ("Form", {
+            "fields": ("description", "example", "default", "hints", "group"),
+            "description": (
+                "Rendered with the field by the form: help text, placeholder, "
+                "initial value, notices and the section this field sits in. "
+                "Never stored in a submitted value."
+            ),
+        }),
+        ("Rules", {
+            "fields": ("rules",),
+            "description": (
+                "Conditional rules over sibling values (stapel-attributes' closed "
+                "grammar): require / show / hide / forbid_option / limit."
+            ),
+        }),
     )
 
     @admin.display(description="Type")
