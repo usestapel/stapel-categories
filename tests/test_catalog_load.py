@@ -1085,3 +1085,338 @@ class HardDeleteCascadeGuardTests(_CatalogTestCase):
             with self.assertRaises(CommandError):
                 _load_cmd(out)
             self.assertFalse(Feature.objects.filter(deleted=True).exists())
+
+
+# ---------------------------------------------------------------------------
+# Source identity: re-imports are keyed by (external_source, external_id)
+# ---------------------------------------------------------------------------
+
+
+class SourceIdentityTests(_CatalogTestCase):
+    """A re-import of an external catalogue matches on source identity first.
+
+    The slug of an imported category is derived from the source's node path, so
+    the source renaming a node moves the slug while the node stays the same
+    node. Matching by slug would read that as "one category vanished, another
+    appeared" and leave a duplicate beside the row that holds the listings.
+    """
+
+    def _seed_imported(self):
+        """Two imported roots + one imported child, all carrying Avito ids."""
+        self.phones = Category.objects.create(
+            name="Телефоны", slug="telefony", external_id="129639",
+            external_source="avito",
+        )
+        self.used = Category.objects.create(
+            name="Б/у телефоны", slug="bu-telefony", tn_parent=self.phones,
+            external_id="129640", external_source="avito",
+        )
+
+    def _cats(self, out):
+        return {r["slug"]: r for r in _read_json(out, cf.CATEGORIES_FILE)}
+
+    # -- the rename ---------------------------------------------------------
+
+    def test_a_renamed_node_updates_in_place_and_creates_no_duplicate(self):
+        self._seed_imported()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in records:
+                if rec["external_id"] == "129639":
+                    rec["slug"] = "mobilnye-telefony"      # source renamed the node
+                    rec["name"] = "Мобильные телефоны"
+                elif rec["external_id"] == "129640":
+                    rec["parent_slug"] = "mobilnye-telefony"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertFalse(report.failed, [(i.kind, i.key, i.detail) for i in report.categories])
+
+            # Same row (same pk), new slug and name — not a second row.
+            self.assertEqual(Category.objects.filter(external_id="129639").count(), 1)
+            self.assertFalse(Category.objects.filter(slug="telefony").exists())
+            moved = Category.objects.get(pk=self.phones.pk)
+            self.assertEqual(moved.slug, "mobilnye-telefony")
+            self.assertEqual(moved.name, "Мобильные телефоны")
+            # The child kept hanging off the very same parent row.
+            self.assertEqual(
+                Category.objects.get(pk=self.used.pk).tn_parent_id, self.phones.pk
+            )
+            # Reported as an update-with-rename, never as created + deleted.
+            kinds = {it.key: it.kind for it in report.categories}
+            self.assertEqual(kinds["mobilnye-telefony"], cl.UPDATED)
+            self.assertNotIn("telefony", kinds)
+
+    def test_the_dry_run_plan_prints_the_rename_and_writes_nothing(self):
+        self._seed_imported()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in records:
+                if rec["external_id"] == "129639":
+                    rec["slug"] = "mobilnye-telefony"
+                elif rec["external_id"] == "129640":
+                    rec["parent_slug"] = "mobilnye-telefony"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out, dry_run=True, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            item = next(it for it in report.categories if it.key == "mobilnye-telefony")
+            self.assertTrue(item.renamed)
+            self.assertEqual(item.kind, cl.UPDATED)
+            self.assertIn("slug 'telefony' → 'mobilnye-telefony'", item.detail)
+            self.assertIn("external_id '129639'", item.detail)
+            self.assertEqual(report.renames, 1)
+            # No add/remove pair anywhere in the plan for this node.
+            self.assertEqual([it.kind for it in report.categories if it.kind == cl.DELETED], [])
+            self.assertEqual([it.kind for it in report.categories if it.kind == cl.CREATED], [])
+            # Dry run wrote nothing.
+            self.assertTrue(Category.objects.filter(slug="telefony").exists())
+
+    def test_the_command_prints_the_rename_line(self):
+        from io import StringIO
+
+        self._seed_imported()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in records:
+                if rec["external_id"] == "129639":
+                    rec["slug"] = "mobilnye-telefony"
+                elif rec["external_id"] == "129640":
+                    rec["parent_slug"] = "mobilnye-telefony"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            buf = StringIO()
+            call_command(
+                "load_catalog", dir=out, dry_run=True,
+                on_conflict=cl.ON_CONFLICT_FIXTURE, stdout=buf,
+            )
+            text = buf.getvalue()
+            self.assertIn("of which renamed 1", text)
+            self.assertIn(
+                "» mobilnye-telefony  (renamed: slug 'telefony' → "
+                "'mobilnye-telefony' (external_id '129639', source 'avito'))",
+                text,
+            )
+
+    def test_a_rename_chain_resolves_in_one_run(self):
+        """a→b while b→c: the holder of the target slug moves away first."""
+        first = Category.objects.create(
+            name="A", slug="a", external_id="1", external_source="avito"
+        )
+        second = Category.objects.create(
+            name="B", slug="b", external_id="2", external_source="avito"
+        )
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in records:
+                rec["slug"] = {"1": "b", "2": "c"}[rec["external_id"]]
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertFalse(report.failed, [(i.kind, i.key, i.detail) for i in report.categories])
+            self.assertEqual(Category.objects.get(pk=first.pk).slug, "b")
+            self.assertEqual(Category.objects.get(pk=second.pk).slug, "c")
+            self.assertEqual(Category.objects.count(), 2)
+
+    # -- the slug fallback --------------------------------------------------
+
+    def test_a_hand_seeded_row_without_external_id_still_matches_by_slug(self):
+        hand = Category.objects.create(name="Services", slug="services")
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            records[0]["name"] = "Services & repair"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertFalse(report.failed)
+            self.assertEqual(Category.objects.count(), 1)
+            self.assertEqual(Category.objects.get(pk=hand.pk).name, "Services & repair")
+
+    def test_a_hand_seeded_row_is_adopted_by_the_first_import_that_claims_it(self):
+        """A slug match with no live identity may take on the source id."""
+        hand = Category.objects.create(name="Phones", slug="phones")
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            records[0]["external_id"] = "129639"
+            records[0]["external_source"] = "avito"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertFalse(report.failed)
+            self.assertEqual(Category.objects.count(), 1)
+            adopted = Category.objects.get(pk=hand.pk)
+            self.assertEqual(adopted.external_id, "129639")
+            self.assertEqual(adopted.external_source, "avito")
+
+    def test_external_source_separates_two_catalogues_reusing_one_id(self):
+        """Same external_id, different source — two rows, never one."""
+        avito = Category.objects.create(
+            name="Avito 1", slug="avito-one", external_id="1", external_source="avito"
+        )
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            records.append({
+                "slug": "youla-one", "parent_slug": None, "name": "Youla 1",
+                "comment": "", "catalog_icon": "", "carousel_icon": "",
+                "carousel_enabled": False, "active": True, "external_id": "1",
+                "external_source": "youla", "translatable": True, "features": [],
+            })
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertFalse(report.failed, [(i.kind, i.key, i.detail) for i in report.categories])
+            self.assertEqual(Category.objects.count(), 2)
+            self.assertEqual(Category.objects.get(pk=avito.pk).slug, "avito-one")
+            self.assertEqual(
+                Category.objects.get(external_source="youla").slug, "youla-one"
+            )
+
+    # -- collisions: identity wins, loudly ----------------------------------
+
+    def test_identity_wins_over_a_slug_match_on_a_different_row(self):
+        """Fixture identity matches row A, fixture slug is held by row B."""
+        row_a = Category.objects.create(
+            name="A", slug="a", external_id="1", external_source="avito"
+        )
+        row_b = Category.objects.create(name="B", slug="b")   # hand-seeded, stays
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in records:
+                if rec["external_id"] == "1":
+                    rec["slug"] = "b"          # A renamed onto B's slug
+                    rec["name"] = "A renamed"
+            # B stays in the fixture under its own slug, unchanged — nothing
+            # frees the slug, so the rename cannot land.
+            records = [r for r in records if r["external_id"] == "1"]
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE,
+                                     deletions=cl.DELETIONS_IGNORE)
+            self.assertTrue(report.failed)
+            errors = [it for it in report.categories if it.kind == cl.ERROR]
+            self.assertEqual(len(errors), 1)
+            self.assertIn("external_id '1'", errors[0].detail)
+            self.assertIn("'a'", errors[0].detail)
+            self.assertIn("'b'", errors[0].detail)
+            self.assertIn("identity wins", errors[0].detail)
+
+            # Neither row was clobbered and no third row appeared.
+            self.assertEqual(Category.objects.count(), 2)
+            self.assertEqual(Category.objects.get(pk=row_a.pk).slug, "a")
+            b = Category.objects.get(pk=row_b.pk)
+            self.assertEqual(b.name, "B")           # NOT overwritten by A's record
+            self.assertEqual(b.external_id, "")     # NOT stamped with A's id
+
+    def test_the_dry_run_reports_the_collision_before_anything_is_written(self):
+        Category.objects.create(
+            name="A", slug="a", external_id="1", external_source="avito"
+        )
+        Category.objects.create(name="B", slug="b")
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = [r for r in _read_json(out, cf.CATEGORIES_FILE)
+                       if r["external_id"] == "1"]
+            records[0]["slug"] = "b"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out, dry_run=True,
+                                     on_conflict=cl.ON_CONFLICT_FIXTURE,
+                                     deletions=cl.DELETIONS_IGNORE)
+            self.assertTrue(report.failed)
+            self.assertIn("identity wins",
+                          " ".join(it.detail for it in report.categories))
+
+    def test_a_re_stamped_identity_is_applied_but_called_out_in_the_plan(self):
+        """Fixture id X, slug held by a row already carrying id Y.
+
+        The fixture stays canon for its own slug (an operator correcting a
+        wrong id must work), but swapping which source node a row represents
+        is not something a plan may leave unsaid.
+        """
+        held = Category.objects.create(
+            name="Held", slug="phones", external_id="222", external_source="avito"
+        )
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            records[0]["external_id"] = "111"       # a different source node
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            plan = cl.load_catalog(out, dry_run=True, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            item = next(it for it in plan.categories if it.key == "phones")
+            self.assertIn("re-stamped", item.detail)
+            self.assertIn("external_id '222'", item.detail)
+            self.assertIn("external_id '111'", item.detail)
+            self.assertFalse(item.renamed)          # not a rename: the slug held
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertFalse(report.failed)
+            self.assertEqual(Category.objects.get(pk=held.pk).external_id, "111")
+            self.assertEqual(Category.objects.count(), 1)
+
+    def test_duplicate_live_rows_for_one_source_node_are_refused(self):
+        Category.objects.create(
+            name="One", slug="one", external_id="1", external_source="avito"
+        )
+        Category.objects.create(
+            name="Two", slug="two", external_id="1", external_source="avito"
+        )
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in records:
+                rec["slug"] = "three"
+                rec["parent_slug"] = None
+            _write_json(out, cf.CATEGORIES_FILE, [records[0]])
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE,
+                                     deletions=cl.DELETIONS_IGNORE)
+            self.assertTrue(report.failed)
+            self.assertIn("merge or clear",
+                          " ".join(it.detail for it in report.categories))
+
+    # -- the export half ----------------------------------------------------
+
+    def test_external_source_round_trips_and_is_omitted_when_blank(self):
+        self._seed_imported()
+        Category.objects.create(name="Hand", slug="hand")
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = self._cats(out)
+            self.assertEqual(cats["telefony"]["external_source"], "avito")
+            # Blank source stays out of the record, so hashes written before
+            # the field existed keep their meaning.
+            self.assertNotIn("external_source", cats["hand"])
+
+            _wipe_db()
+            _load_cmd(out, seed_if_empty=True)
+            self.assertEqual(
+                Category.objects.get(slug="telefony").external_source, "avito"
+            )
+            self.assertEqual(Category.objects.get(slug="hand").external_source, "")
+
+    def test_a_rename_is_idempotent_on_a_second_load(self):
+        self._seed_imported()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in records:
+                if rec["external_id"] == "129639":
+                    rec["slug"] = "mobilnye-telefony"
+                elif rec["external_id"] == "129640":
+                    rec["parent_slug"] = "mobilnye-telefony"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            before = Category.objects.get(pk=self.phones.pk).revision
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertFalse(report.failed)
+            self.assertEqual(report.renames, 0)   # already applied — not a rename
+            self.assertEqual(Category.objects.get(pk=self.phones.pk).revision, before)

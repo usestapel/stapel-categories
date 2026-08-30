@@ -136,7 +136,7 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = [
-            "id", "name", "slug", "external_id",
+            "id", "name", "slug", "external_id", "external_source",
             "catalog_icon", "carousel_icon", "carousel_enabled", "active",
             "features", "translatable",
             "tn_parent", "tn_priority",
@@ -173,7 +173,8 @@ class CategoryBulkSerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = [
-            "id", "name", "slug", "external_id", "catalog_icon", "carousel_icon",
+            "id", "name", "slug", "external_id", "external_source",
+            "catalog_icon", "carousel_icon",
             "features", "tn_parent", "tn_priority",
         ]
 

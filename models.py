@@ -258,11 +258,28 @@ class Category(RevisionMixin, TreeNodeModel):
     name = models.CharField(max_length=255)
     slug = models.CharField(max_length=100, unique=True, db_index=True)
     # Identifier this category carries in the source it was imported from
-    # (e.g. an Avito tree node id). Opaque, not unique — two imports may reuse
-    # an id — and never a natural key: the fixtures address categories by slug.
+    # (e.g. an Avito tree node id). Opaque, and NOT unique on its own — two
+    # source catalogues may hand out the same id — so the importer's identity
+    # is the PAIR (external_source, external_id), see ``external_source``.
+    #
+    # It is not the fixture's addressing key either: the files still address
+    # categories by ``slug`` (`parent_slug` edges, sidecar keys). It IS the
+    # re-import identity: ``load_catalog`` matches a fixture row carrying an
+    # external identity against the live row with the same identity BEFORE it
+    # falls back to the slug, so a source-side rename (which moves the
+    # path-derived slug) updates the row in place instead of creating a
+    # duplicate next to it.
     external_id = models.CharField(
         max_length=64, blank=True, default="", db_index=True,
         help_text="Identifier in the source catalogue this category was imported from.",
+    )
+    # Which catalogue ``external_id`` belongs to (e.g. "avito"). Blank means
+    # "the deployment's only import source" — the value every row written
+    # before this field existed carries, and the value a fixture that omits
+    # the key matches against, so a single-source catalog never has to set it.
+    external_source = models.CharField(
+        max_length=32, blank=True, default="",
+        help_text="Source catalogue `external_id` belongs to (blank = the single/default source).",
     )
     comment = models.CharField(
         max_length=255, blank=True, default="", help_text="Comment for translators"
@@ -313,6 +330,16 @@ class Category(RevisionMixin, TreeNodeModel):
         verbose_name_plural = "categories"
         indexes = [
             models.Index(fields=["revision"], name="cat_category_revision_idx"),
+            # The re-import lookup key: load_catalog resolves a fixture row to
+            # a live row by (external_source, external_id) before it tries the
+            # slug. Not a UNIQUE constraint — a catalog may legitimately hold
+            # two rows carrying the same source id (a hand-split node), and the
+            # loader reports that ambiguity rather than letting the DB refuse
+            # an unrelated write.
+            models.Index(
+                fields=["external_source", "external_id"],
+                name="cat_category_extid_idx",
+            ),
         ]
 
     def __str__(self):

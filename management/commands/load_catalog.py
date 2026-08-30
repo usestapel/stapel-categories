@@ -17,6 +17,12 @@ Usage::
     python manage.py load_catalog --deletions hard     # real DELETE (default: soft)
     python manage.py load_catalog --seed-if-empty      # bootstrap idiom, no-op if populated
 
+Records are matched by **source identity first** — a fixture row carrying
+``external_id`` finds its live row by ``(external_source, external_id)``, and
+only a row without one falls back to the slug. A source-side rename therefore
+updates in place and is reported as ``» slug 'a' → 'b' (external_id 'X')``,
+distinct from the ``+``/``-`` of an add or a removal.
+
 Exit code is non-zero when any record conflicted (default per-record abort) or
 failed validation — CI can gate on it. Non-conflicting records ARE applied.
 """
@@ -153,11 +159,18 @@ class Command(BaseCommand):
             summary = ", ".join(
                 f"{_KIND_LABEL[k]} {counts[k]}" for k in _KIND_ORDER if counts[k]
             ) or "nothing to do"
+            # Renames are a subset of the updates, and the number an operator
+            # reading an Avito re-sync plan actually wants: it is the count of
+            # rows that would have been an add + a remove under slug matching.
+            renamed = sum(1 for it in items if it.renamed)
+            if renamed:
+                summary += f" (of which renamed {renamed})"
             self.stdout.write(f"{prefix}{label}: {summary}")
             for it in items:
                 if it.kind == cl.SKIPPED and not it.detail:
                     continue  # keep the noise down; counts above cover it
-                line = f"    {_KIND_MARK[it.kind]} {it.key}"
+                mark = "»" if it.renamed else _KIND_MARK[it.kind]
+                line = f"    {mark} {it.key}"
                 if it.detail:
                     line += f"  ({it.detail})"
                 if it.kind in (cl.CONFLICT, cl.ERROR):

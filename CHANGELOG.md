@@ -1,5 +1,83 @@
 # Changelog
 
+## [0.8.0] — 2026-08-31
+
+**Minor = breaking** (pre-1.0). `load_catalog` stops keying a re-import on the
+slug. A fixture row that carries an external id is now matched against the
+live row with the same `(external_source, external_id)` **first**; only a row
+without one falls back to the slug.
+
+### Why the slug could not stay the key
+
+An imported category's slug is derived from the source catalogue's node path.
+A client fleet re-syncs an imported marketplace tree as that source's schema
+moves, and when the source renames a node its path — and so its slug —
+changes while the node id does not. Keyed on the slug, that re-import reads as "one category
+disappeared, an unrelated one appeared": `load_catalog` would (soft-)delete
+the row holding the listings and create a duplicate beside it. Keyed on the
+node id it is what it actually is — one row, updated in place, its slug moving
+with it.
+
+### Added
+
+- `Category.external_source` (`CharField(32)`, blank) — which catalogue
+  `external_id` belongs to. The re-import key is the **pair**, because
+  `external_id` alone is the source's own numbering and two catalogues
+  numbering from 1 would silently collapse onto each other's rows. Blank means
+  "the deployment's only import source" — the value every existing row carries
+  and the value a fixture omitting the key matches, so a single-source catalog
+  never has to set it and matching degrades to plain `external_id` there.
+- Index `cat_category_extid_idx` on `(external_source, external_id)` — the
+  lookup the loader now does per record. Deliberately **not** unique: a
+  catalog may legitimately hold two rows for one source id (a hand-split
+  node), and the loader reports that ambiguity itself instead of letting the
+  DB refuse an unrelated write.
+- Migration `0004_category_external_source` — expand-only (one `AddField`,
+  one `AddIndex`).
+- `Report.renames` and `Item.renamed`, so the plan can count and mark renames
+  apart from the adds and removes they would otherwise have been.
+
+### Changed
+
+- **`load_catalog` matching precedence.** `(external_source, external_id)`,
+  then `slug`. A matched row is updated in place — name, parent, features,
+  flags, and the slug, which is what the rename *is*.
+- **The `--dry-run` plan diffs by identity too**, not just the writes. The DB
+  view and the sidecar base are re-keyed onto the renames before the 3-way
+  classification runs, so a renamed node classifies as one ordinary
+  fast-forward under its new slug instead of a delete of the old key plus a
+  create of the new one. A host's "what would a re-sync do" target reads
+  the truth.
+- **Renames print distinctly**: `» slug 'a' → 'b' (external_id 'X')` against
+  `+` add / `-` remove / `~` update, plus an `of which renamed N` on the
+  summary line.
+- Three things the loader refuses per record, loudly, rather than guessing:
+  two live rows claiming one source id; a rename whose target slug is held by
+  a row this import does not move (identity wins the *match* — so the rename
+  is what gives way, and the other row is never clobbered); and a cycle of
+  renames, where no order frees both slugs. A rename **chain** (`a→b` while
+  `b→c`) is not a refusal — the holder is sequenced first and both land in one
+  run.
+- A slug-matched row whose stored identity the fixture overwrites is still
+  applied (the fixture is canon for its own slug — correcting a wrong id must
+  work) but is now called out in the plan as a re-stamp.
+- `external_source` rides the `Category` serializers and the admin changeform,
+  and `external_id` joins the changelist search fields.
+
+### Not changed, deliberately
+
+- **Feature bindings keep keying on the feature slug.** The root
+  `Feature.slug` is the source's own tag (`brand`, `screen_condition`), not a
+  path-derived string — it does not move when a category is renamed, and a
+  category's inline overrides are resolved per `(category, root slug)` off it.
+  Nothing there is unstable, so nothing there changed.
+- **The fixture files still address categories by slug** — `parent_slug`
+  edges, sidecar keys, record order. Identity is how a row is *found*, not how
+  it is *addressed*.
+- **No sidecar version bump.** `external_source` is written only when set
+  (like `is_test`), so every content hash a 0.7.0 export wrote still means
+  what it meant and `.sync-state.json` stays at version 2.
+
 ## [0.7.0] — 2026-08-30
 
 **Minor = breaking** (pre-1.0). Slice S3 of the attributes-v2 architecture:

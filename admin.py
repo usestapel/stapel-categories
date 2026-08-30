@@ -54,7 +54,7 @@ class CategoryAdmin(RevisionAdmin, TreeNodeModelAdmin):
         "is_test", "revision", "deleted",
     ]
     list_filter = ["active", "carousel_enabled", "translatable", "is_test", "deleted"]
-    search_fields = ["name", "slug"]
+    search_fields = ["name", "slug", "external_id"]
     readonly_fields = ["revision"]
     actions = ["undelete_branch", "validate_category_features"]
 
@@ -62,7 +62,7 @@ class CategoryAdmin(RevisionAdmin, TreeNodeModelAdmin):
         ("Basic Information", {
             "fields": (
                 "tn_parent", "translatable", "slug", "name", "external_id",
-                "comment", "active", "is_test", "tn_priority",
+                "external_source", "comment", "active", "is_test", "tn_priority",
             ),
         }),
         ("Icons", {

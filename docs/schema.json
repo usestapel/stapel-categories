@@ -1583,6 +1583,11 @@
             "description": "Identifier in the source catalogue this category was imported from.",
             "maxLength": 64
           },
+          "external_source": {
+            "type": "string",
+            "description": "Source catalogue `external_id` belongs to (blank = the single/default source).",
+            "maxLength": 32
+          },
           "catalog_icon": {
             "type": "string",
             "description": "CDN catalog icon reference (opaque string, e.g. catalog/asset-name)",
@@ -1671,6 +1676,11 @@
             "type": "string",
             "description": "Identifier in the source catalogue this category was imported from.",
             "maxLength": 64
+          },
+          "external_source": {
+            "type": "string",
+            "description": "Source catalogue `external_id` belongs to (blank = the single/default source).",
+            "maxLength": 32
           },
           "catalog_icon": {
             "type": "string",
@@ -3393,6 +3403,11 @@
             "type": "string",
             "description": "Identifier in the source catalogue this category was imported from.",
             "maxLength": 64
+          },
+          "external_source": {
+            "type": "string",
+            "description": "Source catalogue `external_id` belongs to (blank = the single/default source).",
+            "maxLength": 32
           },
           "catalog_icon": {
             "type": "string",

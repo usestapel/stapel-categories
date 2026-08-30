@@ -169,6 +169,12 @@ def _category_record(category, include_test: bool, parent_slug) -> dict:
         "translatable": category.translatable,
         "features": features,
     }
+    # Written only when set. A blank source is the overwhelmingly common case
+    # (one import source per deployment) and omitting the key keeps every
+    # content-hash a 0.7.0 export wrote valid — no STATE_VERSION bump, no
+    # "regenerate the sidecar" step on upgrade.
+    if category.external_source:
+        rec["external_source"] = category.external_source
     if include_test and category.is_test:
         rec["is_test"] = True
     return rec

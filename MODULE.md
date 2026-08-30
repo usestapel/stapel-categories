@@ -218,11 +218,32 @@ something other than `load_catalog` (e.g. an editor action).
   override (`{"slug", "config", "mandatory", "show_as_badge", "show_at_title",
   "translate", "rules", "description", "example", "default", "hints",
   "group"}`) when the linked row is a tree override (`tn_parent` set).
-  Category records carry `external_id` (the id in the catalogue they were
-  imported from) — opaque and *not* a natural key: the fixtures address
-  categories by slug.
+  Category records carry `external_id` + `external_source` (the id in the
+  catalogue they were imported from, and which catalogue that is) — *not* a
+  natural key: the fixtures still address categories by slug. It IS the
+  **re-import identity**, see below.
   Override rows get **no** invented natural key — every referencing category
   inlines its config independently (no dedup/owner heuristic; §2).
+- **Re-imports key on source identity, not on the slug.** An imported
+  category's slug is derived from the source catalogue's node path, so the
+  source renaming a node moves the slug while the node stays the same node.
+  `load_catalog` therefore resolves a fixture row to a live row by
+  `(external_source, external_id)` **first**, and only falls back to `slug`
+  for rows carrying no external id (hand-seeded ones, which have no other
+  key). A matched row is updated in place — name, parent, features, flags and
+  the slug, which is what the rename *is* — so a re-sync never leaves a
+  duplicate beside the row that holds the listings. The pair, not the bare id:
+  two source catalogues numbering from 1 would otherwise collapse onto each
+  other's rows; `external_source` is blank for a single-source catalog and for
+  every row written before the field existed, so it degrades to plain
+  `external_id` matching there. The plan (`--dry-run`) reports a rename as
+  `» slug 'a' → 'b' (external_id 'X')` — an update, never an add + a remove —
+  and refuses, loudly and per record, three things it must not guess: two live
+  rows claiming one source id, a rename whose target slug is held by a row
+  this import does not move (identity wins the match, so the *rename* is what
+  gives way — the other row is never clobbered), and a cycle of renames. A
+  chain (`a→b` while `b→c`) is not a refusal: the holder is sequenced first
+  and both land in one run.
 - **`is_test` is an export filter, transitively.** A test category or feature,
   and any `CategoryFeature` link touching one, are excluded. `is_test` is
   admin-editable and filterable but is **not** in the public API serializers or

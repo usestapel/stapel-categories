@@ -18,6 +18,12 @@ here:
   same side effects as an admin/Studio edit: revision bump,
   ``category.changed`` fanout, ``copy_parent_features`` on a new child,
   config/slug validation.
+* **Identity before slug.** A fixture row carrying ``external_id`` is matched
+  against the live row with the same ``(external_source, external_id)`` before
+  the slug is tried; only rows without an external id fall back to the slug.
+  An imported slug is derived from the source's node path, so a source-side
+  rename moves it — matching on it would read the rename as a delete plus an
+  unrelated create and duplicate the node. See the section further down.
 * **Idempotent.** A record whose fixture state already equals its DB state is a
   ``skip`` — no ``.save()``, no revision bump, no event (the H-3 "don't bump on
   a non-change" rule). A second ``load_catalog`` on materialized fixtures is a
@@ -94,6 +100,10 @@ class Item:
     kind: str          # one of the record-kind constants
     key: str           # natural key (slug)
     detail: str = ""
+    #: This record moved slug because its SOURCE identity matched an existing
+    #: row under a different slug — an update in place, not an add + remove.
+    #: Carried on the item so the report can call it out separately.
+    renamed: bool = False
 
 
 @dataclass
@@ -123,6 +133,10 @@ class Report:
     def failed(self) -> bool:
         """A load "failed" (non-zero exit) if any conflict or bad record."""
         return self.conflicts > 0 or self.errors > 0
+
+    @property
+    def renames(self) -> int:
+        return sum(1 for it in self._all() if it.renamed)
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +332,9 @@ def _normalize_category_record(rec: dict) -> dict:
         "translatable": bool(rec.get("translatable", True)),
         "features": [_normalize_entry(e) for e in rec.get("features", [])],
     }
+    # Mirrors the export: present only when set (see _category_record).
+    if rec.get("external_source"):
+        out["external_source"] = rec["external_source"]
     if rec.get("is_test"):
         out["is_test"] = True
     return out
@@ -351,6 +368,271 @@ def _load_inputs(directory: str):
 
 
 # ---------------------------------------------------------------------------
+# Source identity — which live row IS this fixture row?
+# ---------------------------------------------------------------------------
+#
+# The fixture files address categories by ``slug`` and always will: the tree
+# edges (``parent_slug``) and the sidecar keys are slugs. But for a category
+# imported from an external catalogue the slug is *derived* (Avito's node path
+# transliterated), so the source renaming a node moves the slug while the node
+# is the same node. Matching a re-import by slug would then read as "one
+# category disappeared, an unrelated one appeared" and leave a duplicate next
+# to the row that already holds that node's listings.
+#
+# So identity precedence is:
+#
+#   1. ``(external_source, external_id)`` when the fixture row carries one —
+#      the row is updated in place, slug included (that IS the rename).
+#   2. ``slug`` otherwise — hand-seeded categories have no source identity and
+#      the slug is the only key they have.
+#
+# The pair, not ``external_id`` alone: the id is the source catalogue's own
+# numbering, and two catalogues numbering from 1 would silently collapse onto
+# each other's rows. ``external_source`` is blank for a single-source catalog
+# (and for every row written before the field existed), so the pair degrades
+# to plain ``external_id`` matching wherever only one source feeds the tree.
+
+
+def _identity(record: dict):
+    """``(external_source, external_id)`` of a fixture record, or ``None``."""
+    ext = str(record.get("external_id") or "").strip()
+    if not ext:
+        return None
+    return str(record.get("external_source") or "").strip(), ext
+
+
+def _fmt_identity(ident) -> str:
+    src, ext = ident
+    return f"external_id '{ext}'" + (f", source '{src}'" if src else "")
+
+
+@dataclass
+class _LiveRow:
+    pk: int
+    slug: str
+    identity: Optional[tuple]
+    is_test: bool
+
+
+@dataclass
+class _Identities:
+    """How each category fixture row resolves against the live table.
+
+    ``renames`` maps a *live* slug to the fixture slug the same source node now
+    sits under. ``order_after`` sequences the upserts so a rename whose target
+    slug is still held by another row this same load moves away runs second.
+    ``problems`` holds the fixture keys that cannot be applied at all, each
+    with the message the report prints — never a silent pick.
+    """
+    renames: Dict[str, str] = field(default_factory=dict)
+    order_after: Dict[str, str] = field(default_factory=dict)
+    problems: Dict[str, str] = field(default_factory=dict)
+    #: Fixture key -> message, for a slug-matched row whose stored identity the
+    #: fixture overwrites. Applied (the fixture is canon for its slug), but
+    #: never silently: re-pointing a row at another source node is exactly the
+    #: kind of edit an operator wants to see in the plan before it runs.
+    restamps: Dict[str, str] = field(default_factory=dict)
+
+    def rename_detail(self, fixture_slug: str, record: dict) -> str:
+        old = self.renamed_from(fixture_slug)
+        if old is None:
+            return self.restamps.get(fixture_slug, "")
+        return f"renamed: slug '{old}' → '{fixture_slug}' ({_fmt_identity(_identity(record))})"
+
+    def renamed_from(self, fixture_slug: str) -> Optional[str]:
+        for old, new in self.renames.items():
+            if new == fixture_slug:
+                return old
+        return None
+
+
+def _live_categories() -> List[_LiveRow]:
+    """Every category row (test/soft-deleted included) as an identity view.
+
+    Deliberately unfiltered: a fixture row must resolve against the row that
+    actually occupies its slug, whatever its state — an is_test or soft-deleted
+    row still holds the unique slug, and pretending it does not is how a load
+    turns into an IntegrityError instead of a per-record message.
+    """
+    from .models import Category
+
+    rows = []
+    for pk, slug, src, ext, is_test in Category.objects.values_list(
+        "pk", "slug", "external_source", "external_id", "is_test"
+    ):
+        ext = (ext or "").strip()
+        rows.append(_LiveRow(pk, slug, ((src or "").strip(), ext) if ext else None, is_test))
+    return rows
+
+
+def _resolve_identities(fix_cat: Dict[str, dict]) -> _Identities:
+    """Resolve every fixture row to a live row and detect what blocks it."""
+    out = _Identities()
+    rows = _live_categories()
+    by_slug = {r.slug: r for r in rows}
+    by_identity: Dict[tuple, List[_LiveRow]] = {}
+    for r in rows:
+        if r.identity is not None:
+            by_identity.setdefault(r.identity, []).append(r)
+
+    for slug, record in fix_cat.items():
+        ident = _identity(record)
+        if ident is None:
+            continue  # hand-seeded row: the slug is the identity, nothing to do
+        candidates = by_identity.get(ident, [])
+        if len(candidates) > 1:
+            # Two live rows claim one source node. Prefer the one already at
+            # this slug; if that does not single one out, refuse — picking
+            # arbitrarily would move listings under whichever row sorted first.
+            exact = [c for c in candidates if c.slug == slug]
+            if len(exact) != 1:
+                names = ", ".join(sorted(f"'{c.slug}'" for c in candidates))
+                out.problems[slug] = (
+                    f"{_fmt_identity(ident)} matches {len(candidates)} live "
+                    f"categories ({names}) — the catalog holds duplicates for one "
+                    "source node; merge or clear them before re-importing"
+                )
+                continue
+            candidates = exact
+        if not candidates:
+            # Nobody carries this identity yet. The slug fallback may adopt an
+            # existing row (a hand-seeded one gaining its source id), but never
+            # one that already belongs to a DIFFERENT source node.
+            holder = by_slug.get(slug)
+            if holder is not None and holder.identity is not None and holder.identity != ident:
+                out.restamps[slug] = (
+                    f"source identity re-stamped: {_fmt_identity(holder.identity)} "
+                    f"→ {_fmt_identity(ident)} on slug '{slug}' — the fixture is "
+                    "canon for this slug, but check it is the same node"
+                )
+            continue
+        row = candidates[0]
+        if row.slug != slug:
+            out.renames[row.slug] = slug
+
+    # A rename can only land if its target slug is free by the time it runs.
+    movers = set(out.renames)
+    for old, new in out.renames.items():
+        holder = by_slug.get(new)
+        if holder is None or holder.slug == old:
+            continue
+        if holder.slug in movers:
+            # The holder moves away in this same load — sequence it first.
+            out.order_after[new] = out.renames[holder.slug]
+        else:
+            out.problems[new] = (
+                f"source identity ({_fmt_identity(_identity(fix_cat[new]))}) matches "
+                f"category '{old}', but its new slug '{new}' is held by a different "
+                "category this import does not move — identity wins, so the rename "
+                "is refused rather than clobbering that row; rename or hard-delete "
+                "it first, then re-run"
+            )
+
+    # Chains resolve by ordering; a cycle (two nodes swapping slugs) cannot —
+    # there is no order in which both targets are free. Report both ends.
+    for key in _cyclic(out.order_after):
+        out.problems.setdefault(key, (
+            f"rename to slug '{key}' is part of a cycle of source-side renames "
+            "(two categories swapping slugs) — no order frees both slugs; "
+            "resolve one of them by hand, then re-run"
+        ))
+    return out
+
+
+def _cyclic(order_after: Dict[str, str]) -> List[str]:
+    """Keys of ``order_after`` that sit on a cycle (Kahn leftovers)."""
+    indeg = {k: 0 for k in order_after}
+    for k, dep in order_after.items():
+        if dep in indeg:
+            indeg[k] += 1
+    ready = [k for k, d in indeg.items() if d == 0]
+    seen = set()
+    while ready:
+        k = ready.pop()
+        seen.add(k)
+        for other, dep in order_after.items():
+            if dep == k and other not in seen:
+                indeg[other] -= 1
+                if indeg[other] == 0:
+                    ready.append(other)
+    return sorted(set(order_after) - seen)
+
+
+def _remap_by_identity(hashes: Dict[str, str], idents: _Identities) -> Dict[str, str]:
+    """Re-key a slug-keyed hash map (DB view or sidecar base) onto the renames.
+
+    The 3-way diff is keyed by slug; a renamed node's DB and base hashes are
+    filed under its OLD slug, so without this the diff reads a rename as a
+    delete of the old key plus a create of the new one. Moving the entries
+    makes the same key line up on all three sides — the record then classifies
+    as an ordinary fast-forward (or conflict), and the plan says "updated",
+    which is what actually happens. Applied in dependency order so a chain
+    (a→b while b→c) never overwrites an entry that has not moved yet.
+    """
+    if not idents.renames:
+        return hashes
+    out = dict(hashes)
+    for new in _rename_order(idents):
+        old = idents.renamed_from(new)
+        if old is None or old not in out:
+            continue
+        out[new] = out.pop(old)
+    return out
+
+
+def _delay_blocked_renames(planned: List["_Planned"], idents: _Identities) -> List["_Planned"]:
+    """Reorder upserts so a slug's current holder moves away before its claimant.
+
+    Kahn over the (already depth-sorted) list with the blocking edges from
+    ``_Identities.order_after``: with no edges the output is the input, so the
+    ordering the tree needs is untouched whenever nothing was renamed.
+    """
+    if not idents.order_after:
+        return planned
+    index = {p.key: i for i, p in enumerate(planned)}
+    blockers = {
+        k: dep for k, dep in idents.order_after.items()
+        if k in index and dep in index
+    }
+    out: List[_Planned] = []
+    emitted: set = set()
+    remaining = list(planned)
+    while remaining:
+        ready = [p for p in remaining if blockers.get(p.key) in (None, *emitted)]
+        if not ready:  # cycle — already reported as a problem; keep going
+            ready = remaining
+        head = min(ready, key=lambda p: index[p.key])
+        out.append(head)
+        emitted.add(head.key)
+        remaining.remove(head)
+    return out
+
+
+def _rename_order(idents: _Identities) -> List[str]:
+    """Fixture keys of every rename, dependency-ordered (holders first)."""
+    keys = sorted(idents.renames.values())
+    ordered: List[str] = []
+    placed = set()
+    # Simple fixpoint: keys whose blocker is already placed (or absent) go next.
+    # Bounded by len(keys) passes; a cycle is reported as a problem, and its
+    # members are appended in slug order so the loop always terminates.
+    for _ in range(len(keys)):
+        progressed = False
+        for key in keys:
+            if key in placed:
+                continue
+            dep = idents.order_after.get(key)
+            if dep is None or dep in placed:
+                ordered.append(key)
+                placed.add(key)
+                progressed = True
+        if not progressed:
+            break
+    ordered.extend(k for k in keys if k not in placed)
+    return ordered
+
+
+# ---------------------------------------------------------------------------
 # Apply helpers — always through .save()/.full_clean()
 # ---------------------------------------------------------------------------
 
@@ -379,9 +661,9 @@ _FEATURE_SCALARS = (
     "is_test", "deleted",
 )
 _CATEGORY_SCALARS = (
-    "slug", "name", "external_id", "comment", "catalog_icon", "carousel_icon",
-    "carousel_enabled", "active", "translatable", "is_test", "deleted",
-    "tn_parent_id",
+    "slug", "name", "external_id", "external_source", "comment", "catalog_icon",
+    "carousel_icon", "carousel_enabled", "active", "translatable", "is_test",
+    "deleted", "tn_parent_id",
 )
 
 
@@ -628,15 +910,68 @@ def _reconcile_features(cat, entries: list) -> bool:
     return changed
 
 
+def _match_category(record: dict):
+    """The live row this fixture record IS, and whether identity chose it.
+
+    Re-queried at apply time rather than reusing the planning pass: earlier
+    upserts in this same run may have moved slugs, and the row that answers
+    here is the row the write will touch.
+    """
+    from .models import Category
+
+    slug = record["slug"]
+    ident = _identity(record)
+    if ident is not None:
+        rows = list(
+            Category.objects.filter(
+                external_source=ident[0], external_id=ident[1]
+            ).order_by("pk")
+        )
+        if len(rows) > 1:
+            exact = [r for r in rows if r.slug == slug]
+            if len(exact) != 1:
+                names = ", ".join(sorted(f"'{r.slug}'" for r in rows))
+                raise RecordError(
+                    f"{_fmt_identity(ident)} matches {len(rows)} live categories "
+                    f"({names}) — merge or clear the duplicates before re-importing"
+                )
+            rows = exact
+        if rows:
+            return rows[0], True
+        # No row carries this identity: fall through to the slug. That row may
+        # be hand-seeded (adopting its first source id) or may already carry a
+        # different one (a re-stamp) — the fixture is canon for its own slug,
+        # and _Identities.restamps makes the second case visible in the plan.
+        return Category.objects.filter(slug=slug).first(), False
+    return Category.objects.filter(slug=slug).first(), False
+
+
 def _apply_category_upsert(record: dict):
     from .models import Category
 
     slug = record["slug"]
-    existing = Category.objects.filter(slug=slug).first()
+    existing, by_identity = _match_category(record)
     if existing is not None and existing.is_test:
         raise RecordError(
             f"category slug '{slug}' is occupied by an is_test row — not overwriting"
         )
+    if by_identity and existing.slug != slug:
+        # A source-side rename: the row keeps its pk (and its listings), the
+        # slug moves with it. The slug is globally unique, so check first —
+        # identity won the match, and that must not turn into clobbering
+        # whoever holds the new slug.
+        blocker = Category.objects.filter(slug=slug).exclude(pk=existing.pk).first()
+        if blocker is not None:
+            held_by = (
+                _fmt_identity((blocker.external_source, blocker.external_id))
+                if blocker.external_id else "a hand-seeded category"
+            )
+            raise RecordError(
+                f"{_fmt_identity(_identity(record))} matches category "
+                f"'{existing.slug}', but its new slug '{slug}' is held by {held_by} "
+                "— identity wins the match, so the rename is refused rather than "
+                "clobbering that row; rename or hard-delete it first, then re-run"
+            )
     created = existing is None
     cat = existing or Category()
     before = _snapshot(cat, _CATEGORY_SCALARS) if existing is not None else None
@@ -655,6 +990,7 @@ def _apply_category_upsert(record: dict):
     cat.slug = slug
     cat.name = record.get("name", "")
     cat.external_id = record.get("external_id", "")
+    cat.external_source = record.get("external_source", "")
     cat.comment = record.get("comment", "")
     cat.catalog_icon = record.get("catalog_icon", "")
     cat.carousel_icon = record.get("carousel_icon", "")
@@ -761,13 +1097,24 @@ class _Planned:
     key: str
     decision: Decision
     record: Optional[dict] = None   # fixture record for upserts
+    note: str = ""                  # extra report detail (e.g. the rename)
+    renamed: bool = False
 
 
-def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions):
+def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions,
+               idents: Optional[_Identities] = None):
     """Classify every natural key on one side (features or categories)."""
     keys = set(fix) | set(base) | set(db_hashes)
     planned: List[_Planned] = []
     for key in sorted(keys):
+        if idents is not None and key in idents.problems:
+            # Unresolvable identity: never planned as a write. The report
+            # carries the reason and the run exits non-zero.
+            planned.append(_Planned(
+                key, Decision("error", ERROR, conflict=True), fix.get(key),
+                note=idents.problems[key],
+            ))
+            continue
         f_hash = cf.content_hash(fix[key]) if key in fix else None
         b_hash = base.get(key)
         d_hash = db_hashes.get(key)
@@ -778,7 +1125,11 @@ def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions
             on_conflict=on_conflict,
             deletions=deletions,
         )
-        planned.append(_Planned(key, decision, fix.get(key)))
+        note, renamed = "", False
+        if idents is not None and key in fix:
+            note = idents.rename_detail(key, fix[key])
+            renamed = idents.renamed_from(key) is not None
+        planned.append(_Planned(key, decision, fix.get(key), note=note, renamed=renamed))
     return planned
 
 
@@ -879,11 +1230,20 @@ def _run_plan(
     db_feat = db_state["features"]
     db_cat = db_state["categories"]
 
+    # Source identity first: a node the source renamed sits in the DB view (and
+    # in the sidecar base) under its OLD slug. Re-keying those two onto the new
+    # slug is what turns "delete a + create b" into "update a in place" — for
+    # the plan the operator reads AND for the writes that follow.
+    idents = _resolve_identities(fix_cat)
+    db_cat = _remap_by_identity(db_cat, idents)
+    base_cat = _remap_by_identity(base_cat, idents)
+
     feat_plan = _plan_side(
         fix_feat, base_feat, db_feat, on_conflict=on_conflict, deletions=deletions
     )
     cat_plan = _plan_side(
-        fix_cat, base_cat, db_cat, on_conflict=on_conflict, deletions=deletions
+        fix_cat, base_cat, db_cat, on_conflict=on_conflict, deletions=deletions,
+        idents=idents,
     )
 
     # Category upserts must run parents-before-children (a child's create needs
@@ -894,6 +1254,11 @@ def _run_plan(
         (p for p in cat_plan if p.decision.op == "upsert"),
         key=lambda p: (cat_depth.get(p.key, 0), p.key),
     )
+    # …then delayed, never reordered, where a rename's target slug is still
+    # held by a row this same load moves away (a→b while b→c). Only the
+    # blocked record moves, so the depth order above is preserved everywhere
+    # else — and a delay can never put a child before its parent.
+    cat_upserts = _delay_blocked_renames(cat_upserts, idents)
 
     # Category deletes run children-first (deepest first, by the LIVE tree):
     # with --deletions hard the parent's guard requires its children to be
@@ -934,7 +1299,7 @@ def _run_plan(
     # dry run: just report intended outcomes
     for side, plan in (("features", feat_plan), ("categories", cat_plan)):
         for p in plan:
-            report.add(side, Item(p.decision.kind, p.key, _detail(p)))
+            report.add(side, _item(p))
     return None
 
 
@@ -955,12 +1320,16 @@ def _db_category_depths() -> dict:
     return depths
 
 
+def _item(p: _Planned) -> Item:
+    return Item(p.decision.kind, p.key, _detail(p), renamed=p.renamed)
+
+
 def _apply_phase(report, side, planned, apply_fn):
     for p in planned:
         try:
             with transaction.atomic():  # savepoint: isolate a bad record
                 apply_fn(p.record)
-            report.add(side, Item(p.decision.kind, p.key, _detail(p)))
+            report.add(side, _item(p))
         except (RecordError, ValidationError) as exc:
             # Keep the original decision op ("upsert") so _record_passive does
             # not double-report; _new_base skips errored keys via the report.
@@ -979,8 +1348,10 @@ def _apply_delete_phase(report, side, planned, apply_fn, deletions):
 
 def _record_passive(report, side, plan):
     for p in plan:
-        if p.decision.op in ("skip", "warn", "note", "touch_base", "drop_base"):
-            report.add(side, Item(p.decision.kind, p.key, _detail(p)))
+        # "error" is a planning-time verdict (an unresolvable source identity):
+        # no apply phase ever sees it, so it is reported here.
+        if p.decision.op in ("skip", "warn", "note", "touch_base", "drop_base", "error"):
+            report.add(side, _item(p))
 
 
 def _new_base(old_base, plan, db_after_hashes, report, side):
@@ -1011,6 +1382,8 @@ def _new_base(old_base, plan, db_after_hashes, report, side):
 
 def _detail(p: _Planned) -> str:
     dec = p.decision
+    if p.note:
+        return p.note
     if dec.kind == CONFLICT:
         return "diverged in both fixture and DB — run with --on-conflict to resolve"
     if dec.kind == DB_ONLY:

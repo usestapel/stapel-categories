@@ -50,7 +50,7 @@
     },
     "load_catalog": {
       "kind": "gate_function",
-      "intent": "Reconcile a directory of catalog fixtures into the live DB via a 3-way diff (base=sidecar, theirs=fixture, ours=DB) — the engine behind `manage.py load_catalog`. Call it directly from a deploy script or a data-migration when you need the identical semantics (idempotent re-load, is_test invisibility, subtree row-lock, conflict policy) instead of writing your own fixture-to-DB upsert loop.",
+      "intent": "Reconcile a directory of catalog fixtures into the live DB via a 3-way diff (base=sidecar, theirs=fixture, ours=DB) — the engine behind `manage.py load_catalog`. Call it directly from a deploy script or a data-migration when you need the identical semantics (idempotent re-load, is_test invisibility, subtree row-lock, conflict policy) instead of writing your own fixture-to-DB upsert loop. Rows are matched by source identity (external_source, external_id) before slug, so a source-side rename updates in place instead of duplicating the node.",
       "instead_of": ["a hand-written fixture-to-DB upsert loop using bulk_create()/QuerySet.update() (skips the revision bump, category.changed emit and full_clean() validation Model.save() gives you)"]
     },
     "identity_translator": {

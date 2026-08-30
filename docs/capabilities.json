@@ -1,6 +1,6 @@
 {
   "module": "stapel-categories",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "provides": "Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.",
   "axes": [
     {
@@ -75,7 +75,7 @@
       "name": "load_catalog",
       "kind": "gate_function",
       "path": "stapel_categories.catalog_load.load_catalog",
-      "intent": "Reconcile a directory of catalog fixtures into the live DB via a 3-way diff (base=sidecar, theirs=fixture, ours=DB) — the engine behind `manage.py load_catalog`. Call it directly from a deploy script or a data-migration when you need the identical semantics (idempotent re-load, is_test invisibility, subtree row-lock, conflict policy) instead of writing your own fixture-to-DB upsert loop.",
+      "intent": "Reconcile a directory of catalog fixtures into the live DB via a 3-way diff (base=sidecar, theirs=fixture, ours=DB) — the engine behind `manage.py load_catalog`. Call it directly from a deploy script or a data-migration when you need the identical semantics (idempotent re-load, is_test invisibility, subtree row-lock, conflict policy) instead of writing your own fixture-to-DB upsert loop. Rows are matched by source identity (external_source, external_id) before slug, so a source-side rename updates in place instead of duplicating the node.",
       "instead_of": [
         "a hand-written fixture-to-DB upsert loop using bulk_create()/QuerySet.update() (skips the revision bump, category.changed emit and full_clean() validation Model.save() gives you)"
       ]
