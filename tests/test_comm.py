@@ -221,3 +221,142 @@ class TestCategoryChangedAction:
                 pass  # the C1 anti-pattern — swallow and hope
 
         assert not Category.objects.filter(slug="doomed2").exists()
+
+
+@pytest.fixture
+def clothing_tree(db):
+    """The three-parent case a type-ahead has to get right.
+
+    «Шорты» is not one category. It is a leaf under men's, under women's and
+    under children's clothing, and the only thing that tells them apart in a
+    dropdown is the ancestor path.
+    """
+    clothes = Category.objects.create(name="Одежда", slug="odezhda")
+    kids = Category.objects.create(name="Детям", slug="detyam")
+    tree = {}
+    for parent, name, slug in (
+        (clothes, "Мужская одежда", "muzhskaya-odezhda"),
+        (clothes, "Женская одежда", "zhenskaya-odezhda"),
+        (kids, "Детская одежда", "detskaya-odezhda"),
+    ):
+        branch = Category.objects.create(name=name, slug=slug, tn_parent=parent)
+        tree[slug] = Category.objects.create(
+            name="Шорты", slug=f"{slug}-shorty", tn_parent=branch
+        )
+    tree["одежда"] = clothes
+    tree["детям"] = kids
+    return tree
+
+
+@pytest.mark.django_db
+class TestSuggestFunction:
+    """``categories.suggest`` — names in, nodes with their ancestry out."""
+
+    def _paths(self, result):
+        return {tuple(row["path"]) for row in result["categories"]}
+
+    def test_one_word_answers_every_parent_path(self, clothing_tree):
+        result = call("categories.suggest", {"terms": ["шорты"]})
+
+        assert self._paths(result) == {
+            ("Одежда", "Мужская одежда", "Шорты"),
+            ("Одежда", "Женская одежда", "Шорты"),
+            ("Детям", "Детская одежда", "Шорты"),
+        }
+        assert all(row["depth"] == 3 for row in result["categories"])
+        assert all(row["match"] == "prefix" for row in result["categories"])
+
+    def test_path_ids_are_the_ancestry_as_ids(self, clothing_tree):
+        result = call("categories.suggest", {"terms": ["шорты"]})
+        row = next(
+            r for r in result["categories"] if r["path"][1] == "Мужская одежда"
+        )
+        leaf = clothing_tree["muzhskaya-odezhda"]
+        assert row["id"] == leaf.pk
+        assert row["path_ids"] == [
+            str(clothing_tree["одежда"].pk),
+            str(leaf.tn_parent.pk),
+            str(leaf.pk),
+        ]
+        assert len(row["path_ids"]) == len(row["path"])
+
+    def test_substring_matches_and_is_labelled(self, clothing_tree):
+        result = call("categories.suggest", {"terms": ["одежда"]})
+        by_name = {row["name"]: row for row in result["categories"]}
+        assert by_name["Одежда"]["match"] == "prefix"
+        assert by_name["Мужская одежда"]["match"] == "substring"
+
+    def test_yo_folds_to_ye(self, db):
+        Category.objects.create(name="Одежда для беременных", slug="pregnancy")
+        Category.objects.create(name="Ёлки", slug="yolki")
+        result = call("categories.suggest", {"terms": ["елки"]})
+        assert [row["name"] for row in result["categories"]] == ["Ёлки"]
+
+    def test_inactive_test_and_deleted_are_excluded(self, db):
+        Category.objects.create(name="Шорты", slug="live")
+        Category.objects.create(name="Шорты off", slug="off", active=False)
+        Category.objects.create(name="Шорты test", slug="test", is_test=True)
+        gone = Category.objects.create(name="Шорты gone", slug="gone")
+        gone.deleted = True
+        gone.save()
+
+        result = call("categories.suggest", {"terms": ["шорты"]})
+        assert [row["slug"] for row in result["categories"]] == ["live"]
+
+    def test_a_retired_ancestor_hides_a_live_leaf(self, db):
+        retired = Category.objects.create(name="Архив", slug="arhiv", active=False)
+        Category.objects.create(name="Шорты", slug="shorty", tn_parent=retired)
+        assert call("categories.suggest", {"terms": ["шорты"]})["categories"] == []
+
+    def test_no_match_and_empty_terms_answer_empty(self, clothing_tree):
+        assert call("categories.suggest", {"terms": ["квадрокоптер"]})["categories"] == []
+        assert call("categories.suggest", {"terms": []})["categories"] == []
+
+    def test_query_count_does_not_grow_with_the_answer(self, clothing_tree):
+        """The N+1 gate: three matches and six cost the same two queries."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as three:
+            call("categories.suggest", {"terms": ["шорты"]})
+
+        for slug in ("muzhskaya-odezhda", "zhenskaya-odezhda", "detskaya-odezhda"):
+            Category.objects.create(
+                name="Шорты пляжные",
+                slug=f"{slug}-beach",
+                tn_parent=clothing_tree[slug].tn_parent,
+            )
+        with CaptureQueriesContext(connection) as six:
+            result = call("categories.suggest", {"terms": ["шорты"]})
+
+        assert len(result["categories"]) == 6
+        # Two: the fingerprint aggregate, then the tree read the new rows
+        # invalidated. Neither grows with the number of matches.
+        assert len(six) == len(three) == 2, [q["sql"] for q in six]
+
+    def test_an_unchanged_tree_costs_one_query(self, clothing_tree):
+        """The index is cached under the tree's revision, not per call."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        call("categories.suggest", {"terms": ["шорты"]})
+        with CaptureQueriesContext(connection) as warm:
+            call("categories.suggest", {"terms": ["одежда"]})
+        assert len(warm) == 1, [q["sql"] for q in warm]
+
+    def test_a_new_category_is_suggestable_immediately(self, clothing_tree):
+        """A revision-keyed cache must not outlive the tree it describes."""
+        call("categories.suggest", {"terms": ["велосипед"]})
+        Category.objects.create(name="Велосипеды", slug="velosipedy")
+        result = call("categories.suggest", {"terms": ["велосипед"]})
+        assert [row["name"] for row in result["categories"]] == ["Велосипеды"]
+
+    def test_limit_caps_and_the_cap_is_deterministic(self, clothing_tree):
+        first = call("categories.suggest", {"terms": ["шорты"], "limit": 2})
+        second = call("categories.suggest", {"terms": ["шорты"], "limit": 2})
+        assert len(first["categories"]) == 2
+        assert first == second
+
+    def test_schema_rejects_an_unknown_key(self, db):
+        with pytest.raises(Exception):
+            call("categories.suggest", {"q": "шорты"})

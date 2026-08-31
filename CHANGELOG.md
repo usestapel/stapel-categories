@@ -1,5 +1,66 @@
 # Changelog
 
+## [0.9.0] — 2026-08-31
+
+### Added — `categories.suggest`: names in, nodes with their ancestry out
+
+The counterpart of `categories.path` for the other direction, and it exists
+here for the same reason: names, ancestry and the retired/test/soft-deleted
+state of every node are this module's, and a consumer re-deriving any of them
+from a projection is the seam defect the comm surface exists to prevent.
+
+```python
+call("categories.suggest", {"terms": ["шорты", "shorty"], "limit": 50})
+# -> {"categories": [
+#      {"id": 101, "slug": "muzhskaya-odezhda-shorty", "name": "Шорты",
+#       "path": ["Одежда", "Мужская одежда", "Шорты"],
+#       "path_ids": ["46", "48", "101"], "depth": 3, "match": "prefix"},
+#      … ]}
+```
+
+stapel-search 0.7.0 is the consumer: its type-ahead offers destinations, and
+«шорты» is a leaf under men's, women's and children's clothing at once — the
+ancestor path is the only thing that tells the three apart.
+
+- **`path` and `path_ids` travel together.** A dropdown row needs the first to
+  render and the second to navigate, and deriving one from the other outside
+  this module means a second call and a second chance to disagree with the
+  tree.
+- **Visibility is inherited.** `active=False`, `is_test` and soft-deleted are
+  excluded — and so is a live leaf under a retired ancestor, because it is not
+  reachable in the catalogue and offering it navigates a buyer into a page
+  that is not there.
+- **It does not own the query language.** Terms arrive already folded and
+  already expanded (synonyms, transliteration) by whoever asked. A second
+  normalizer here would be a second answer to "what did the user mean", and
+  there is exactly one of those, in the search module.
+- **`match: prefix | substring`** is reported and not ranked on. The caller
+  ranks by live listing count, and only the caller has that number.
+- **At most two queries, one of them only on a cold cache.** The folded name
+  index is built from ONE read of the tree and held under a fingerprint of the
+  tree's own revision state — `(max revision, row count)` — so a mutation
+  retires it immediately and an unchanged tree costs a single cheap aggregate.
+  `test_query_count_does_not_grow_with_the_answer` and
+  `test_an_unchanged_tree_costs_one_query` pin both halves.
+
+Matching happens in Python, not in SQL, and that is not a shortcut: `LOWER()`
+is ASCII-only on SQLite, so a database case function answers «Шорты» to a
+Postgres deployment and nothing to a SQLite one — the class of divergence
+that makes a test suite agree with a stand that is wrong. `functions.fold`
+is the wire normal form the schema documents, restated here rather than
+imported because the two modules may not share a process; `ё` folds into `е`
+(users type both), Cyrillic diacritics are kept (NFD would merge «мой» into
+«мои»).
+
+Minor, not patch (pre-1.0: minor = breaking): nothing existing changed, but a
+new comm Function is a new surface, and `stapel-search>=0.7` names it.
+
+### Settings
+
+- `SUGGEST_INDEX_CACHE_TIMEOUT` (3600) — the ceiling on how long an
+  *unchanged* tree keeps its folded name index. The entry is revision-keyed,
+  so this is not how stale an answer can be.
+
 ## [0.8.4] — 2026-08-31
 
 ### Changed — the label snapshot crosses nothing this module emits, so only the cap moves

@@ -13,6 +13,9 @@ are no-ops. Other modules call by name, no import of this package needed:
     call("categories.path", {"category_ids": [42]})
     # -> {"42": ["7", "19", "42"]}
 
+    call("categories.suggest", {"terms": ["шорты", "shorty"], "limit": 50})
+    # -> {"categories": [{id, slug, name, path, path_ids, depth, match}]}
+
 ``categories.features`` returns the *resolved* feature definitions for a
 category (own + inherited, config merged with type defaults). stapel-listings
 calls it to validate listing attribute values against the category schema
@@ -26,8 +29,19 @@ declared by stapel-search before a provider existed
 (``STAPEL_SEARCH["CATEGORY_PATH_FUNCTION"]``), and without an answer a
 search index degrades to a single path segment — a filter on a parent
 category finds none of its descendants.
+
+``categories.suggest`` matches category NAMES for a type-ahead. It is the
+counterpart of ``categories.path`` for the other direction — text in, nodes
+out — and it exists here rather than in the caller for the same reason:
+names, ancestry and the retired/test/soft-deleted state of every node are
+this module's, and a consumer re-deriving any of them from a projection is
+the seam defect the comm surface exists to prevent. What it deliberately
+does NOT own is the query language: terms arrive already folded and already
+expanded (synonyms, transliteration) by whoever asked, because a second
+normalizer here would be a second answer to "what did the user mean".
 """
 import json
+import unicodedata
 from pathlib import Path
 
 from stapel_core.comm import function
@@ -36,6 +50,18 @@ _SCHEMAS_DIR = Path(__file__).resolve().parent / "schemas" / "functions"
 
 # Bounded retries for the consistent (revision, features) snapshot read below.
 _FEATURES_SNAPSHOT_RETRIES = 3
+
+#: Hard ceiling on how many matching categories ``categories.suggest``
+#: returns, whatever the caller asks for. A one-letter term matches most of
+#: a wide catalogue, and the caller's next step is to count live listings per
+#: candidate — so the cap is what keeps a typo from turning a type-ahead into
+#: a catalogue dump.
+_SUGGEST_MAX_RESULTS = 200
+
+#: Cache key prefix of the folded name index, completed by a fingerprint
+#: of the tree's revision state so a mutation retires the entry rather
+#: than waiting out a TTL.
+_SUGGEST_INDEX_CACHE_PREFIX = "stapel_categories:suggest-index:"
 
 
 def _schema(name: str) -> dict:
@@ -129,3 +155,175 @@ def path_function(payload: dict) -> dict:
     return {
         str(pk): [*split_pks(ancestors), str(pk)] for pk, ancestors in rows
     }
+
+
+def fold(value: str) -> str:
+    """A name (or a query term) in this Function's wire normal form.
+
+    Case-folded, ``ё`` merged into ``е``, Latin diacritics dropped, Cyrillic
+    diacritics kept — NFD decomposes ``й`` into ``и`` + breve, and dropping
+    that breve merges two different letters, so «мой» would fold into «мои»
+    and a Russian catalogue would quietly lose a distinction its readers
+    rely on.
+
+    This is the same normal form ``stapel_search.text.fold`` produces, and
+    it is restated here rather than imported for the reason the comm surface
+    exists at all: the two modules do not import each other and may not even
+    run in the same process. The normal form is therefore part of the
+    CONTRACT — ``schemas/functions/categories.suggest.json`` says terms
+    arrive folded — and a contract that only one end can execute is a
+    contract only one end can honour. The caller still owns everything
+    *above* folding (synonyms, transliteration): those are query-language
+    decisions and there is exactly one of them, in the search module.
+
+    Not done in SQL. ``LOWER()`` is ASCII-only on SQLite, so a database
+    case function answers «Шорты» to a Postgres deployment and nothing to a
+    SQLite one — the class of divergence that makes a test suite agree with
+    a stand that is wrong.
+    """
+    if not value:
+        return ""
+    lowered = unicodedata.normalize("NFC", value.casefold()).replace("ё", "е")
+    kept: list[str] = []
+    base = ""
+    for char in unicodedata.normalize("NFD", lowered):
+        if unicodedata.combining(char):
+            if "Ѐ" <= base <= "ӿ":
+                kept.append(char)
+            continue
+        base = char
+        kept.append(char)
+    return unicodedata.normalize("NFC", "".join(kept))
+
+
+def _suggest_index() -> dict:
+    """Every category as ``{id: {slug, name, folded, ancestors, hidden}}``.
+
+    Built from ONE read of the tree and cached under a fingerprint of the
+    tree's own revision state, so the common case is a single cheap
+    aggregate and no fetch at all. The fingerprint is ``(max revision,
+    row count)``: every mutation goes through ``RevisionMixin`` and bumps a
+    revision, and the count catches the one thing a maximum cannot — a row
+    disappearing.
+
+    Whole-tree rather than a per-term query because the match has to happen
+    in Python (see :func:`fold`), and because the ancestry and the ancestor
+    NAMES are needed for every hit anyway. A category tree is a bounded
+    object — hundreds here, ~3k for the full imported Avito catalogue — and
+    reading it whole once per revision is cheaper than the three round trips
+    a per-term query would still need to render one row.
+    """
+    from django.core.cache import cache
+    from django.db.models import Count, Max
+    from treenode.utils import split_pks
+
+    from .conf import categories_settings
+    from .models import Category
+
+    fingerprint = Category.objects.aggregate(
+        revision=Max("revision"), rows=Count("pk")
+    )
+    key = (
+        f"{_SUGGEST_INDEX_CACHE_PREFIX}"
+        f"{fingerprint['revision'] or 0}:{fingerprint['rows'] or 0}"
+    )
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    index: dict[str, dict] = {}
+    for row in Category.objects.values(
+        "pk", "slug", "name", "tn_ancestors_pks", "active", "is_test", "deleted"
+    ):
+        index[str(row["pk"])] = {
+            "slug": row["slug"],
+            "name": row["name"],
+            "folded": fold(row["name"]),
+            "ancestors": split_pks(row["tn_ancestors_pks"]),
+            "hidden": not row["active"] or row["is_test"] or row["deleted"],
+        }
+    cache.set(key, index, categories_settings.SUGGEST_INDEX_CACHE_TIMEOUT)
+    return index
+
+
+@function("categories.suggest", schema=_schema("categories.suggest"))
+def suggest_function(payload: dict) -> dict:
+    """Categories whose NAME matches one of *terms*, with their ancestry.
+
+    Payload: ``{"terms": ["шорты", "shorty"], "limit": 50}``. Returns
+    ``{"categories": [{id, slug, name, path, path_ids, depth, match}]}``,
+    where ``path`` is display names root->leaf and ``path_ids`` the same
+    ancestry as ids. Both travel together because a dropdown row needs the
+    first to render and the second to navigate, and deriving one from the
+    other outside this module means a second call and a second chance to
+    disagree with the tree.
+
+    Terms are OR-ed and matched against the folded name as a prefix *or* a
+    substring. The distinction is reported per row and is not ranked on:
+    the caller ranks by live listing count, and only the caller has that
+    number.
+
+    **Visibility is inherited.** A category is excluded when it is
+    ``active=False``, ``is_test`` or soft-deleted — and also when any
+    ANCESTOR is, because a live leaf hanging under a retired branch is not
+    reachable in the catalogue, and offering it navigates a buyer into a
+    page that is not there.
+
+    At most two queries, whatever the size of the answer, and one of them
+    only on a cold cache — see :func:`_suggest_index`.
+    """
+    from .translation import translate
+
+    terms = [fold(str(term)) for term in (payload.get("terms") or [])]
+    terms = [term for term in terms if term]
+    if not terms:
+        return {"categories": []}
+
+    try:
+        limit = int(payload.get("limit") or 50)
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, _SUGGEST_MAX_RESULTS))
+
+    index = _suggest_index()
+
+    hits: list[tuple[int, int, str]] = []
+    for pk, entry in index.items():
+        if entry["hidden"]:
+            continue
+        folded = entry["folded"]
+        if not any(term in folded for term in terms):
+            continue
+        if any(index.get(ancestor, {}).get("hidden") for ancestor in entry["ancestors"]):
+            continue
+        # Deterministic under the cap: shallower first, then by id. A cap
+        # over an unordered scan hands back a different subset on every call
+        # for the same word.
+        hits.append((len(entry["ancestors"]), int(pk), pk))
+
+    out = []
+    for _, _, pk in sorted(hits)[:limit]:
+        entry = index[pk]
+        path_ids = [*entry["ancestors"], pk]
+        out.append(
+            {
+                "id": int(pk),
+                "slug": entry["slug"],
+                "name": translate(entry["name"]),
+                # An ancestor missing from the index cannot happen for a
+                # consistent tree; if it ever does, the id is a truthful
+                # segment and an empty string would silently shorten the path.
+                "path": [
+                    translate(index.get(segment, {}).get("name", segment))
+                    for segment in path_ids
+                ],
+                "path_ids": path_ids,
+                "depth": len(path_ids),
+                "match": (
+                    "prefix"
+                    if any(entry["folded"].startswith(term) for term in terms)
+                    else "substring"
+                ),
+            }
+        )
+    return {"categories": out}

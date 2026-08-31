@@ -40,8 +40,9 @@
   `/features`, `/children`, bulk-commands, feature-editor draft/apply,
   validate-dto / validate-configs).
 - A **comm surface**: Functions `categories.features` (resolved schema for a
-  category) and `categories.path` (root->leaf ancestry for a batch of
-  categories), plus emitted Action `category.changed`.
+  category), `categories.path` (root->leaf ancestry for a batch of categories)
+  and `categories.suggest` (category NAMES matched for a type-ahead, answered
+  with their ancestry), plus emitted Action `category.changed`.
 - **Catalog fixtures sync** (`export_catalog` / `load_catalog` management
   commands): a byte-stable, natural-key JSON snapshot of the live catalog in a
   host project's `fixtures/catalog/`, reconciled back into a DB via a 3-way
@@ -166,6 +167,7 @@ through `StapelModelAdmin`.
 |---|---|---|---|
 | Function (provides) | `categories.features` | `{category_id}` -> `{category_id, revision, features:[ResolvedFeature]}` | `schemas/functions/categories.features.json` |
 | Function (provides) | `categories.path` | `{category_ids:[id,...]}` -> `{"<id>": ["<root_id>",…,"<id>"]}` | `schemas/functions/categories.path.json` |
+| Function (provides) | `categories.suggest` | `{terms:[folded,...], limit}` -> `{categories:[{id, slug, name, path, path_ids, depth, match}]}` | `schemas/functions/categories.suggest.json` |
 | Action (emits) | `category.changed` | `{category_id, revision}` | `schemas/emits/category.changed.json` |
 
 `category.changed` is emitted from post-save signals on Category (and per
@@ -188,6 +190,36 @@ into `categories.features`, whose payload is typed as an integer id. An id
 with no row is absent from the answer rather than mapped to an empty path, so
 "no such category" stays distinguishable from "a root category" (whose path is
 one element long).
+
+`categories.suggest` matches category names for a type-ahead. «Шорты» is not
+one category — it is a leaf under men's, under women's and under children's
+clothing, and the ancestor path is the only thing that tells the three apart
+in a dropdown — so `path` (display names) and `path_ids` (the same ancestry as
+ids) travel together in one answer: a consumer needs the first to render a row
+and the second to navigate it, and deriving one from the other outside this
+module means a second call and a second chance to disagree with the tree.
+
+Visibility is **inherited**: `active=False`, `is_test` and soft-deleted rows
+are excluded, and so is a live leaf hanging under a retired ancestor, because
+it is not reachable in the catalogue and offering it navigates a buyer into a
+page that is not there.
+
+What it deliberately does not own is the query language. Terms arrive already
+folded and already expanded — synonyms, transliteration — by whoever asked;
+a second normalizer here would be a second answer to "what did the user mean",
+and the declared consumer (stapel-search 0.7's `CATEGORY_SUGGEST_FUNCTION`)
+has exactly one. `match: prefix | substring` is reported and not ranked on:
+the caller ranks by live listing count, and only the caller has that number.
+
+Matching happens in Python over a folded name index built from ONE read of
+the tree and cached under a fingerprint of the tree's revision state, so a
+mutation retires it at once and an unchanged tree costs a single cheap
+aggregate. It is not SQL because `LOWER()` is ASCII-only on SQLite: a database
+case function would answer «Шорты» to a Postgres deployment and nothing to a
+SQLite one, which is the class of divergence that makes a test suite agree
+with a stand that is wrong. `functions.fold` is the wire normal form the
+schema documents — `ё` folds into `е` because users type both, Cyrillic
+diacritics are kept because NFD would merge «мой» into «мои».
 
 ## Catalog fixtures (`export_catalog` / `load_catalog`)
 

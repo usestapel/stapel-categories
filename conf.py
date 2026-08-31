@@ -18,6 +18,11 @@ categories_settings = AppSettings(
         "CAROUSEL_CACHE_TIMEOUT": 300,
         # Seconds an admin feature display-name translation is memoized.
         "FEATURE_DISPLAY_CACHE_TIMEOUT": 60,
+        # Seconds the ``categories.suggest`` folded-name index is held. The
+        # entry is keyed by a fingerprint of the tree's revision state, so a
+        # mutation retires it immediately and this is only the ceiling on how
+        # long an UNCHANGED tree keeps one — long on purpose.
+        "SUGGEST_INDEX_CACHE_TIMEOUT": 3600,
         # Dotted path to a callable ``(key: str) -> str`` used to render a
         # translation key for admin/``__str__`` display (single strategy,
         # REPLACE semantics). Default is identity: this module stores

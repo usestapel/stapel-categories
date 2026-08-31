@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "categories.suggest",
+  "description": "Match category NAMES against a caller-supplied set of already-normalized terms and answer the matching nodes with their full root->leaf ancestry. This object validates the request payload; the response is {\"categories\": [Suggestion]} — see $defs.Suggestion. The caller owns normalization (folding, synonyms, transliteration): this module owns the tree, not a query language, and a second normalizer here would be a second answer to 'what does the user's word mean'. Terms arrive folded (case-folded, ё->е) and are matched case-insensitively against the same folding of the stored name, as a prefix OR a substring. Nothing here stems anything. Rows that are inactive, test or soft-deleted are excluded, and so are rows with such an ancestor: a live leaf under a retired branch is not reachable in the catalogue and must not be offered.",
+  "type": "object",
+  "required": ["terms"],
+  "properties": {
+    "terms": {
+      "type": "array",
+      "description": "Already-folded terms to match, OR-ed together. An empty array answers no categories.",
+      "items": { "type": "string", "maxLength": 200 },
+      "maxItems": 32
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum number of categories to return. The provider additionally caps this; the cap is a property of the tree, not of the caller.",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 50
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Suggestion": {
+      "type": "object",
+      "description": "One matching category. 'path' carries DISPLAY NAMES root->leaf (what a dropdown row shows), 'path_ids' the same ancestry as IDS (what a category filter takes) — the two are the same length and the two halves of one answer, which is why they travel together rather than being re-derived by the caller from a second call.",
+      "required": ["id", "slug", "name", "path", "path_ids", "depth", "match"],
+      "properties": {
+        "id": { "type": "integer", "description": "Category id." },
+        "slug": { "type": "string", "description": "Category slug." },
+        "name": { "type": "string", "description": "Display name of the category itself — the last element of 'path'." },
+        "path": {
+          "type": "array",
+          "description": "Display names, root first, the category itself last.",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "path_ids": {
+          "type": "array",
+          "description": "The same ancestry as ids (strings), root first. Feed it to a category filter.",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "depth": { "type": "integer", "description": "Number of segments in 'path' — 1 for a root category.", "minimum": 1 },
+        "match": {
+          "type": "string",
+          "enum": ["prefix", "substring"],
+          "description": "How the name matched: the folded name STARTS WITH a term, or merely contains one. Reported, not ranked on: the caller ranks, and it ranks by live listing count."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
