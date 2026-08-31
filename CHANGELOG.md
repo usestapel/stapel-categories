@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.8.4] — 2026-08-31
+
+### Changed — the label snapshot crosses nothing this module emits, so only the cap moves
+
+Patch (pre-1.0 semver: minor = breaking, patch = compatible). No model,
+migration, view or code change: this release admits a sibling and does nothing
+else. Every host that could install 0.8.3 installs this, and more can.
+
+- **`stapel-attributes>=0.6,<0.7` → `>=0.6,<0.8`.** 0.7.0 snapshots the chosen
+  options' `label` copy into `SelectDao.labels`, positionally aligned with
+  `value`, so a card or a detail page spells a stored `select` without fetching
+  the category config — it closes a live classified deployment that was
+  printing storage slugs at people. Held at `<0.7`, this line is the wall
+  rather than the guard for the second release running: pip answers
+  `ResolutionImpossible` for anything installing this module beside the fix,
+  and the fix is the whole point of the sibling's release.
+
+- **The floor stays at `>=0.6`**, and 0.8.3 — one entry down — is precisely why
+  that had to be checked rather than assumed. It moved the floor *with* the cap
+  because the committed `docs/schema.json` NAMES `group`: on 0.5 the
+  discriminator mapping this module emits advertised a type the installed
+  registry did not have, which is the same lie as a missing one pointing the
+  other way.
+
+  Nothing of 0.7.0 is named here. `labels` is a field on a stored DAO, and this
+  module emits no DAO at all — `docs/schema.json` carries zero `*Dao*`
+  components, because what categories generates is the *config* side:
+  `FeatureConfig`'s discriminator mapping and `FeatureDto`. The DAO is
+  stapel-listings' half of the boundary, and the only `dto_to_dao` in this
+  repository is a comment in `models.py` naming the FeatureDef fields that have
+  to cross it so the title/badge projections are not built empty.
+
+  Measured, not reasoned. Against 0.7.0 installed: `make contract-check` is
+  clean — the triad regenerates byte-identical, so no `docs/{schema,flows,
+  errors}.json` change appears in this release — and the suite is **330
+  passed**, with `tests/test_contract.py` still pinning thirteen registered
+  types. 0.7.0 adds a field to an existing type, not a fourteenth type.
+
+  So `>=0.6` is what the committed schema requires and `<0.8` is what the fleet
+  needs admitted. A host on stapel-attributes 0.6.x takes this release; under a
+  floor of 0.7 it would have been stranded on 0.8.3 for nothing.
+
+Only the generated version strings move: `docs/capabilities.json`,
+`docs/llms.txt` and `README.md`, refreshed by `make contract`.
+
 ## [0.8.3] — 2026-08-31
 
 ### Changed — the composite `group` crosses this module, and the cap widens to `<0.7`

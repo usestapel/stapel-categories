@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.8.3"
+version = "0.8.4"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -48,7 +48,35 @@ dependencies = [
     # same lie pointing the other way. A host on stapel-attributes 0.5.x stays
     # on stapel-categories 0.8.2 (which is what stapel-shop's `<0.6` and
     # stapel-classified's `>=0.5.1,<0.6` still resolve to).
-    "stapel-attributes>=0.6,<0.7",
+    #
+    # <0.8, not <0.7: stapel-attributes 0.7.0 snapshots the chosen options'
+    # `label` copy into `SelectDao.labels`, index-aligned with `value`, so a
+    # reader spells a stored select without fetching the category config —
+    # closing a live classified deployment that printed storage slugs at
+    # people. Held at <0.7 this line is the wall rather than the guard again:
+    # pip answers ResolutionImpossible for anything installing this module
+    # beside the fix.
+    #
+    # The FLOOR does NOT move with the cap this time, and the paragraph above
+    # is exactly why the question had to be asked rather than assumed. 0.8.3
+    # moved it because the committed docs/schema.json NAMES `group`, so on 0.5
+    # the discriminator mapping this module emits advertised a type the
+    # installed registry did not have. Nothing of 0.7.0 is named here:
+    # `labels` is a field on a stored DAO, and this module emits no DAO at all
+    # — docs/schema.json carries zero `*Dao*` components, because what
+    # categories generates is the CONFIG side (FeatureConfig's discriminator
+    # mapping and FeatureDto). The DAO is stapel-listings' half of the
+    # boundary; the only `dto_to_dao` in this repository is a comment in
+    # models.py naming the FeatureDef fields that have to cross it.
+    #
+    # Measured, not reasoned: `make contract-check` is clean against 0.7.0 —
+    # the triad regenerates byte-identical — and the suite is green with
+    # tests/test_contract.py still pinning thirteen registered types, because
+    # 0.7.0 adds a field to an existing type rather than a fourteenth type.
+    # So >=0.6 stays: 0.6 is what the committed schema requires, <0.8 is what
+    # the fleet needs admitted, and a host on stapel-attributes 0.6.x takes
+    # this release instead of being stranded on 0.8.3 for no gain.
+    "stapel-attributes>=0.6,<0.8",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
 ]
