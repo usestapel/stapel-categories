@@ -46,6 +46,7 @@ from .errors import (
     ERR_400_EXPECTED_LIST,
     ERR_400_FEATURE_EDITOR_INVALID,
     ERR_400_INVALID_CONVERSION,
+    ERR_404_SLUG_NOT_FOUND,
     ERR_409_FEATURE_EDITOR_CONFLICT,
 )
 from .feature_editor import (
@@ -72,6 +73,64 @@ from .serializers import (
     UndeleteResponseSerializer,
     ValidateDtoRequestSerializer,
 )
+
+
+#: Cache key prefix of the roots response, completed by a fingerprint of the
+#: tree's revision state — the same mechanism the suggest index uses
+#: (``functions.py``). A TTL alone would be the ``categories_carousel``
+#: bargain: an edit is invisible until the clock runs out. Here the key
+#: itself changes when the tree does, so a mutation retires the entry
+#: immediately and the timeout is only the ceiling on how long an UNCHANGED
+#: tree keeps one.
+_ROOTS_CACHE_PREFIX = "stapel_categories:roots:"
+
+
+def _roots_cache_key() -> str:
+    """One cheap aggregate; ``(max revision, row count)`` names the tree.
+
+    Both halves are needed: ``revision`` alone misses a pure deletion, and
+    the row count alone misses an edit that keeps the count the same.
+    """
+    from django.db.models import Count, Max
+
+    fingerprint = Category.objects.aggregate(
+        revision=Max("revision"), rows=Count("pk")
+    )
+    return (
+        f"{_ROOTS_CACHE_PREFIX}"
+        f"{fingerprint['revision'] or 0}:{fingerprint['rows'] or 0}"
+    )
+
+
+def visible_categories():
+    """The rows the public tree reads are allowed to return.
+
+    ONE definition, called by ``children``, ``roots`` and ``by-slug``, so the
+    three cannot drift into showing different catalogues. That drift is not
+    hypothetical: two of these are new, and the obvious way to write them is
+    to copy the filter out of ``children`` — which works right up until
+    somebody changes one of the copies.
+
+    What it filters, and what it deliberately does not:
+
+    * ``deleted=False`` — a soft-deleted category is gone as far as any
+      reader is concerned. ``deleted-children`` is the staff view that asks
+      for them on purpose.
+    * ``active`` is **not** filtered, and that is the pre-existing contract
+      of ``children``. An inactive category still occupies a place in the
+      tree; hiding it here would open a hole under the live categories
+      beneath it, and the serializer ships ``active`` on every row so a
+      client that wants to grey one out can.
+    * ``is_test`` is **not** filtered either, for the reason the model states
+      at its declaration: it is an *export* filter (``export_catalog``
+      excludes it from committed fixtures), not a runtime-visibility gate. A
+      deployment that wants test rows hidden from the storefront hides them
+      with ``active``, which is what that field is for.
+
+    Changing any of the three is a change to all three reads at once, which
+    is the point of it being one function.
+    """
+    return Category.objects.filter(deleted=False)
 
 
 @extend_schema(tags=["Categories"])
@@ -310,8 +369,104 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     def children(self, request, pk=None):  # noqa: R007
         """Return non-deleted children, sorted by tn_priority descending."""
         category = self.get_object()
-        children = Category.objects.filter(tn_parent=category, deleted=False).order_by("-tn_priority")
-        return Response(CategorySerializer(children, many=True).data)  # noqa: R001
+        children = visible_categories().filter(tn_parent=category).order_by(
+            "-tn_priority", "id"
+        )
+        response = Response(CategorySerializer(children, many=True).data)  # noqa: R001
+        response["Cache-Control"] = (
+            f"public, max-age={categories_settings.TREE_CACHE_TIMEOUT}"
+        )
+        return response
+
+    @extend_schema(
+        description=(
+            "Top-level categories (no parent), sorted by tn_priority "
+            "descending. The entry point of the tree, without the whole table."
+        ),
+        responses={200: CategorySerializer(many=True)},
+        parameters=[],
+    )
+    @action(detail=False, methods=["get"], url_path="roots", pagination_class=None)
+    def roots(self, request):  # noqa: R007
+        """The tree's first rung.
+
+        Until this existed a client that wanted "what are the top-level
+        categories?" had exactly one way to ask: list the whole table and
+        filter it client-side. On a real catalogue that is hundreds of
+        kilobytes of JSON to render a row of tiles — the storefront's cold
+        ``/c`` measured **21 seconds** — and the server had no way to answer
+        the question that was actually being asked.
+
+        ``children`` is the same read one level down and has always existed,
+        which is what made the gap easy to miss: the tree was walkable from
+        the second rung on, and only the first had no door.
+
+        Same visibility rule as ``children`` by construction
+        (``visible_categories``), unpaginated (a catalogue's roots are tens
+        of rows, not thousands), and cached at the edge for
+        ``TREE_CACHE_TIMEOUT``.
+        """
+        cache_key = _roots_cache_key()
+        cached_data = cache.get(cache_key)
+        if cached_data is None:
+            queryset = visible_categories().filter(tn_parent__isnull=True).order_by(
+                "-tn_priority", "id"
+            )
+            cached_data = CategorySerializer(queryset, many=True).data
+            cache.set(
+                cache_key, cached_data, timeout=categories_settings.TREE_CACHE_TIMEOUT
+            )
+
+        response = Response(cached_data)
+        response["Cache-Control"] = (
+            f"public, max-age={categories_settings.TREE_CACHE_TIMEOUT}"
+        )
+        return response
+
+    @extend_schema(
+        description=(
+            "Retrieve one category by its slug. `slug` is unique, so this is "
+            "an alternate primary key, not a search."
+        ),
+        responses={200: CategorySerializer, 404: OpenApiTypes.OBJECT},
+        parameters=[],
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"by-slug/(?P<slug>[^/.]+)",
+        pagination_class=None,
+    )
+    def by_slug(self, request, slug=None):  # noqa: R007
+        """Resolve a slug to a category.
+
+        The storefront's URLs are slugs (``/c/electronics``), and the server
+        only ever accepted numeric ids — so every category page began by
+        pulling the entire table to find one row. That is the other half of
+        the 21-second cold ``/c``.
+
+        A path segment and not a ``?slug=`` filter, deliberately: ``slug`` is
+        ``unique=True``, so this resolves an alternate primary key and
+        returns an object, not a list of at most one. A query parameter would
+        have made the caller unwrap a collection to express "get this
+        category", and would have implied a filter contract (``?slug=a&
+        slug=b``, partial matches) that a unique key does not have.
+
+        Honours the same visibility rule as ``children`` and ``roots``: a
+        soft-deleted category answers 404 here, which is what a reader
+        expects from a row the tree does not show.
+        """
+        category = visible_categories().filter(slug=slug).first()
+        if category is None:
+            return StapelErrorResponse(
+                404, ERR_404_SLUG_NOT_FOUND, params={"slug": slug}
+            )
+
+        response = Response(CategorySerializer(category).data)
+        response["Cache-Control"] = (
+            f"public, max-age={categories_settings.TREE_CACHE_TIMEOUT}"
+        )
+        return response
 
     @extend_schema(
         description="Get all deleted children of this category.",

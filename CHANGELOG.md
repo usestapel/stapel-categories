@@ -1,5 +1,92 @@
 # Changelog
 
+## [0.12.0] — 2026-09-02
+
+Minor (pre-1.0: minor = breaking, patch = compatible). Two new public
+read actions, one new setting, and one filter that stopped being written out
+three times.
+
+### The two rungs the server could not answer
+
+A storefront walks the tree from the top: show the root tiles, resolve the
+slug in the URL, list that category's children. The third had an endpoint
+from the first release. The first two did not.
+
+So a client that wanted "what are the top-level categories?" or "which
+category is `/c/electronics`?" had exactly one way to ask: **list the whole
+table and filter it client-side.** On this fleet that is a 15-page walk —
+614 KB of JSON, and the single most-requested route on the stand by a factor
+of three — to render a row of tiles or to resolve one slug. The cold `/c`
+page measured **21 seconds**. These two actions are what kill it: a root
+listing is one small response, and a slug is one row.
+
+`children` having always existed is what made the gap easy to miss — the tree
+was walkable from the second rung on, and only the first had no door.
+
+### `GET categories/roots/`
+
+Top-level categories (`tn_parent IS NULL`), `-tn_priority` then `id`,
+unpaginated (a catalogue's roots are tens of rows, not thousands), public.
+
+Cached server-side under a key fingerprinted by the tree's revision state —
+`(max revision, row count)`, the same mechanism `categories.suggest` uses for
+its folded-name index. A TTL alone would be the `categories_carousel`
+bargain: an edit stays invisible until the clock runs out. Here the key
+itself changes when the tree does, so a mutation retires the entry
+immediately and `TREE_CACHE_TIMEOUT` is only the ceiling on how long an
+*unchanged* tree keeps one. Both halves of the fingerprint are needed:
+`revision` alone misses a pure deletion, the row count alone misses an edit
+that keeps the count the same.
+
+### `GET categories/by-slug/<slug>/`
+
+Resolves a slug to one category; 404 with `error.404.categories_slug_not_found`
+otherwise.
+
+A path segment and **not** a `?slug=` filter, deliberately: `slug` is
+`unique=True`, so this resolves an alternate primary key and returns an
+object, not a list of at most one. A query parameter would have made every
+caller unwrap a collection to say "get this category", and would have implied
+a filter contract (repeated values, partial matches) that a unique key does
+not have. The numeric detail route is untouched and pinned by a test.
+
+### One visibility rule, in one function
+
+`views.visible_categories()` is now the single definition of what the public
+tree shows, called by all three reads. Two of these endpoints are new, and
+the way this drifts is somebody copying the filter out of `children` and then
+changing one of the copies. It is asserted by comparing the endpoints against
+**each other** rather than by restating the filter in the tests, because a
+restated filter is a fourth copy that can drift too.
+
+What it filters, and what it deliberately does not — this is `children`'s
+pre-existing contract, now stated rather than implied:
+
+- `deleted=False`. A soft-deleted category is gone to any reader;
+  `deleted-children` is the staff view that asks for them on purpose.
+- **`active` is not filtered.** An inactive category still occupies a place
+  in the tree, and hiding it would open a hole under the live categories
+  beneath it. The serializer ships `active` on every row, so a client that
+  wants to grey one out can.
+- **`is_test` is not filtered.** Per the model's own declaration, it is an
+  *export* filter — `export_catalog` excludes such rows from committed
+  fixtures — not a runtime-visibility gate. A deployment that wants test rows
+  hidden from the storefront hides them with `active`.
+
+Both are pinned by tests, so making either a visibility gate later is one
+edit in one function and a deliberate one.
+
+### Added
+
+- `STAPEL_CATEGORIES["TREE_CACHE_TIMEOUT"]` (default `300`).
+- `Cache-Control: public, max-age=<TREE_CACHE_TIMEOUT>` on all three tree
+  reads. `children` had none before, so an edge cache applied whatever
+  default it liked to the fleet's hottest navigation read.
+- `error.404.categories_slug_not_found`.
+- `children` now sorts `-tn_priority, id`. It sorted on `-tn_priority` alone,
+  which left equal-priority siblings in DB-arbitrary order — a tile grid that
+  could reshuffle between two identical requests.
+
 ## [0.11.0] — 2026-09-02
 
 Minor (pre-1.0: minor = breaking, patch = compatible). One new column on

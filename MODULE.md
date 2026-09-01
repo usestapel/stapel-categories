@@ -51,6 +51,17 @@
 - A revision-sync **HTTP API** for Category & Feature (list/retrieve, carousel,
   `/features`, `/children`, bulk-commands, feature-editor draft/apply,
   validate-dto / validate-configs).
+- **Three public tree reads that share one visibility rule** (`roots`,
+  `{id}/children`, `by-slug/{slug}`). `roots` returns the top-level
+  categories and `by-slug` resolves a storefront URL segment to one category;
+  before 0.12.0 neither existed, so a client that wanted either had to list
+  the whole table and filter it client-side. All three go through
+  `views.visible_categories()` — one definition, so they cannot drift into
+  showing different catalogues — and all three carry
+  `Cache-Control: public, max-age=TREE_CACHE_TIMEOUT`. `roots` also caches
+  server-side under a key fingerprinted by the tree's revision state (the
+  `categories.suggest` mechanism), so an edit retires the entry immediately
+  instead of waiting out a TTL.
 - A **comm surface**: Functions `categories.features` (resolved schema for a
   category), `categories.path` (root->leaf ancestry for a batch of categories)
   and `categories.suggest` (category NAMES matched for a type-ahead, answered
@@ -92,6 +103,7 @@ setting of the same name -> environment variable -> default. Read lazily.
 | Key | Default | Semantics | What it customizes |
 |---|---|---|---|
 | `CAROUSEL_CACHE_TIMEOUT` | `300` | value | Seconds the `carousel` action caches its response. |
+| `TREE_CACHE_TIMEOUT` | `300` | value | Seconds the public tree reads (`roots`, `{id}/children`, `by-slug/{slug}`) are cacheable for, and the ceiling on the server-side `roots` entry. The storefront's cold path — the first thing every visitor asks for and the last thing that changes. |
 | `FEATURE_DISPLAY_CACHE_TIMEOUT` | `60` | value | Seconds an admin feature display label is memoized. |
 | `DISPLAY_TRANSLATOR` | `stapel_categories.translation.identity_translator` | **REPLACE** (dotted path, single strategy) | Callable `(key: str) -> str` that renders a translation key for `__str__`/admin display. Default is identity — the module stores keys, not resolved text. Point it at a translation backend (e.g. a wrapper over the `translate.resolve` comm Function) to show resolved names. |
 

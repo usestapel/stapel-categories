@@ -16,6 +16,12 @@ categories_settings = AppSettings(
         # Seconds the ``categories/carousel`` response is cached in the
         # Django cache backend.
         "CAROUSEL_CACHE_TIMEOUT": 300,
+        # Seconds the public tree reads (``categories/roots``,
+        # ``categories/{id}/children``, ``categories/by-slug/{slug}``) are
+        # cacheable for. These are the storefront's cold path — the first
+        # thing every visitor asks for and the last thing that changes — so
+        # the ceiling is the catalogue's edit tempo, not a request's.
+        "TREE_CACHE_TIMEOUT": 300,
         # Seconds an admin feature display-name translation is memoized.
         "FEATURE_DISPLAY_CACHE_TIMEOUT": 60,
         # Seconds the ``categories.suggest`` folded-name index is held. The

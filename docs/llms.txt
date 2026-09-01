@@ -1,8 +1,8 @@
-# stapel-categories 0.11.0
+# stapel-categories 0.12.0
 
 Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.
 
-Contract: axes 1 · surface 19 · extension points 4 · operations 31 · error codes 63.
+Contract: axes 1 · surface 19 · extension points 4 · operations 33 · error codes 64.
 Generated from docs/capabilities.json by `stapel-llms-txt` — do not edit; drift-gated by `make contract-check`.
 
 ## Configuration axes — what a product switches on
@@ -78,11 +78,12 @@ This is the answer to "does Stapel already have something for X?". `instead of` 
 - stapel-attributes (required) — the feature-type registry, config/DTO validation, polymorphic serializers and admin widgets are imported from stapel-attributes and never re-implemented (pyproject.toml dependency; admin.py:16, forms.py:14, serializers.py:11, views.py:23-24)
 - stapel-core (required) — comm bus (mutate_and_emit/function), RevisionMixin, AppSettings, error registry (pyproject.toml dependency; models.py:28-29, conf.py:11, functions.py:22)
 
-## HTTP operations (31) — call by operationId, never by a typed path
+## HTTP operations (33) — call by operationId, never by a typed path
 Paths are relative to `/categories/api/v1/`.
 ### Categories
 - POST /categories/bulk_add/ — categories_api_v1_categories_bulk_add_create
 - POST /categories/bulk-commands/ — categories_api_v1_categories_bulk_commands_create
+- GET /categories/by-slug/{slug}/ — categories_api_v1_categories_by_slug_retrieve
 - GET /categories/carousel/ — categories_api_v1_categories_carousel_list
 - GET /categories/{id}/children/ — categories_api_v1_categories_children_list
 - POST /categories/ — categories_api_v1_categories_create
@@ -94,6 +95,7 @@ Paths are relative to `/categories/api/v1/`.
 - PATCH /categories/{id}/ — categories_api_v1_categories_partial_update
 - GET /categories/{id}/ — categories_api_v1_categories_retrieve
 - GET /categories/revision/ — categories_api_v1_categories_revision_retrieve
+- GET /categories/roots/ — categories_api_v1_categories_roots_list
 - POST /categories/{id}/undelete/ — categories_api_v1_categories_undelete_create
 - PUT /categories/{id}/ — categories_api_v1_categories_update
 - GET /categories/{id}/validate-configs/ — categories_api_v1_categories_validate_configs_retrieve
@@ -115,7 +117,7 @@ Paths are relative to `/categories/api/v1/`.
 - GET /features/revision/ — categories_api_v1_features_revision_retrieve
 - PUT /features/{id}/ — categories_api_v1_features_update
 
-## Error codes (63) — the StapelError envelope
+## Error codes (64) — the StapelError envelope
 Render `t(code, params)`; branch UX on the remediation. Localized text lives in docs/errors.<lang>.md, not here.
 - error.400.bad_request [400] fix_input
 - error.400.captcha_invalid [400] retry
@@ -163,6 +165,7 @@ Render `t(code, params)`; branch UX on the remediation. Localized text lives in 
 - error.403.verification_enrollment_required [403] verify
 - error.403.verification_required [403] verify
 - error.404.ad_not_found [404] retry
+- error.404.categories_slug_not_found [404] retry {slug}
 - error.404.not_found [404] retry
 - error.404.verification_challenge_not_found [404] verify
 - error.405.method_not_allowed [405] retry

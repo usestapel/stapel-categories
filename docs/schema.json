@@ -878,6 +878,53 @@
         }
       }
     },
+    "/categories/api/v1/categories/by-slug/{slug}/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_by_slug_retrieve",
+        "description": "Retrieve one category by its slug. `slug` is unique, so this is an alternate primary key, not a search.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
     "/categories/api/v1/categories/carousel/": {
       "get": {
         "operationId": "categories_api_v1_categories_carousel_list",
@@ -969,6 +1016,35 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MaxRevision"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/roots/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_roots_list",
+        "description": "Top-level categories (no parent), sorted by tn_priority descending. The entry point of the tree, without the whole table.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Category"
+                  }
                 }
               }
             },

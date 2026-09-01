@@ -424,6 +424,16 @@
     "owner": "stapel_core"
   },
   {
+    "code": "error.404.categories_slug_not_found",
+    "status": 404,
+    "params": [
+      "slug"
+    ],
+    "remediation": "retry",
+    "en": "No category with slug '{slug}'",
+    "owner": "stapel_categories"
+  },
+  {
     "code": "error.404.not_found",
     "status": 404,
     "params": [],

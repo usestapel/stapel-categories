@@ -20,6 +20,7 @@ ERR_400_INVALID_CONVERSION = "error.400.categories_invalid_conversion"
 ERR_400_CONFIG_REQUIRED = "error.400.categories_config_required"
 ERR_400_FEATURE_EDITOR_INVALID = "error.400.categories_feature_editor_invalid"
 ERR_409_FEATURE_EDITOR_CONFLICT = "error.409.categories_feature_editor_conflict"
+ERR_404_SLUG_NOT_FOUND = "error.404.categories_slug_not_found"
 
 STAPEL_CATEGORIES_ERRORS = {
     ERR_400_EXPECTED_LIST: "Expected a list of objects",
@@ -33,6 +34,7 @@ STAPEL_CATEGORIES_ERRORS = {
         "Category was modified by another editor "
         "(expected revision {expected}, now {actual}); reload and retry"
     ),
+    ERR_404_SLUG_NOT_FOUND: "No category with slug '{slug}'",
 }
 
 register_service_errors(STAPEL_CATEGORIES_ERRORS)
@@ -47,4 +49,5 @@ __all__ = [
     "ERR_400_CONFIG_REQUIRED",
     "ERR_400_FEATURE_EDITOR_INVALID",
     "ERR_409_FEATURE_EDITOR_CONFLICT",
+    "ERR_404_SLUG_NOT_FOUND",
 ]
