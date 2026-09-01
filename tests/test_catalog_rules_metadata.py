@@ -1,6 +1,6 @@
 """Catalog fixtures carry rules, form metadata and ``external_id`` (spec §5).
 
-The fixture pair is the import format: ``stapel-avito-import`` writes it and
+The fixture pair is the import format: the catalogue importer writes it and
 ``load_catalog`` applies it, so a field the export writes but the loader does
 not read (or vice versa) is a field that survives review and then vanishes on
 the stand. The three properties that keep the pair honest — byte-stability,

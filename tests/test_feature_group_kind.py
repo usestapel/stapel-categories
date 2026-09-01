@@ -30,8 +30,9 @@ from stapel_categories.translation_keys import collect_feature_translation_keys
 
 pytestmark = pytest.mark.django_db
 
-#: Avito's `DiscountLadderList`: "from N units, M % off", up to five steps —
-#: the shape 2 468 fields of that corpus carry and no scalar kind could hold.
+#: A wholesale discount ladder: "from N units, M % off", up to five steps —
+#: the shape 2 468 fields of the imported corpus carry and no scalar kind
+#: could hold.
 LADDER_CONFIG = {
     "type": "group",
     "fields": [
@@ -201,7 +202,7 @@ class TestTheChildrenCrossEveryBoundary:
         assert "option.red" in keys
 
 
-# ── fixtures: what the Avito importer writes and `load_catalog` reads ─
+# ── fixtures: what the catalogue importer writes and `load_catalog` reads ─
 
 
 class TestCatalogFixturesRoundTripAComposite:

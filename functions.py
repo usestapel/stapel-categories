@@ -209,7 +209,7 @@ def _suggest_index() -> dict:
     Whole-tree rather than a per-term query because the match has to happen
     in Python (see :func:`fold`), and because the ancestry and the ancestor
     NAMES are needed for every hit anyway. A category tree is a bounded
-    object — hundreds here, ~3k for the full imported Avito catalogue — and
+    object — hundreds here, ~3k for a full imported marketplace catalogue — and
     reading it whole once per revision is cheaper than the three round trips
     a per-term query would still need to render one row.
     """

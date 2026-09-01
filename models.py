@@ -258,7 +258,7 @@ class Category(RevisionMixin, TreeNodeModel):
     name = models.CharField(max_length=255)
     slug = models.CharField(max_length=100, unique=True, db_index=True)
     # Identifier this category carries in the source it was imported from
-    # (e.g. an Avito tree node id). Opaque, and NOT unique on its own — two
+    # (e.g. a source tree node id). Opaque, and NOT unique on its own — two
     # source catalogues may hand out the same id — so the importer's identity
     # is the PAIR (external_source, external_id), see ``external_source``.
     #
@@ -273,7 +273,7 @@ class Category(RevisionMixin, TreeNodeModel):
         max_length=64, blank=True, default="", db_index=True,
         help_text="Identifier in the source catalogue this category was imported from.",
     )
-    # Which catalogue ``external_id`` belongs to (e.g. "avito"). Blank means
+    # Which catalogue ``external_id`` belongs to (e.g. "partner-feed"). Blank means
     # "the deployment's only import source" — the value every row written
     # before this field existed carries, and the value a fixture that omits
     # the key matches against, so a single-source catalog never has to set it.

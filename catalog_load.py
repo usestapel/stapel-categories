@@ -374,8 +374,8 @@ def _load_inputs(directory: str):
 #
 # The fixture files address categories by ``slug`` and always will: the tree
 # edges (``parent_slug``) and the sidecar keys are slugs. But for a category
-# imported from an external catalogue the slug is *derived* (Avito's node path
-# transliterated), so the source renaming a node moves the slug while the node
+# imported from an external catalogue the slug is *derived* (the source's node
+# path transliterated), so the source renaming a node moves the slug while the node
 # is the same node. Matching a re-import by slug would then read as "one
 # category disappeared, an unrelated one appeared" and leave a duplicate next
 # to the row that already holds that node's listings.
@@ -648,7 +648,7 @@ def _deferred_tree_rebuild(*models):
     row, for every single row written. A load of N rows therefore costs O(N²)
     statements against a heap that cannot be vacuumed inside the load's
     transaction, so the real curve is worse than quadratic. Measured on the
-    Avito catalog fixtures (postgres 16, one transaction, no deletes):
+    imported catalog fixtures (postgres 16, one transaction, no deletes):
 
                                         before   after
         32 features / 3 categories       0.6 s    0.4 s

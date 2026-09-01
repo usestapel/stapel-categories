@@ -1102,14 +1102,14 @@ class SourceIdentityTests(_CatalogTestCase):
     """
 
     def _seed_imported(self):
-        """Two imported roots + one imported child, all carrying Avito ids."""
+        """Two imported roots + one imported child, all carrying source ids."""
         self.phones = Category.objects.create(
-            name="Телефоны", slug="telefony", external_id="129639",
-            external_source="avito",
+            name="Phones", slug="phones", external_id="129639",
+            external_source="catalog-a",
         )
         self.used = Category.objects.create(
-            name="Б/у телефоны", slug="bu-telefony", tn_parent=self.phones,
-            external_id="129640", external_source="avito",
+            name="Used phones", slug="used-phones", tn_parent=self.phones,
+            external_id="129640", external_source="catalog-a",
         )
 
     def _cats(self, out):
@@ -1124,10 +1124,10 @@ class SourceIdentityTests(_CatalogTestCase):
             records = _read_json(out, cf.CATEGORIES_FILE)
             for rec in records:
                 if rec["external_id"] == "129639":
-                    rec["slug"] = "mobilnye-telefony"      # source renamed the node
-                    rec["name"] = "Мобильные телефоны"
+                    rec["slug"] = "mobile-phones"      # source renamed the node
+                    rec["name"] = "Mobile phones"
                 elif rec["external_id"] == "129640":
-                    rec["parent_slug"] = "mobilnye-telefony"
+                    rec["parent_slug"] = "mobile-phones"
             _write_json(out, cf.CATEGORIES_FILE, records)
 
             report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
@@ -1135,18 +1135,18 @@ class SourceIdentityTests(_CatalogTestCase):
 
             # Same row (same pk), new slug and name — not a second row.
             self.assertEqual(Category.objects.filter(external_id="129639").count(), 1)
-            self.assertFalse(Category.objects.filter(slug="telefony").exists())
+            self.assertFalse(Category.objects.filter(slug="phones").exists())
             moved = Category.objects.get(pk=self.phones.pk)
-            self.assertEqual(moved.slug, "mobilnye-telefony")
-            self.assertEqual(moved.name, "Мобильные телефоны")
+            self.assertEqual(moved.slug, "mobile-phones")
+            self.assertEqual(moved.name, "Mobile phones")
             # The child kept hanging off the very same parent row.
             self.assertEqual(
                 Category.objects.get(pk=self.used.pk).tn_parent_id, self.phones.pk
             )
             # Reported as an update-with-rename, never as created + deleted.
             kinds = {it.key: it.kind for it in report.categories}
-            self.assertEqual(kinds["mobilnye-telefony"], cl.UPDATED)
-            self.assertNotIn("telefony", kinds)
+            self.assertEqual(kinds["mobile-phones"], cl.UPDATED)
+            self.assertNotIn("phones", kinds)
 
     def test_the_dry_run_plan_prints_the_rename_and_writes_nothing(self):
         self._seed_imported()
@@ -1155,23 +1155,23 @@ class SourceIdentityTests(_CatalogTestCase):
             records = _read_json(out, cf.CATEGORIES_FILE)
             for rec in records:
                 if rec["external_id"] == "129639":
-                    rec["slug"] = "mobilnye-telefony"
+                    rec["slug"] = "mobile-phones"
                 elif rec["external_id"] == "129640":
-                    rec["parent_slug"] = "mobilnye-telefony"
+                    rec["parent_slug"] = "mobile-phones"
             _write_json(out, cf.CATEGORIES_FILE, records)
 
             report = cl.load_catalog(out, dry_run=True, on_conflict=cl.ON_CONFLICT_FIXTURE)
-            item = next(it for it in report.categories if it.key == "mobilnye-telefony")
+            item = next(it for it in report.categories if it.key == "mobile-phones")
             self.assertTrue(item.renamed)
             self.assertEqual(item.kind, cl.UPDATED)
-            self.assertIn("slug 'telefony' → 'mobilnye-telefony'", item.detail)
+            self.assertIn("slug 'phones' → 'mobile-phones'", item.detail)
             self.assertIn("external_id '129639'", item.detail)
             self.assertEqual(report.renames, 1)
             # No add/remove pair anywhere in the plan for this node.
             self.assertEqual([it.kind for it in report.categories if it.kind == cl.DELETED], [])
             self.assertEqual([it.kind for it in report.categories if it.kind == cl.CREATED], [])
             # Dry run wrote nothing.
-            self.assertTrue(Category.objects.filter(slug="telefony").exists())
+            self.assertTrue(Category.objects.filter(slug="phones").exists())
 
     def test_the_command_prints_the_rename_line(self):
         from io import StringIO
@@ -1182,9 +1182,9 @@ class SourceIdentityTests(_CatalogTestCase):
             records = _read_json(out, cf.CATEGORIES_FILE)
             for rec in records:
                 if rec["external_id"] == "129639":
-                    rec["slug"] = "mobilnye-telefony"
+                    rec["slug"] = "mobile-phones"
                 elif rec["external_id"] == "129640":
-                    rec["parent_slug"] = "mobilnye-telefony"
+                    rec["parent_slug"] = "mobile-phones"
             _write_json(out, cf.CATEGORIES_FILE, records)
 
             buf = StringIO()
@@ -1195,18 +1195,18 @@ class SourceIdentityTests(_CatalogTestCase):
             text = buf.getvalue()
             self.assertIn("of which renamed 1", text)
             self.assertIn(
-                "» mobilnye-telefony  (renamed: slug 'telefony' → "
-                "'mobilnye-telefony' (external_id '129639', source 'avito'))",
+                "» mobile-phones  (renamed: slug 'phones' → "
+                "'mobile-phones' (external_id '129639', source 'catalog-a'))",
                 text,
             )
 
     def test_a_rename_chain_resolves_in_one_run(self):
         """a→b while b→c: the holder of the target slug moves away first."""
         first = Category.objects.create(
-            name="A", slug="a", external_id="1", external_source="avito"
+            name="A", slug="a", external_id="1", external_source="catalog-a"
         )
         second = Category.objects.create(
-            name="B", slug="b", external_id="2", external_source="avito"
+            name="B", slug="b", external_id="2", external_source="catalog-a"
         )
         with tempfile.TemporaryDirectory() as out:
             _export(out)
@@ -1243,7 +1243,7 @@ class SourceIdentityTests(_CatalogTestCase):
             _export(out)
             records = _read_json(out, cf.CATEGORIES_FILE)
             records[0]["external_id"] = "129639"
-            records[0]["external_source"] = "avito"
+            records[0]["external_source"] = "catalog-a"
             _write_json(out, cf.CATEGORIES_FILE, records)
 
             report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
@@ -1251,30 +1251,30 @@ class SourceIdentityTests(_CatalogTestCase):
             self.assertEqual(Category.objects.count(), 1)
             adopted = Category.objects.get(pk=hand.pk)
             self.assertEqual(adopted.external_id, "129639")
-            self.assertEqual(adopted.external_source, "avito")
+            self.assertEqual(adopted.external_source, "catalog-a")
 
     def test_external_source_separates_two_catalogues_reusing_one_id(self):
         """Same external_id, different source — two rows, never one."""
-        avito = Category.objects.create(
-            name="Avito 1", slug="avito-one", external_id="1", external_source="avito"
+        first_source = Category.objects.create(
+            name="Catalogue A 1", slug="catalog-a-one", external_id="1", external_source="catalog-a"
         )
         with tempfile.TemporaryDirectory() as out:
             _export(out)
             records = _read_json(out, cf.CATEGORIES_FILE)
             records.append({
-                "slug": "youla-one", "parent_slug": None, "name": "Youla 1",
+                "slug": "catalog-b-one", "parent_slug": None, "name": "Catalogue B 1",
                 "comment": "", "catalog_icon": "", "carousel_icon": "",
                 "carousel_enabled": False, "active": True, "external_id": "1",
-                "external_source": "youla", "translatable": True, "features": [],
+                "external_source": "catalog-b", "translatable": True, "features": [],
             })
             _write_json(out, cf.CATEGORIES_FILE, records)
 
             report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
             self.assertFalse(report.failed, [(i.kind, i.key, i.detail) for i in report.categories])
             self.assertEqual(Category.objects.count(), 2)
-            self.assertEqual(Category.objects.get(pk=avito.pk).slug, "avito-one")
+            self.assertEqual(Category.objects.get(pk=first_source.pk).slug, "catalog-a-one")
             self.assertEqual(
-                Category.objects.get(external_source="youla").slug, "youla-one"
+                Category.objects.get(external_source="catalog-b").slug, "catalog-b-one"
             )
 
     # -- collisions: identity wins, loudly ----------------------------------
@@ -1282,7 +1282,7 @@ class SourceIdentityTests(_CatalogTestCase):
     def test_identity_wins_over_a_slug_match_on_a_different_row(self):
         """Fixture identity matches row A, fixture slug is held by row B."""
         row_a = Category.objects.create(
-            name="A", slug="a", external_id="1", external_source="avito"
+            name="A", slug="a", external_id="1", external_source="catalog-a"
         )
         row_b = Category.objects.create(name="B", slug="b")   # hand-seeded, stays
         with tempfile.TemporaryDirectory() as out:
@@ -1316,7 +1316,7 @@ class SourceIdentityTests(_CatalogTestCase):
 
     def test_the_dry_run_reports_the_collision_before_anything_is_written(self):
         Category.objects.create(
-            name="A", slug="a", external_id="1", external_source="avito"
+            name="A", slug="a", external_id="1", external_source="catalog-a"
         )
         Category.objects.create(name="B", slug="b")
         with tempfile.TemporaryDirectory() as out:
@@ -1341,7 +1341,7 @@ class SourceIdentityTests(_CatalogTestCase):
         is not something a plan may leave unsaid.
         """
         held = Category.objects.create(
-            name="Held", slug="phones", external_id="222", external_source="avito"
+            name="Held", slug="phones", external_id="222", external_source="catalog-a"
         )
         with tempfile.TemporaryDirectory() as out:
             _export(out)
@@ -1363,10 +1363,10 @@ class SourceIdentityTests(_CatalogTestCase):
 
     def test_duplicate_live_rows_for_one_source_node_are_refused(self):
         Category.objects.create(
-            name="One", slug="one", external_id="1", external_source="avito"
+            name="One", slug="one", external_id="1", external_source="catalog-a"
         )
         Category.objects.create(
-            name="Two", slug="two", external_id="1", external_source="avito"
+            name="Two", slug="two", external_id="1", external_source="catalog-a"
         )
         with tempfile.TemporaryDirectory() as out:
             _export(out)
@@ -1390,7 +1390,7 @@ class SourceIdentityTests(_CatalogTestCase):
         with tempfile.TemporaryDirectory() as out:
             _export(out)
             cats = self._cats(out)
-            self.assertEqual(cats["telefony"]["external_source"], "avito")
+            self.assertEqual(cats["phones"]["external_source"], "catalog-a")
             # Blank source stays out of the record, so hashes written before
             # the field existed keep their meaning.
             self.assertNotIn("external_source", cats["hand"])
@@ -1398,7 +1398,7 @@ class SourceIdentityTests(_CatalogTestCase):
             _wipe_db()
             _load_cmd(out, seed_if_empty=True)
             self.assertEqual(
-                Category.objects.get(slug="telefony").external_source, "avito"
+                Category.objects.get(slug="phones").external_source, "catalog-a"
             )
             self.assertEqual(Category.objects.get(slug="hand").external_source, "")
 
@@ -1409,9 +1409,9 @@ class SourceIdentityTests(_CatalogTestCase):
             records = _read_json(out, cf.CATEGORIES_FILE)
             for rec in records:
                 if rec["external_id"] == "129639":
-                    rec["slug"] = "mobilnye-telefony"
+                    rec["slug"] = "mobile-phones"
                 elif rec["external_id"] == "129640":
-                    rec["parent_slug"] = "mobilnye-telefony"
+                    rec["parent_slug"] = "mobile-phones"
             _write_json(out, cf.CATEGORIES_FILE, records)
 
             cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)

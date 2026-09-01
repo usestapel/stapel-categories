@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.9.1] — 2026-09-01
+
+Patch (pre-1.0: minor = breaking, patch = compatible). Comments, docs and test
+data only — no model, migration, comm-surface or fixture-format change.
+
+### Changed
+
+- **Import prose is source-neutral.** The comments and docstrings that
+  explained `external_id` / `external_source`, the slug-derivation note in
+  `catalog_load`, the tree-size note in `functions`, the re-sync plan line in
+  `load_catalog` and the composite-kind note in the tests named the external
+  marketplace whose catalogue was imported. They now say what they mean — an
+  imported external catalogue — which is also the only thing this module knows
+  about it: `(external_source, external_id)` is an opaque pair here and always
+  was.
+- **Test data is neutral and English.** `SourceIdentityTests` seeds
+  `catalog-a` / `catalog-b` sources and phones/used-phones/mobile-phones
+  categories instead of two named marketplaces and transliterated Russian
+  slugs. The scenarios, assertions and coverage are unchanged.
+
 ## [0.9.0] — 2026-08-31
 
 ### Added — `categories.suggest`: names in, nodes with their ancestry out
@@ -174,8 +194,8 @@ No model, migration or view change.
   rebuilds the **whole table**: one read of every row plus one `UPDATE` per row,
   for every single row written. A load of N rows therefore cost O(N²)
   statements against a heap no autovacuum can touch inside the load's own
-  transaction, so the real curve was worse than quadratic. Measured on the Avito
-  catalog fixtures (postgres 16, one transaction, no deletes):
+  transaction, so the real curve was worse than quadratic. Measured on the
+  imported catalog fixtures (postgres 16, one transaction, no deletes):
 
   | rows written | 0.8.0 | 0.8.1 |
   |---|---|---|
@@ -295,7 +315,8 @@ config needs a registered resolver) reach anything mounting this module.
 
 ### The half of a feature definition that was not crossing
 
-99.9 % of the fields in the Avito dataset carry a description and an example,
+99.9 % of the fields in the imported catalogue dataset carry a description and
+an example,
 31 % carry a dependency (a conditional rule), and none of that had anywhere to
 live here. stapel-attributes 0.5.0 gave `FeatureDef` the six fields for it;
 this release stores them and — the actual work — walks every place a feature

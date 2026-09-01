@@ -160,7 +160,7 @@ class Command(BaseCommand):
                 f"{_KIND_LABEL[k]} {counts[k]}" for k in _KIND_ORDER if counts[k]
             ) or "nothing to do"
             # Renames are a subset of the updates, and the number an operator
-            # reading an Avito re-sync plan actually wants: it is the count of
+            # reading a catalogue re-sync plan actually wants: it is the count of
             # rows that would have been an add + a remove under slug matching.
             renamed = sum(1 for it in items if it.renamed)
             if renamed:
