@@ -264,7 +264,7 @@ class TestSuggestFunction:
             ("Детям", "Детская одежда", "Шорты"),
         }
         assert all(row["depth"] == 3 for row in result["categories"])
-        assert all(row["match"] == "prefix" for row in result["categories"])
+        assert all(row["match"] == "exact" for row in result["categories"])
 
     def test_path_ids_are_the_ancestry_as_ids(self, clothing_tree):
         result = call("categories.suggest", {"terms": ["шорты"]})
@@ -280,11 +280,55 @@ class TestSuggestFunction:
         ]
         assert len(row["path_ids"]) == len(row["path"])
 
-    def test_substring_matches_and_is_labelled(self, clothing_tree):
+    def test_the_four_match_kinds_are_graded_apart(self, clothing_tree):
+        """The grade is the caller's ranking key, so each kind has to be earned.
+
+        «Сифоны» is the live case for the last one: transliterating «iphone»
+        yields «ифон», which sits inside «сифоны» and inside nothing else in
+        a 3583-node catalogue — so on the stand it was the ONE suggestion a
+        buyer typing «iphone» got. A mid-word hit and a word-boundary hit are
+        different evidence and this is where they stop sorting the same.
+        """
+        Category.objects.create(name="Сифоны", slug="sifony")
+
         result = call("categories.suggest", {"terms": ["одежда"]})
         by_name = {row["name"]: row for row in result["categories"]}
-        assert by_name["Одежда"]["match"] == "prefix"
-        assert by_name["Мужская одежда"]["match"] == "substring"
+        assert by_name["Одежда"]["match"] == "exact"
+        assert by_name["Мужская одежда"]["match"] == "word"
+
+        assert [
+            (row["name"], row["match"])
+            for row in call("categories.suggest", {"terms": ["ифон"]})["categories"]
+        ] == [("Сифоны", "substring")]
+
+        graded = call("categories.suggest", {"terms": ["одеж"]})["categories"]
+        assert (graded[0]["name"], graded[0]["match"]) == ("Одежда", "prefix")
+        assert {(row["name"], row["match"]) for row in graded[1:]} == {
+            ("Детская одежда", "word"),
+            ("Женская одежда", "word"),
+            ("Мужская одежда", "word"),
+        }
+
+    def test_the_result_cap_keeps_the_best_matches_not_the_shallowest(self, db):
+        """A deep exact hit must survive a cap a shallow mid-word hit would fill.
+
+        The caller does the ranking, and it can only rank what it was given:
+        capping by depth alone dropped «Мужская одежда › Шорты» before
+        `/suggest` ever saw it while keeping three nodes that merely contain
+        the word.
+        """
+        root = Category.objects.create(name="Спорт", slug="sport")
+        for index in range(3):
+            Category.objects.create(
+                name=f"Брюки и шорты {index}", slug=f"bryuki-{index}", tn_parent=root
+            )
+        branch = Category.objects.create(name="Одежда", slug="odezhda", tn_parent=root)
+        deep = Category.objects.create(name="Шорты", slug="shorty", tn_parent=branch)
+
+        result = call("categories.suggest", {"terms": ["шорты"], "limit": 1})
+
+        assert [row["id"] for row in result["categories"]] == [deep.pk]
+        assert result["categories"][0]["match"] == "exact"
 
     def test_yo_folds_to_ye(self, db):
         Category.objects.create(name="Одежда для беременных", slug="pregnancy")

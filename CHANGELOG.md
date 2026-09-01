@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.10.0] — 2026-09-02
+
+Minor (pre-1.0: minor = breaking, patch = compatible). One comm-surface
+change: `categories.suggest` grades a match four ways where it graded it two,
+and the provider's own result cap keeps by the grade.
+
+### Changed
+
+- **`Suggestion.match` is now `exact` / `prefix` / `word` / `substring`**,
+  best first, and the enum's ORDER is part of the contract — the caller ranks
+  on it (`stapel-search` 0.8) and the cap below keeps by it. The two values it
+  replaces still exist and mean what they meant; what is new is that an exact
+  name is told apart from a prefix, and a hit at the START OF A WORD inside a
+  name is told apart from one buried mid-word.
+
+  Measured on a 3583-node catalogue: transliterating «iphone» yields «ифон»,
+  which occurs inside «Сифоны» and inside nothing else on the board, so the
+  single suggestion a buyer typing «iphone» received was a plumbing trap. A
+  word-boundary hit («Брюки и **шорты**») and a mid-word one («С**ифон**ы»)
+  are not the same evidence, and only the module that owns the names can tell
+  them apart — which is why the grading lives here and the ranking lives in
+  the caller, which has the listing counts.
+
+  `SUGGEST_MATCH_KINDS` states the order once, and `match_kind()` is public
+  for a host that grades its own names the same way.
+
+- **The result cap keeps the best matches, not the shallowest.** The cap
+  (`_SUGGEST_MAX_RESULTS`, and the caller's `limit`) used to sort candidates
+  by depth and id, so a deep exact hit could be dropped before the caller —
+  which does the ranking — ever saw it, while three nodes that merely contain
+  the word survived. The sort is now match grade, then depth, then id: still
+  fully deterministic, and now deterministic about the right thing.
+
+### Upgrading
+
+Nothing to do for a consumer that treats `match` as an opaque label or passes
+it through. A consumer that branches on the two old values keeps working —
+`prefix` and `substring` still occur — but will not see `exact` or `word` as
+the better evidence they are; upgrade it to sort by the enum's order.
+
 ## [0.9.1] — 2026-09-01
 
 Patch (pre-1.0: minor = breaking, patch = compatible). Comments, docs and test

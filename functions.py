@@ -63,6 +63,56 @@ _SUGGEST_MAX_RESULTS = 200
 #: than waiting out a TTL.
 _SUGGEST_INDEX_CACHE_PREFIX = "stapel_categories:suggest-index:"
 
+#: How a name matched a term, best first. The ORDER is the contract — the
+#: caller ranks on it (``stapel_search.suggest``) and the index cap below
+#: keeps by it, so a value's position in this tuple is behaviour, not
+#: documentation.
+SUGGEST_MATCH_KINDS: tuple[str, ...] = ("exact", "prefix", "word", "substring")
+
+def _is_word_char(char: str) -> bool:
+    """Whether *char* continues a word.
+
+    Everything that is not alphanumeric — a space, a comma, a hyphen, a
+    bracket — opens one, which is what makes «Брюки и шорты» a word-boundary
+    hit for «шорты» and «Сифоны» only a mid-word one for «ифон».
+    """
+    return char.isalnum()
+
+
+def match_kind(folded_name: str, terms: list[str]) -> str:
+    """The BEST way any of *terms* matches *folded_name*.
+
+    Four kinds, and the distinction between the last two is the one that
+    was missing: transliterating «iphone» yields «ифон», which is a
+    substring of «сифоны» and of nothing else in a 3583-node catalogue —
+    so the single suggestion a buyer got for «iphone» was a plumbing trap.
+    A word-boundary hit («Брюки и **шорты**») and a hit buried inside a
+    word («С**ифон**ы») are not the same evidence and must not sort the
+    same, and only the module that owns the names can tell them apart.
+
+    ``exact`` is separate from ``prefix`` for the reason «шорты» was
+    ranked third behind two «Брюки и шорты»: when nothing in the catalogue
+    has any listings yet — the state a freshly imported board is in — count
+    cannot break the tie and the node the buyer literally typed has to.
+    """
+    best = len(SUGGEST_MATCH_KINDS)
+    for term in terms:
+        if not term:
+            continue
+        position = folded_name.find(term)
+        if position < 0:
+            continue
+        if folded_name == term:
+            return "exact"
+        if position == 0:
+            rank = 1
+        elif not _is_word_char(folded_name[position - 1]):
+            rank = 2
+        else:
+            rank = 3
+        best = min(best, rank)
+    return SUGGEST_MATCH_KINDS[best] if best < len(SUGGEST_MATCH_KINDS) else "substring"
+
 
 def _schema(name: str) -> dict:
     """Load a committed contract — one source of truth, no inline copy."""
@@ -258,10 +308,13 @@ def suggest_function(payload: dict) -> dict:
     other outside this module means a second call and a second chance to
     disagree with the tree.
 
-    Terms are OR-ed and matched against the folded name as a prefix *or* a
-    substring. The distinction is reported per row and is not ranked on:
-    the caller ranks by live listing count, and only the caller has that
-    number.
+    Terms are OR-ed and matched against the folded name. HOW they matched
+    is reported per row as one of :data:`SUGGEST_MATCH_KINDS` — ``exact``,
+    ``prefix``, ``word`` (the term starts a word inside the name) or
+    ``substring`` (it starts mid-word) — and the caller ranks on it
+    together with the live listing count, which only the caller has. The
+    kind is graded here rather than there because grading it needs the
+    stored name, and the caller is handed terms and rows, never names.
 
     **Visibility is inherited.** A category is excluded when it is
     ``active=False``, ``is_test`` or soft-deleted — and also when any
@@ -287,7 +340,7 @@ def suggest_function(payload: dict) -> dict:
 
     index = _suggest_index()
 
-    hits: list[tuple[int, int, str]] = []
+    hits: list[tuple[int, int, int, str, str]] = []
     for pk, entry in index.items():
         if entry["hidden"]:
             continue
@@ -296,13 +349,19 @@ def suggest_function(payload: dict) -> dict:
             continue
         if any(index.get(ancestor, {}).get("hidden") for ancestor in entry["ancestors"]):
             continue
-        # Deterministic under the cap: shallower first, then by id. A cap
-        # over an unordered scan hands back a different subset on every call
-        # for the same word.
-        hits.append((len(entry["ancestors"]), int(pk), pk))
+        kind = match_kind(folded, terms)
+        # Deterministic under the cap, and the cap keeps the BEST matches:
+        # match kind first, then shallower, then by id. Keeping the
+        # shallowest alone meant a deep exact hit could be dropped before the
+        # caller — which does the ranking — ever saw it, and a cap over an
+        # unordered scan hands back a different subset on every call for the
+        # same word.
+        hits.append(
+            (SUGGEST_MATCH_KINDS.index(kind), len(entry["ancestors"]), int(pk), kind, pk)
+        )
 
     out = []
-    for _, _, pk in sorted(hits)[:limit]:
+    for _, _, _, kind, pk in sorted(hits)[:limit]:
         entry = index[pk]
         path_ids = [*entry["ancestors"], pk]
         out.append(
@@ -319,11 +378,7 @@ def suggest_function(payload: dict) -> dict:
                 ],
                 "path_ids": path_ids,
                 "depth": len(path_ids),
-                "match": (
-                    "prefix"
-                    if any(entry["folded"].startswith(term) for term in terms)
-                    else "substring"
-                ),
+                "match": kind,
             }
         )
     return {"categories": out}

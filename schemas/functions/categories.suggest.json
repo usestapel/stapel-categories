@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "categories.suggest",
-  "description": "Match category NAMES against a caller-supplied set of already-normalized terms and answer the matching nodes with their full root->leaf ancestry. This object validates the request payload; the response is {\"categories\": [Suggestion]} — see $defs.Suggestion. The caller owns normalization (folding, synonyms, transliteration): this module owns the tree, not a query language, and a second normalizer here would be a second answer to 'what does the user's word mean'. Terms arrive folded (case-folded, ё->е) and are matched case-insensitively against the same folding of the stored name, as a prefix OR a substring. Nothing here stems anything. Rows that are inactive, test or soft-deleted are excluded, and so are rows with such an ancestor: a live leaf under a retired branch is not reachable in the catalogue and must not be offered.",
+  "description": "Match category NAMES against a caller-supplied set of already-normalized terms and answer the matching nodes with their full root->leaf ancestry. This object validates the request payload; the response is {\"categories\": [Suggestion]} — see $defs.Suggestion. The caller owns normalization (folding, synonyms, transliteration): this module owns the tree, not a query language, and a second normalizer here would be a second answer to 'what does the user's word mean'. Terms arrive folded (case-folded, ё->е) and are matched case-insensitively against the same folding of the stored name, as an exact name, a prefix, a word-boundary hit or a mid-word substring — the four values of Suggestion.match, best first. Nothing here stems anything. Rows that are inactive, test or soft-deleted are excluded, and so are rows with such an ancestor: a live leaf under a retired branch is not reachable in the catalogue and must not be offered.",
   "type": "object",
   "required": ["terms"],
   "properties": {
@@ -44,8 +44,8 @@
         "depth": { "type": "integer", "description": "Number of segments in 'path' — 1 for a root category.", "minimum": 1 },
         "match": {
           "type": "string",
-          "enum": ["prefix", "substring"],
-          "description": "How the name matched: the folded name STARTS WITH a term, or merely contains one. Reported, not ranked on: the caller ranks, and it ranks by live listing count."
+          "enum": ["exact", "prefix", "word", "substring"],
+          "description": "How the name matched, best first: the folded name IS a term (exact), STARTS WITH one (prefix), contains one at the start of a word (word), or contains one mid-word (substring). Graded here because grading needs the stored name; ranked on by the caller, together with the live listing count only the caller has. The ORDER of the enum is the quality order and the provider's own result cap keeps by it."
         }
       },
       "additionalProperties": false
