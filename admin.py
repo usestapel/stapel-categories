@@ -153,9 +153,9 @@ class FeatureAdmin(TreeNodeModelAdmin):
     autocomplete_fields = ["tn_parent"]
     list_display = [
         "name", "slug", "feature_type_display", "config_status", "mandatory",
-        "show_as_badge", "show_at_title", "translate", "group", "is_test", "tn_priority",
+        "show_as_badge", "show_at_title", "visibility", "translate", "group", "is_test", "tn_priority",
     ]
-    list_filter = ["mandatory", "show_as_badge", "show_at_title", "translate", "is_test"]
+    list_filter = ["mandatory", "show_as_badge", "show_at_title", "visibility", "translate", "is_test"]
     search_fields = ["name", "slug", "comment"]
     actions = ["validate_configs"]
 
@@ -165,6 +165,25 @@ class FeatureAdmin(TreeNodeModelAdmin):
         }),
         ("Type Configuration", {"fields": ("config",)}),
         ("Display Options", {"fields": ("mandatory", "show_as_badge", "show_at_title")}),
+        # Deliberately NOT folded into "Display Options": this is a disclosure
+        # decision, not a display flag, and sitting it next to the badge
+        # checkbox invites someone to flip it while tidying a form.
+        ("Disclosure", {
+            "fields": ("visibility",),
+            "description": (
+                "Who may READ a stored value. This is not a display toggle: a "
+                "non-public feature is still required, still validated, still "
+                "stored and still moderated — the value is simply never handed "
+                "to a reader who is not entitled to it. Use it for attributes "
+                "that IDENTIFY a specific unit (VIN, IMEI, a serial or a "
+                "registry number), where publishing the value lets a stranger "
+                "act as that unit's owner. A non-public feature is never a "
+                "title and never a badge — both flags are forced off on save. "
+                "Changing this does NOT re-stamp values that are already "
+                "stored: run `listings_reproject_features` before the new "
+                "setting takes effect on them."
+            ),
+        }),
         ("Form", {
             "fields": ("description", "example", "default", "hints", "group"),
             "description": (

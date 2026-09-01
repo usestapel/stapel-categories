@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.10.0"
+version = "0.11.0"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -76,7 +76,17 @@ dependencies = [
     # So >=0.6 stays: 0.6 is what the committed schema requires, <0.8 is what
     # the fleet needs admitted, and a host on stapel-attributes 0.6.x takes
     # this release instead of being stranded on 0.8.3 for no gain.
-    "stapel-attributes>=0.6,<0.8",
+    #
+    # >=0.8,<0.9 as of stapel-categories 0.11.0, and this time the FLOOR does
+    # move — the axis is not optional decoration. `Feature.coerce_visibility`
+    # imports `stapel_attributes.visibility`, a module that does not exist
+    # before 0.8.0, so every save() on 0.7 is an ImportError; and the committed
+    # `schemas/functions/categories.features.json` REQUIRES `visibility` of a
+    # resolved feature, which is a promise this module can only keep against a
+    # FeatureDef that has the field. A host still on stapel-attributes 0.6/0.7
+    # stays on stapel-categories 0.10.0, where nothing about disclosure exists
+    # to be half-wired.
+    "stapel-attributes>=0.8,<0.9",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
 ]

@@ -78,9 +78,27 @@ ERROR = "error"          # bad fixture record (validation / dangling reference)
 # Inline (override) feature-list entries carry at least these keys; a bare
 # reference is just ``{"slug": ...}``.
 _INLINE_KEYS = (
-    "config", "mandatory", "show_as_badge", "show_at_title", "translate",
+    "config", "mandatory", "show_as_badge", "show_at_title", "visibility", "translate",
     "rules", "description", "example", "default", "hints", "group",
 )
+
+
+def _disclosure(source: dict) -> dict:
+    """The reconciled ``{visibility, show_as_badge, show_at_title}`` triple.
+
+    ``Feature.coerce_visibility`` silences both display flags on a non-public
+    feature, so a fixture that asserts the contradiction ("hidden, and shown at
+    title") would never equal the row it had just written — a phantom revision
+    bump on every load. Reconciling here, by the same rule, keeps the 3-way
+    diff idempotent. An unrecognized value is treated as non-public (fail
+    closed) and then rejected by ``full_clean`` on the way in.
+    """
+    visibility = source.get("visibility") or "public"
+    badge = bool(source.get("show_as_badge", False))
+    title = bool(source.get("show_at_title", False))
+    if visibility != "public":
+        badge = title = False
+    return {"show_as_badge": badge, "show_at_title": title, "visibility": visibility}
 
 
 class RecordError(Exception):
@@ -274,8 +292,7 @@ def _normalize_feature_record(rec: dict) -> dict:
         "comment": rec.get("comment", ""),
         "config": rec.get("config") or {},
         "mandatory": bool(rec.get("mandatory", False)),
-        "show_as_badge": bool(rec.get("show_as_badge", False)),
-        "show_at_title": bool(rec.get("show_at_title", False)),
+        **_disclosure(rec),
         "translate": rec.get("translate", "all"),
         "rules": rec.get("rules") or [],
         "description": rec.get("description", ""),
@@ -298,8 +315,7 @@ def _normalize_entry(entry: dict) -> dict:
         "slug": slug,
         "config": entry.get("config") or {},
         "mandatory": bool(entry.get("mandatory", False)),
-        "show_as_badge": bool(entry.get("show_as_badge", False)),
-        "show_at_title": bool(entry.get("show_at_title", False)),
+        **_disclosure(entry),
         "translate": entry.get("translate", "all"),
         "rules": entry.get("rules") or [],
         "description": entry.get("description", ""),
@@ -706,7 +722,7 @@ def _save_feature(feat) -> None:
 # state is unchanged — e.g. hand-written fixtures with unreachable parts).
 _FEATURE_SCALARS = (
     "slug", "name", "icon", "comment", "config", "mandatory",
-    "show_as_badge", "show_at_title", "translate",
+    "show_as_badge", "show_at_title", "visibility", "translate",
     "rules", "description", "example", "default", "hints", "group",
     "is_test", "deleted",
 )
@@ -738,8 +754,8 @@ def _apply_feature_upsert(record: dict):
     feat.comment = record.get("comment", "")
     feat.config = record.get("config") or {}
     feat.mandatory = bool(record.get("mandatory", False))
-    feat.show_as_badge = bool(record.get("show_as_badge", False))
-    feat.show_at_title = bool(record.get("show_at_title", False))
+    for attr, value in _disclosure(record).items():
+        setattr(feat, attr, value)
     feat.translate = record.get("translate", "all")
     feat.rules = record.get("rules") or []
     feat.description = record.get("description", "")
@@ -819,8 +835,7 @@ def _materialize_override(cat, slug: str, entry: dict, used: set):
         "comment": entry.get("comment", "") if not slug else _UNSET,
         "config": entry.get("config") or {},
         "mandatory": bool(entry.get("mandatory", False)),
-        "show_as_badge": bool(entry.get("show_as_badge", False)),
-        "show_at_title": bool(entry.get("show_at_title", False)),
+        **_disclosure(entry),
         "translate": entry.get("translate", "all"),
         "rules": entry.get("rules") or [],
         "description": entry.get("description", ""),

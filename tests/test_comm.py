@@ -64,6 +64,41 @@ class TestFeaturesFunction:
         assert fdef["show_as_badge"] is True
         assert fdef["translate"] == "title"
 
+    def test_carries_the_visibility_axis(self, db):
+        # The disclosure decision MUST cross the boundary: stapel-listings
+        # stamps it onto every stored value at write time, and a definition
+        # arriving without it stamps `public` — which publishes the VIN.
+        category = Category.objects.create(name="Cars", slug="cars")
+        feature = Feature.objects.create(
+            slug="vin",
+            name="VIN",
+            config={"type": "string", "maxLength": 17},
+            mandatory=True,
+            visibility="owner",
+        )
+        CategoryFeature.objects.create(category=category, feature=feature, order=0)
+
+        fdef = call("categories.features", {"category_id": category.pk})["features"][0]
+        assert fdef["visibility"] == "owner"
+        # Still required, still validated, still stored — only never published.
+        assert fdef["mandatory"] is True
+
+    def test_visibility_feeds_the_attributes_stamp(self, db):
+        # End-to-end: the resolved payload, run through the attributes engine,
+        # stamps the stored value, which is what every read path downstream
+        # redacts on. A dropped axis yields an unstamped (public) DAO here.
+        from stapel_attributes import normalize_to_dao
+
+        category = Category.objects.create(name="Cars", slug="cars")
+        feature = Feature.objects.create(
+            slug="vin", name="VIN", config={"type": "string"}, visibility="owner"
+        )
+        CategoryFeature.objects.create(category=category, feature=feature, order=0)
+
+        configs = call("categories.features", {"category_id": category.pk})["features"]
+        dao = normalize_to_dao(configs, {"vin": {"type": "string", "value": "JT2SW22N"}})
+        assert dao["vin"]["visibility"] == "owner"
+
     def test_flags_feed_attributes_title_projection(self, db):
         # End-to-end: the resolved payload, run through the attributes engine,
         # yields a NON-empty title projection because the flags survived.

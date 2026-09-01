@@ -1964,6 +1964,14 @@
           "show_at_title": {
             "type": "boolean"
           },
+          "visibility": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VisibilityD99Enum"
+              }
+            ],
+            "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
+          },
           "translate": {
             "allOf": [
               {
@@ -2148,6 +2156,14 @@
           "show_at_title": {
             "type": "boolean"
           },
+          "visibility": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VisibilityD99Enum"
+              }
+            ],
+            "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
+          },
           "rules": {
             "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
           },
@@ -2253,6 +2269,14 @@
           },
           "show_at_title": {
             "type": "boolean"
+          },
+          "visibility": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VisibilityD99Enum"
+              }
+            ],
+            "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
           },
           "translate": {
             "allOf": [
@@ -2485,6 +2509,14 @@
           "show_at_title": {
             "type": "boolean"
           },
+          "visibility": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VisibilityD99Enum"
+              }
+            ],
+            "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
+          },
           "rules": {
             "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
           },
@@ -2695,6 +2727,15 @@
             "type": "boolean",
             "default": false
           },
+          "visibility": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FeatureEditorFeatureVisibilityEnum"
+              }
+            ],
+            "default": "public",
+            "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way; a non-public feature is simply never a title and never a badge.\n\n* `public` - public\n* `owner` - owner\n* `staff` - staff"
+          },
           "translate": {
             "allOf": [
               {
@@ -2755,6 +2796,15 @@
         ],
         "type": "string",
         "description": "* `all` - all\n* `title` - title\n* `none` - none"
+      },
+      "FeatureEditorFeatureVisibilityEnum": {
+        "enum": [
+          "public",
+          "owner",
+          "staff"
+        ],
+        "type": "string",
+        "description": "* `public` - public\n* `owner` - owner\n* `staff` - staff"
       },
       "FeatureEditorItem": {
         "type": "object",
@@ -3639,6 +3689,14 @@
           "show_at_title": {
             "type": "boolean"
           },
+          "visibility": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VisibilityD99Enum"
+              }
+            ],
+            "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
+          },
           "rules": {
             "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
           },
@@ -4092,6 +4150,15 @@
           "results",
           "valid"
         ]
+      },
+      "VisibilityD99Enum": {
+        "enum": [
+          "public",
+          "owner",
+          "staff"
+        ],
+        "type": "string",
+        "description": "* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
       }
     },
     "securitySchemes": {

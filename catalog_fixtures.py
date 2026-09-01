@@ -17,8 +17,8 @@ Design: ``docs/catalog-fixtures-sync.md``. Key decisions realized here:
   a diff from its parent. A list entry is either a bare ``{"slug": ...}``
   reference to a shared/root feature, or an inline override
   (``{"slug", "config", "mandatory", "show_as_badge", "show_at_title",
-  "translate", "rules", "description", "example", "default", "hints",
-  "group"}``) when the linked row is a tree override (``tn_parent`` set).
+  "visibility", "translate", "rules", "description", "example", "default",
+  "hints", "group"}``) when the linked row is a tree override (``tn_parent`` set).
 * **Override owner heuristic (§2).** When one override row is propagated to a
   category + its descendants, several categories reference it. We deliberately
   do *not* pick an "owning" category: every referencing category inlines its
@@ -76,6 +76,9 @@ def _feature_record(feature, include_test: bool) -> dict:
         "mandatory": feature.mandatory,
         "show_as_badge": feature.show_as_badge,
         "show_at_title": feature.show_at_title,
+        # The disclosure axis travels with the definition: a catalogue
+        # re-imported without it would silently republish a VIN.
+        "visibility": feature.visibility,
         "translate": feature.translate,
         "rules": feature.rules or [],
         "description": feature.description,
@@ -111,6 +114,7 @@ def _feature_list_entry(feature, include_test: bool) -> dict:
             "mandatory": feature.mandatory,
             "show_as_badge": feature.show_as_badge,
             "show_at_title": feature.show_at_title,
+            "visibility": feature.visibility,
             "translate": feature.translate,
             "rules": feature.rules or [],
             "description": feature.description,

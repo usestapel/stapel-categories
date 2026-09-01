@@ -77,7 +77,7 @@ class FeatureSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "slug", "icon", "comment",
             "config",
-            "mandatory", "show_as_badge", "show_at_title", "translate",
+            "mandatory", "show_as_badge", "show_at_title", "visibility", "translate",
             "rules", "description", "example", "default", "hints", "group",
             "tn_parent", "tn_priority",
             "tn_ancestors_pks", "tn_children_pks",
@@ -99,7 +99,7 @@ class FeatureCompactSerializer(serializers.ModelSerializer):
         fields = [
             "id", "tn_parent", "name", "slug", "icon", "comment",
             "config",
-            "mandatory", "show_as_badge", "show_at_title", "translate",
+            "mandatory", "show_as_badge", "show_at_title", "visibility", "translate",
             "rules", "description", "example", "default", "hints", "group",
         ]
 
@@ -203,6 +203,17 @@ class FeatureEditorFeatureSerializer(serializers.Serializer):
     mandatory = serializers.BooleanField(required=False, default=False)
     show_as_badge = serializers.BooleanField(required=False, default=False)
     show_at_title = serializers.BooleanField(required=False, default=False)
+    visibility = serializers.ChoiceField(
+        choices=["public", "owner", "staff"],
+        required=False,
+        default="public",
+        help_text=(
+            "Who may READ a stored value: 'public' = anyone (the default), "
+            "'owner' = the object's owner and staff, 'staff' = staff only. The "
+            "value is still required, validated and stored either way; a "
+            "non-public feature is simply never a title and never a badge."
+        ),
+    )
     translate = serializers.ChoiceField(
         choices=["all", "title", "none"],
         required=False,

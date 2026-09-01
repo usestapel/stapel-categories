@@ -567,6 +567,9 @@ class TestFeatureAdminSmoke:
             "mandatory": False,
             "show_as_badge": False,
             "show_at_title": False,
+            # Required on the changeform (a choice with a default, like
+            # `translate`): the disclosure decision is always stated.
+            "visibility": "public",
             "description": "feature.updated.help",
             "example": "e.g. mint",
             "default": '["used"]',

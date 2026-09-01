@@ -21,6 +21,18 @@
   reports (never raises) a rule condition or `optionsRef.parentFeature` naming
   a slug the category does not define — the only question the *whole* resolved
   set can answer.
+- **The disclosure axis** `Feature.visibility` — `public` (default) / `owner`
+  / `staff`: which audience may READ a stored value, for attributes that
+  *identify* a specific unit (VIN, IMEI, serial, registry number) rather than
+  describe it. Orthogonal to `mandatory` — a non-public feature is still
+  required, validated, stored and moderated. This module only RECORDS the
+  decision and carries it across every boundary (`feature_defs()`, the
+  serializers, the editor, the fixtures, `categories.features`); the hiding
+  itself is stapel-listings', off the stamp the attribute engine writes into
+  each value. The one behaviour owned here: a non-public feature is never a
+  title and never a badge — `clean()` and `save()` both force the two flags
+  off, so no row can claim otherwise. Changing the axis on a live catalogue is
+  not complete until `listings_reproject_features` re-stamps stored values.
 - **The composite `group`** (stapel-attributes 0.6.0) is the one feature type
   whose `config` carries other feature definitions: `config.fields` is a list
   of full FeatureDefs and the value is a list of rows keyed by child slug.
@@ -259,8 +271,9 @@ something other than `load_catalog` (e.g. an editor action).
   `Feature.slug` (unique among roots). A category feature list entry is either
   a bare `{"slug": …}` reference to a shared root feature, or an inline
   override (`{"slug", "config", "mandatory", "show_as_badge", "show_at_title",
-  "translate", "rules", "description", "example", "default", "hints",
-  "group"}`) when the linked row is a tree override (`tn_parent` set).
+  "visibility", "translate", "rules", "description", "example", "default",
+  "hints", "group"}`) when the linked row is a tree override (`tn_parent`
+  set).
   Category records carry `external_id` + `external_source` (the id in the
   catalogue they were imported from, and which catalogue that is) — *not* a
   natural key: the fixtures still address categories by slug. It IS the

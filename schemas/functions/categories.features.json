@@ -14,8 +14,8 @@
   "$defs": {
     "ResolvedFeature": {
       "type": "object",
-      "description": "One resolved feature in the response 'features' array. Fed to stapel-attributes' coerce_feature_defs / FeatureDef. Every property of the canon (stapel-attributes docs/feature-def.schema.json $defs.FeatureDef) except 'config' — which has its own per-type shape there — MUST be present here; tests/test_resolved_feature_contract.py gates that. show_at_title, show_as_badge and translate carry the title/badge projections attributes' dto_to_dao builds; 'rules' carries requiredness and visibility, without which the whole category silently reverts to static 'mandatory'.",
-      "required": ["id", "slug", "name", "mandatory", "show_at_title", "show_as_badge", "translate", "rules", "description", "example", "default", "hints", "group", "config"],
+      "description": "One resolved feature in the response 'features' array. Fed to stapel-attributes' coerce_feature_defs / FeatureDef. Every property of the canon (stapel-attributes docs/feature-def.schema.json $defs.FeatureDef) except 'config' — which has its own per-type shape there — MUST be present here; tests/test_resolved_feature_contract.py gates that. show_at_title, show_as_badge and translate carry the title/badge projections attributes' dto_to_dao builds; 'rules' carries requiredness and conditional show/hide, without which the whole category silently reverts to static 'mandatory'; 'visibility' carries the disclosure axis stapel-listings stamps onto every stored value at write time — a definition arriving without it stamps 'public', which publishes the VIN the axis exists to keep off a public page.",
+      "required": ["id", "slug", "name", "mandatory", "show_at_title", "show_as_badge", "visibility", "translate", "rules", "description", "example", "default", "hints", "group", "config"],
       "properties": {
         "id": { "type": ["integer", "string"], "description": "Stable feature identifier." },
         "slug": { "type": "string", "description": "Payload key the feature is submitted under." },
@@ -23,6 +23,12 @@
         "mandatory": { "type": "boolean", "description": "Whether a value is STATICALLY required; conditional requirement comes from 'rules'." },
         "show_at_title": { "type": "boolean", "description": "Whether the value is shown in the listing title." },
         "show_as_badge": { "type": "boolean", "description": "Whether the value is shown as a badge." },
+        "visibility": {
+          "type": "string",
+          "enum": ["public", "owner", "staff"],
+          "description": "Which audience may READ a stored value. Orthogonal to 'mandatory': a non-public feature is still required, still validated, still stored and still moderated — it is only never handed to a reader who is not entitled to it. Identifiers of a specific physical unit (VIN, IMEI, a serial or a registry number) belong here. 'owner' = the object's owner, and staff; 'staff' = staff only, not even the owner's own view. A non-public feature is never in a title, never a badge, never indexed and never facetable, and show_at_title/show_as_badge are forced to false. Default: \"public\" (a definition that says nothing keeps behaving as it did before this axis existed).",
+          "default": "public"
+        },
         "translate": { "type": "string", "enum": ["all", "title", "none"], "description": "Translation mode." },
         "rules": {
           "type": "array",

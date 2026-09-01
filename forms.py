@@ -24,6 +24,11 @@ class FeatureAdminForm(TreeNodeForm):
         fields = [
             "tn_parent", "name", "slug", "icon", "comment", "config",
             "mandatory", "show_as_badge", "show_at_title",
+            # Listed here AND in FeatureAdmin.fieldsets on purpose. ModelAdmin
+            # .get_form overrides Meta.fields from the fieldsets, so a field
+            # named in only one of the two still renders in the admin — and
+            # then silently disappears wherever this form is used directly.
+            "visibility",
             "rules", "description", "example", "default", "hints", "group",
             "tn_priority",
         ]

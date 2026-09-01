@@ -1,5 +1,87 @@
 # Changelog
 
+## [0.11.0] — 2026-09-02
+
+Minor (pre-1.0: minor = breaking, patch = compatible). One new column on
+`Feature`, one migration, and one widened comm contract: a feature can now say
+**who is allowed to read its stored values**.
+
+### Added
+
+- **`Feature.visibility` — `public` (default) / `owner` / `staff`.** Some
+  attributes do not describe an object, they *identify* one: a VIN, an IMEI, a
+  serial number, a registry number. Knowing the value lets a stranger act as
+  that unit's owner — order duplicate keys against the VIN, clone a handset's
+  identity from its IMEI. They are legitimate catalogue fields (a marketplace
+  wants them mandatory, validated and deduplicated on) that must never be
+  printed on a public page. This column is the one place that decision is
+  recorded, and until it existed the axis stapel-attributes 0.8.0 added could
+  not be set on a single real feature.
+
+  It is **orthogonal to `mandatory`**: a non-public feature is still required,
+  still validated against its config, still stored verbatim, still visible to
+  moderation and still editable by its owner. It is only never handed to a
+  reader who is not entitled to it — and that hiding happens downstream, in
+  stapel-listings, off the stamp the attribute engine writes into each stored
+  value. What this module owns is the decision.
+
+  `public` is the default, so **nothing that existed before this release
+  changed**: every current row is public, every fixture that says nothing
+  loads as public, and every payload that omits the key reads as public.
+
+- **`visibility` crosses every feature-carrying boundary**, because a dropped
+  disclosure decision does not fail — it answers `public`, which is exactly
+  the publication the axis exists to prevent. It is now in
+  `Category.feature_defs()` and `get_feature_schema()`, in `FeatureSerializer`
+  / `FeatureCompactSerializer` / the writable `FeatureEditorFeatureSerializer`
+  (and the editor's create/edit/inherit apply paths), in the catalog fixture
+  export and loader, and in the `categories.features` comm response, where
+  `$defs.ResolvedFeature` now **requires** it —
+  `tests/test_resolved_feature_contract.py` gates that against the
+  `FeatureDef` canon.
+
+- **The admin grew a "Disclosure" fieldset**, deliberately NOT a row inside
+  "Display Options": this is not a display flag, and sitting it beside the
+  badge checkbox invites someone to flip it while tidying a form. Its help
+  text says what the setting does and does not do, and names the re-projection
+  below.
+
+### Changed
+
+- **A non-public feature is never a title and never a badge.**
+  `show_at_title` and `show_as_badge` are forced to `False` in both
+  `Feature.clean()` and `Feature.save()` — the second because nothing except
+  the admin calls `full_clean()`, so the feature editor, the catalog loader
+  and every fixture reach the table through `save()`. `FeatureDef` resolves
+  the same contradiction downstream, but resolving it downstream leaves the
+  contradictory ROW in the table for the next reader to resolve again. An
+  unrecognized visibility raises instead of downgrading: a typo like
+  `"private"` must not quietly publish a VIN.
+
+- **Requires stapel-attributes >= 0.8, < 0.9** — the floor moves this time.
+  `stapel_attributes.visibility` does not exist before 0.8.0, and the
+  committed comm schema promises a `visibility` on every resolved feature, a
+  promise this module can only keep against a `FeatureDef` that has the field.
+  A host still on 0.6/0.7 stays on stapel-categories 0.10.0.
+
+### Upgrading
+
+1. Run the migration (`0005_feature_visibility`) — one `AddField` with a
+   `public` default, no data rewrite.
+2. Nothing else is required. A deployment that never sets a non-public
+   visibility behaves exactly as it did.
+3. **Setting the axis on a feature is not finished when you save the
+   feature.** The stamp travels with the value and is written at projection
+   time, so values already stored still carry no stamp and still read as
+   public. Re-stamp them:
+
+   ```
+   python manage.py listings_reproject_features --category <id>
+   ```
+
+   Until that runs, the new setting applies to values written from now on and
+   to nothing already in the table.
+
 ## [0.10.0] — 2026-09-02
 
 Minor (pre-1.0: minor = breaking, patch = compatible). One comm-surface

@@ -85,6 +85,41 @@ class Feature(RevisionMixin, TreeNodeModel):
     show_as_badge = models.BooleanField(default=False)
     show_at_title = models.BooleanField(default=False)
 
+    class Visibility(models.TextChoices):
+        """Mirrors ``stapel_attributes.visibility.VISIBILITIES``.
+
+        Spelled as a ``TextChoices`` (like :class:`TranslateMode`) so the admin
+        renders labels and the migration state is stable; the mirror is pinned
+        by a test rather than by building the choices at import time, because
+        a silently reordered/renamed upstream constant must fail loudly here.
+        """
+
+        PUBLIC = "public", "Public — anyone may read the value"
+        OWNER = "owner", "Owner (and staff)"
+        STAFF = "staff", "Staff only"
+
+    # WHICH AUDIENCE MAY READ A STORED VALUE — a disclosure decision, not a
+    # display flag. Orthogonal to ``mandatory``: a non-public feature is still
+    # required, still validated, still stored, still moderated and still
+    # editable by its owner; it is only never handed to a reader who is not
+    # entitled to it. Attributes that IDENTIFY a specific physical unit (VIN,
+    # IMEI, a serial or a registry number) belong here — publishing one lets a
+    # stranger act as that unit's owner. Enforcement is downstream (the
+    # projection stamps the value, stapel-listings redacts on read); this model
+    # is where the decision is recorded. See stapel-attributes
+    # ``docs/visibility.md``.
+    visibility = models.CharField(
+        max_length=10,
+        choices=Visibility.choices,
+        default=Visibility.PUBLIC,
+        help_text=(
+            "Who may READ a stored value: 'public' = anyone (the default), "
+            "'owner' = the object's owner and staff, 'staff' = staff only. "
+            "The value is still required, validated and stored either way. "
+            "A non-public feature is never a title and never a badge."
+        ),
+    )
+
     # Conditional rules over sibling values — a sibling of ``mandatory``, never
     # part of ``config``: a rule is type-independent, while ``config`` is parsed
     # by the per-type serializer. Grammar and evaluator live in
@@ -163,10 +198,35 @@ class Feature(RevisionMixin, TreeNodeModel):
             models.Index(fields=["revision"], name="cat_feature_revision_idx"),
         ]
 
+    def coerce_visibility(self) -> None:
+        """Normalize ``visibility`` and silence the display flags it contradicts.
+
+        A hidden value is never a title and never a badge, so the two flags are
+        forced off rather than left to contradict the disclosure decision.
+        ``FeatureDef.__post_init__`` does the same downstream — doing it HERE
+        as well means the admin, the feature editor and the catalog loader
+        cannot store a row that claims a hidden field is a title, so the
+        contradiction never has to be resolved by whoever reads it next.
+
+        An unrecognized visibility raises rather than downgrading: a typo like
+        ``"private"`` must not quietly publish a VIN.
+        """
+        from stapel_attributes.visibility import PUBLIC, normalize_visibility
+
+        self.visibility = normalize_visibility(self.visibility)
+        if self.visibility != PUBLIC:
+            self.show_at_title = False
+            self.show_as_badge = False
+
     def clean(self):
         """Validate the feature configuration and rules via stapel-attributes."""
         from stapel_attributes import validate_feature_config
         from stapel_attributes.rules import parse_rules
+
+        try:
+            self.coerce_visibility()
+        except ValueError as e:
+            raise ValidationError({"visibility": str(e)})
 
         if not self.config:
             self.config = {}
@@ -226,6 +286,12 @@ class Feature(RevisionMixin, TreeNodeModel):
                 raise ValidationError({"slug": _("Slug must be unique among root features")})
 
     def save(self, *args, **kwargs):
+        # Not only in clean(): save() is the path the feature editor, the
+        # catalog loader and every fixture take, and none of them calls
+        # full_clean(). A row that says "hidden" and "show at title" must not
+        # reach the table at all — an UnknownVisibility here is deliberate,
+        # a refused write beats a published identifier.
+        self.coerce_visibility()
         # The feature write and the category.changed fanout emitted by the
         # post_save receiver (emit_category_changed_on_feature_save) commit
         # as ONE transaction — a feature edit is never committed without its
@@ -419,6 +485,8 @@ class Category(RevisionMixin, TreeNodeModel):
                 "mandatory": feature.mandatory,
                 "showAsBadge": feature.show_as_badge,
                 "showAtTitle": feature.show_at_title,
+                # Not camelCased — the canon's key IS `visibility`, one word.
+                "visibility": feature.visibility,
                 "rules": feature.rules or [],
                 "description": feature.description,
                 "example": feature.example,
@@ -446,6 +514,11 @@ class Category(RevisionMixin, TreeNodeModel):
         ``evaluate_rules``, so a dropped rule set silently reverts the whole
         category to static ``mandatory``. The form metadata crosses so a
         consumer renders help/placeholder/sections without a second call.
+
+        ``visibility`` (the disclosure axis — not the rules' show/hide effects)
+        MUST cross it too: stapel-listings stamps it onto every stored value at
+        write time, and a definition that arrives without it stamps ``public``,
+        which publishes the VIN this axis exists to keep off a public page.
         """
         return [
             {
@@ -455,6 +528,7 @@ class Category(RevisionMixin, TreeNodeModel):
                 "mandatory": feature.mandatory,
                 "show_at_title": feature.show_at_title,
                 "show_as_badge": feature.show_as_badge,
+                "visibility": feature.visibility,
                 "translate": feature.translate,
                 "rules": feature.rules or [],
                 "description": feature.description,
