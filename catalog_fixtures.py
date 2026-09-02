@@ -50,7 +50,9 @@ STATE_FILE = ".sync-state.json"
 # in 0.13.0: category hashes are now computed over the SYNC VIEW of a record
 # (presentation keys excluded — see PRESENTATION_KEYS), so every category
 # hash a 0.12.x export wrote would read as a phantom two-sided change.
-STATE_VERSION = 3
+# Bumped to 4 in 0.15.0: ``active`` joined the sync view's exclusions
+# (CURATION_KEYS), for the same reason and after the same live failure.
+STATE_VERSION = 4
 
 #: Category fields the catalogue sync does NOT own. The fixture's contract is
 #: taxonomy + features; which roots sit on the home-screen carousel and under
@@ -64,9 +66,24 @@ STATE_VERSION = 3
 #: sets these only when it creates the row.
 PRESENTATION_KEYS = ("catalog_icon", "carousel_icon", "carousel_enabled")
 
+#: Every key the catalogue sync leaves to the stand — presentation plus
+#: ``active``. Whether a category is OFFERED to sellers here is curation in
+#: exactly the sense the carousel is: an operator deactivates an untyped
+#: leaf or a duplicate sibling in the admin, and a later catalogue load — of
+#: records that changed for reasons of their own — used to rewrite the row
+#: wholesale and bring all of it back live. That is the same failure the
+#: presentation keys were pulled out for, one field over, so it gets the same
+#: cure rather than a second one.
+#:
+#: This costs canon nothing it had: the producer emits ``active: true`` for
+#: every record and has no way to express retirement through this key at all.
+#: A category that leaves the catalogue leaves the FILE, which is what
+#: ``--deletions`` is for.
+CURATION_KEYS = PRESENTATION_KEYS + ("active",)
+
 
 def category_sync_view(record: dict) -> dict:
-    """A category record as the 3-way diff sees it — presentation stripped.
+    """A category record as the 3-way diff sees it — stand-owned keys stripped.
 
     Used for every category content-hash: the DB side (the sidecar state
     built below), the fixture side (``catalog_load._plan_side``) and, by
@@ -74,7 +91,7 @@ def category_sync_view(record: dict) -> dict:
     function). Never used for the fixture *files* — export output keeps the
     full record.
     """
-    return {k: v for k, v in record.items() if k not in PRESENTATION_KEYS}
+    return {k: v for k, v in record.items() if k not in CURATION_KEYS}
 
 
 def canonical_json(obj) -> str:
@@ -259,9 +276,9 @@ def build_catalog(include_test: bool = False):
         "version": STATE_VERSION,
         "max_revision": max_revision,
         "features": {r["slug"]: content_hash(r) for r in feature_records},
-        # Hashed over the sync view, not the full record: presentation keys
-        # are stand-owned and must not register as catalogue changes (see
-        # PRESENTATION_KEYS). The files above still carry them.
+        # Hashed over the sync view, not the full record: presentation and
+        # ``active`` are stand-owned and must not register as catalogue
+        # changes (see CURATION_KEYS). The files above still carry them.
         "categories": {
             r["slug"]: content_hash(category_sync_view(r)) for r in category_records
         },

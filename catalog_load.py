@@ -150,6 +150,13 @@ class Report:
     #: a gate). Carried here so the import that creates them says so at
     #: import time instead of at the next audit.
     dead_end_leaves: List[str] = field(default_factory=list)
+    #: Slugs of active categories left hanging under an INACTIVE parent,
+    #: measured over the same after-tree. Same standing: not a failure of the
+    #: load, carried so the import that produces the shape says so at import
+    #: time. A load can no longer CAUSE one (``active`` is create-only since
+    #: 0.15.0), which is exactly why it is worth reporting — after this
+    #: release, one here means the resurrection came from somewhere else.
+    resurrected: List[str] = field(default_factory=list)
 
     def add(self, side: str, item: Item) -> None:
         (self.features if side == "features" else self.categories).append(item)
@@ -1078,19 +1085,21 @@ def _apply_category_upsert(record: dict):
     cat.external_source = record.get("external_source", "")
     cat.comment = record.get("comment", "")
     if created:
-        # Presentation is stand-owned (cf.PRESENTATION_KEYS): the fixture
-        # seeds it on a fresh row (an export→restore keeps its curation), but
-        # an update leaves whatever the operator set — a catalogue re-import
-        # resetting carousel_enabled to False is how a live stand's home
-        # screen lost its tiles. The 3-way hash ignores these keys on both
-        # sides, so this branch is also what keeps the diff honest: a record
-        # never classifies as changed *because* of a key an update would
-        # then refuse to write. tn_priority is not in the record at all —
-        # same ownership, enforced one layer earlier.
+        # Curation is stand-owned (cf.CURATION_KEYS): the fixture seeds it on
+        # a fresh row (an export→restore keeps its curation), but an update
+        # leaves whatever the operator set — a catalogue re-import resetting
+        # carousel_enabled to False is how a live stand's home screen lost
+        # its tiles, and re-activating a leaf the operator had switched off
+        # is how the same stand got two untyped dead ends and a duplicate
+        # sibling back in front of sellers. The 3-way hash ignores these keys
+        # on both sides, so this branch is also what keeps the diff honest: a
+        # record never classifies as changed *because* of a key an update
+        # would then refuse to write. tn_priority is not in the record at
+        # all — same ownership, enforced one layer earlier.
         cat.catalog_icon = record.get("catalog_icon", "")
         cat.carousel_icon = record.get("carousel_icon", "")
         cat.carousel_enabled = bool(record.get("carousel_enabled", False))
-    cat.active = bool(record.get("active", True))
+        cat.active = bool(record.get("active", True))
     cat.translatable = bool(record.get("translatable", True))
     cat.is_test = bool(record.get("is_test", False))
     cat.deleted = False
@@ -1405,6 +1414,7 @@ def _run_plan(
         for item in _sibling_name_collisions():
             report.add("categories", item)
         report.dead_end_leaves = dead_end_leaves()
+        report.resurrected = active_under_inactive_parent()
 
         # Sidecar reflects the applied state. Deliberately NO "max_revision":
         # that key is export's pre-filter base ("has the DB changed since the
@@ -1462,6 +1472,43 @@ def dead_end_leaves() -> List[str]:
         for c in rows
         if c.pk not in parents_with_active_child
         and not c.get_all_features().exists()
+    )
+
+
+def active_under_inactive_parent() -> List[str]:
+    """Slugs of ACTIVE categories whose parent is inactive — resurrections.
+
+    ``active`` is stand-owned curation (``cf.CURATION_KEYS``) and
+    ``_apply_category_upsert`` writes it only on CREATE, so a catalogue
+    re-import can no longer undo an operator's deactivation. That guard sits
+    on one path. A resurrection arriving any other way — a queryset
+    ``.update(active=True)``, a fixture applied by an older release, a hand
+    edit — leaves nothing for the guard to catch, which is why this finder
+    asserts the SHAPE such a write produces rather than the event.
+
+    An operator retires a subtree from the top. Re-activating rows underneath
+    a parent that is still off yields a category a seller can reach by search
+    or a saved link while the path to it is closed — visible and unreachable
+    at the same time, which no deliberate curation produces. A fully retired
+    subtree is silent here: the gate names the INCONSISTENT half, so doing it
+    right shows nothing.
+
+    Same canon boundary as :func:`dead_end_leaves`: deleted and ``is_test``
+    rows are outside the check on both sides of the relationship. Served the
+    same two ways — the ``catalog_health`` gate, and ``load_catalog``'s
+    post-apply report.
+    """
+    from .models import Category
+
+    live = Category.objects.filter(deleted=False, is_test=False)
+    inactive_pks = set(
+        live.filter(active=False).values_list("pk", flat=True)
+    )
+    if not inactive_pks:
+        return []
+    return sorted(
+        live.filter(active=True, tn_parent_id__in=inactive_pks)
+        .values_list("slug", flat=True)
     )
 
 

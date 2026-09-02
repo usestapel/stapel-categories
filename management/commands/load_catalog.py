@@ -198,5 +198,15 @@ class Command(BaseCommand):
                 f"type(s) nothing — dead end(s): {slugs} "
                 "(run catalog_health for the standing gate)"
             ))
+        if report.resurrected:
+            # A load cannot cause this any more (`active` is create-only), so
+            # one here says a resurrection reached the tree another way.
+            slugs = ", ".join(report.resurrected)
+            self.stdout.write(self.style.WARNING(
+                f"{len(report.resurrected)} active categor"
+                f"{'y' if len(report.resurrected) == 1 else 'ies'} under an "
+                f"INACTIVE parent: {slugs} "
+                "(run catalog_health for the standing gate)"
+            ))
         if report.dry_run:
             self.stdout.write("[dry-run] no changes were written.")

@@ -123,3 +123,88 @@ class LoadReportsDeadEndsTests(_CatalogTestCase):
             text = stdout.getvalue()
             self.assertIn("dead end", text)
             self.assertIn("scraps", text)
+
+
+class ActiveUnderInactiveParentTests(TestCase):
+    """The second half of the gate: a live branch hanging off a retired one.
+
+    ``active`` is stand-owned curation (0.15.0), and the loader's create-only
+    guard is what keeps a re-import from undoing a deactivation. A guard is
+    not a gate, though: it protects the one path it sits on, and a resurrection
+    that arrives another way — a queryset ``.update(active=True)``, a fixture
+    loaded by an older stapel-categories, a hand edit in the admin — leaves no
+    trace the guard can catch.
+
+    What such a resurrection cannot hide is the SHAPE it produces. An operator
+    retires a subtree from the top; a partial resurrection re-activates rows
+    underneath one that is still off, and the result is a category a seller
+    can reach by search or by a saved link while the path to it is closed. So
+    the gate asserts the invariant instead of the event: no active category
+    under an inactive parent.
+    """
+
+    def _tree(self):
+        feature = Feature.objects.create(name="Color", slug="color",
+                                         config={"type": "string"})
+        parent = Category.objects.create(name="Parent", slug="parent")
+        child = Category.objects.create(name="Child", slug="child", tn_parent=parent)
+        CategoryFeature.objects.create(category=child, feature=feature, order=0)
+        return parent, child
+
+    def test_active_child_under_inactive_parent_fails_the_gate_by_name(self):
+        parent, _child = self._tree()
+        parent.active = False
+        parent.save()
+
+        self.assertEqual(cl.active_under_inactive_parent(), ["child"])
+        with self.assertRaises(CommandError) as ctx:
+            _health()
+        self.assertIn("child", str(ctx.exception))
+        self.assertIn("parent", str(ctx.exception))
+
+    def test_a_fully_retired_subtree_is_healthy(self):
+        """Deactivating from the top down is the correct operation, not a
+        finding — the whole point is that the gate names the INCONSISTENT
+        half, so an operator who did it right sees nothing."""
+        parent, child = self._tree()
+        for cat in (parent, child):
+            cat.active = False
+            cat.save()
+        self.assertEqual(cl.active_under_inactive_parent(), [])
+        self.assertIn("0 dead ends", _health())
+
+    def test_an_active_subtree_is_healthy(self):
+        self._tree()
+        self.assertEqual(cl.active_under_inactive_parent(), [])
+
+    def test_deleted_and_test_rows_are_outside_the_check(self):
+        """Same boundary the dead-end finder draws: canon is what is live and
+        not scratch, on both sides of the relationship."""
+        parent, child = self._tree()
+        parent.active = False
+        parent.save()
+
+        child.is_test = True
+        child.save()
+        self.assertEqual(cl.active_under_inactive_parent(), [])
+
+        child.is_test = False
+        child.deleted = True
+        child.save()
+        self.assertEqual(cl.active_under_inactive_parent(), [])
+
+    def test_a_resurrection_that_bypasses_the_loader_guard_is_caught(self):
+        """The scenario in one test: an operator retires a subtree, something
+        re-activates the leaf past the model layer, and the gate says so."""
+        parent, child = self._tree()
+        for cat in (parent, child):
+            cat.active = False
+            cat.save()
+        self.assertEqual(cl.active_under_inactive_parent(), [])
+
+        # Not through save(): the queryset write no guard can see.
+        Category.objects.filter(slug="child").update(active=True)
+
+        self.assertEqual(cl.active_under_inactive_parent(), ["child"])
+        with self.assertRaises(CommandError):
+            _health()

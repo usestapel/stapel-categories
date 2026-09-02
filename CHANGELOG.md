@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.15.0] — 2026-09-03
+
+Minor (breaking: `active` leaves the catalogue sync's ownership, and the
+sidecar hash changes meaning — `STATE_VERSION` 3 -> 4).
+
+### Fixed — a re-import resurrected categories the operator had retired
+
+0.13.0 pulled the three presentation keys out of the sync because a
+catalogue re-import had reset a live stand's home-screen tiles. `active` was
+left in, and it bit the same way one field over: an operator deactivated two
+untyped leaves and a duplicate sibling in the admin, and the next load —
+of records that changed for real reasons of their own — rewrote those rows
+wholesale and put all three back in front of sellers.
+
+Whether a category is OFFERED on this stand is curation in exactly the sense
+the carousel is, so it gets the same cure rather than a second one:
+
+- `cf.CURATION_KEYS` = `PRESENTATION_KEYS + ("active",)`, and
+  `category_sync_view` strips all four, so a deactivation is not a sync
+  event on either side — no db-drift warning, no phantom conflict, no
+  re-write on every subsequent load;
+- `_apply_category_upsert` writes `active` only when it CREATES the row. An
+  export→restore of a whole stand still rebuilds its state, inactive rows
+  included; an update leaves whatever the operator set.
+
+This costs canon nothing it had. The producer emits `active: true` for every
+record and has no way to express retirement through this key at all — a
+category that leaves the catalogue leaves the FILE, which is what
+`--deletions` is for.
+
+### Added — `catalog_health` also gates on resurrections
+
+A guard protects the one path it sits on. A resurrection arriving another
+way — a queryset `.update(active=True)`, a fixture applied by an older
+release, a hand edit — leaves nothing for it to catch, so the gate asserts
+the SHAPE such a write produces instead of the event.
+
+`catalog_load.active_under_inactive_parent()` returns the slugs of active
+categories hanging under an inactive one: reachable by search or a saved
+link while the path to them is closed, which no deliberate curation
+produces. An operator retires a subtree from the top, and a fully retired
+subtree is silent here — the gate names the inconsistent half.
+
+`catalog_health` runs both checks in one pass (two findings beat a gate that
+hides the second behind the first), names each row and the parent it hangs
+off, and exits non-zero for either. `load_catalog` stamps the same list onto
+its report as `resurrected`: a load can no longer cause one, which is
+precisely why one showing up there is worth reading.
+
+### Upgrading
+
+Sidecars written by 0.13.x/0.14.x are `version: 3` and are refused loudly
+(`incompatible .sync-state.json version`) rather than compared against a
+hash that now covers a different subset of the record. Re-run
+`export_catalog` to write a v4 sidecar, or load once without one.
+
 ## [0.14.0] — 2026-09-02
 
 ### Added — `categories.children`: one rung of the cascade, over comm

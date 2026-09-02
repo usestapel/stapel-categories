@@ -88,6 +88,10 @@
         "a hand-written fixture-to-DB upsert loop using bulk_create()/QuerySet.update() (skips the revision bump, category.changed emit and full_clean() validation Model.save() gives you)"
       ]
     },
+    "active_under_inactive_parent": {
+      "kind": "predicate",
+      "intent": "Slugs of ACTIVE categories whose parent is INACTIVE — a category a seller can reach by search or a saved link while the path to it is closed. Branch on this to catch a RESURRECTION: `active` is stand-owned curation the loader writes only on create, so a re-import cannot undo a deactivation, but a queryset .update(), an older release or a hand edit can; this asserts the shape such a write produces rather than the event. A subtree retired from the top answers empty."
+    },
     "dead_end_leaves": {
       "kind": "predicate",
       "intent": "Slugs of ACTIVE, non-deleted leaf categories with zero features (own + inherited, resolved with Category.get_all_features — the same logic the product renders with): pickable dead ends that type nothing. Branch on this in health/gate tooling instead of re-deriving leaf-ness and inheritance by hand; the catalog_health command turns a non-empty answer into a non-zero exit, and load_catalog stamps it onto its report."

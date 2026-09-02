@@ -1,6 +1,6 @@
 {
   "module": "stapel-categories",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "provides": "Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.",
   "axes": [
     {
@@ -79,6 +79,12 @@
       "kind": "predicate",
       "path": "stapel_categories.catalog_fixtures.find_orphan_overrides",
       "intent": "Detect override Feature rows (tn_parent set) linked to zero live categories — the check an ops/audit job should branch on to flag leaked override rows before they accumulate. Read-only: it reports, it does not clean up (catalog_load's own cleanup runs during a load, not from here)."
+    },
+    {
+      "name": "active_under_inactive_parent",
+      "kind": "predicate",
+      "path": "stapel_categories.catalog_load.active_under_inactive_parent",
+      "intent": "Slugs of ACTIVE categories whose parent is INACTIVE — a category a seller can reach by search or a saved link while the path to it is closed. Branch on this to catch a RESURRECTION: `active` is stand-owned curation the loader writes only on create, so a re-import cannot undo a deactivation, but a queryset .update(), an older release or a hand edit can; this asserts the shape such a write produces rather than the event. A subtree retired from the top answers empty."
     },
     {
       "name": "dead_end_leaves",

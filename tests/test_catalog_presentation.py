@@ -179,3 +179,113 @@ class PresentationOnCreateTests(_CatalogTestCase):
             apparel = Category.objects.get(slug="apparel")
             self.assertTrue(apparel.carousel_enabled)
             self.assertEqual(apparel.carousel_icon, "x")
+
+
+class ActiveIsCurationTests(_CatalogTestCase):
+    """``active`` is the operator's too — a re-import must not RESURRECT.
+
+    The second bite of the same class (0.15.0). An operator deactivated two
+    untyped leaves and a duplicate sibling in the admin; the next catalogue
+    load — changed records, for real reasons of its own — rewrote them
+    wholesale and brought all three back live, because ``active`` was written
+    on update while the three presentation keys were not.
+
+    Whether a category is offered to sellers on THIS stand is curation, in
+    the same sense ``carousel_enabled`` is. The fixture seeds it on CREATE
+    (an export→restore keeps the stand's state); an update never touches it,
+    so a deactivation cannot be undone by an import. The producer has no way
+    to express retirement through this key anyway — it emits ``active: true``
+    for every record — and retiring a category from canon is what
+    ``--deletions`` is for.
+    """
+
+    def test_a_deactivated_category_is_not_resurrected_by_a_changed_record(self):
+        """The stand's exact sequence: deactivate, then re-import a record
+        that legitimately changed for an unrelated reason."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            _curate(active=False)
+
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            rec = next(c for c in cats if c["slug"] == "apparel")
+            self.assertTrue(rec["active"], "the fixture side must claim active")
+            rec["name"] = "Clothing"          # a real, unrelated change
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = cl.load_catalog(out)
+            self.assertFalse(report.failed)
+
+            apparel = Category.objects.get(slug="apparel")
+            self.assertEqual(apparel.name, "Clothing")   # taxonomy: fixture's
+            self.assertFalse(apparel.active)             # curation: operator's
+
+    def test_fixture_wins_with_no_sidecar_still_does_not_resurrect(self):
+        """The most aggressive policy there is — every record a conflict,
+        resolved to the fixture — still may not re-activate."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            import os
+            os.remove(os.path.join(out, cf.STATE_FILE))
+            _curate(active=False)
+
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            rec = next(c for c in cats if c["slug"] == "apparel")
+            rec["name"] = "Clothing"
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertFalse(report.failed)
+            self.assertFalse(Category.objects.get(slug="apparel").active)
+
+    def test_a_deactivation_is_not_db_drift_and_reload_is_idempotent(self):
+        """Same hash contract as presentation: deactivating on the stand is
+        not a sync event, so it neither warns as db-drift nor re-writes the
+        row on every subsequent load."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            _curate(active=False)
+
+            old_revision = Category.objects.get(slug="apparel").revision
+            report = cl.load_catalog(out)
+            self.assertFalse(report.failed)
+            self.assertEqual(report.count(cl.DB_ONLY), 0)
+            self.assertEqual(
+                {it.key: it.kind for it in report.categories}.get("apparel"),
+                cl.SKIPPED,
+            )
+            self.assertEqual(
+                Category.objects.get(slug="apparel").revision, old_revision
+            )
+
+            report = cl.load_catalog(out)   # and again: nothing to write
+            self.assertEqual(report.count(cl.UPDATED), 0)
+            self.assertFalse(Category.objects.get(slug="apparel").active)
+
+    def test_create_still_applies_the_fixtures_active(self):
+        """The one direction that stays the fixture's: a row that does not
+        exist yet is seeded with what the record says, so an export→restore
+        of a whole stand rebuilds its state — inactive rows included."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in cats:
+                if rec["slug"] == "apparel":
+                    rec["active"] = False
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            # A genuine restore into an empty stand: no rows AND no sidecar
+            # base (the sidecar describes a sync that never happened here).
+            import os
+            os.remove(os.path.join(out, cf.STATE_FILE))
+            _wipe_db()
+            report = cl.load_catalog(out)
+            self.assertFalse(report.failed)
+            self.assertEqual(
+                sum(1 for it in report.categories if it.kind == cl.CREATED), 3
+            )
+            self.assertFalse(Category.objects.get(slug="apparel").active)
+            self.assertTrue(Category.objects.get(slug="electronics").active)
