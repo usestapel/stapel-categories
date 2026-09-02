@@ -1,19 +1,30 @@
 # Changelog
 
+## [0.12.2] — 2026-09-02
+
+Patch. Reverts 0.12.1's floor, and corrects what 0.12.1 said.
+
+**0.12.1's changelog was wrong.** It claimed stapel-core 0.51.0–0.53.0 shipped
+wheels missing `stapel_core.django.sites` and raised the floor to `>=0.54.1`
+to exclude them. The published wheels were checked afterwards and all of them
+contain the module. Nothing on PyPI was ever broken, and this floor had no
+reason to move; it goes back to `>=0.26.0`.
+
+What really happened: core's main briefly carried a `pyproject.toml` whose
+`[tool.setuptools] packages` list had lost the `stapel_core.django.sites`
+line to a rebase conflict resolution. It was tagged as core 0.54.0, caught by
+core's own CI, never published, and fixed in 0.54.1. Siblings whose CI builds
+core from **git main** rather than PyPI failed at `django.setup()` while it
+was there. That is a real failure with a real cause, and it is not this one.
+
+The diagnosis jumped from "a wheel is missing a module" to "the published
+wheels are missing a module" without checking a published wheel. The check
+takes one `pip download`.
+
 ## [0.12.1] — 2026-09-02
 
-Patch. `stapel-core>=0.54.1` — a floor that has to exclude, not just include.
-
-stapel-core 0.51.0 through 0.53.0 shipped wheels missing
-`stapel_core.django.sites`: the subpackage was never added to core's explicit
-`[tool.setuptools] packages` list, so it was tracked in git, importable from a
-checkout, present in an editable install — and absent from the artifact on
-PyPI. `stapel_core.django.apps.ready()` imports it unconditionally, so **any**
-Django app that resolves one of those three releases dies at
-`django.setup()`. The previous floor here admitted all three.
-
-Core 0.54.1 restores the line; this raises the floor past the versions that
-cannot work. No code change.
+Patch. Raised `stapel-core` to `>=0.54.1`. **Superseded by 0.12.2 — its stated
+reason was incorrect; see that entry.**
 
 ## [0.12.0] — 2026-09-02
 
