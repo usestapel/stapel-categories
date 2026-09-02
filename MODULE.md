@@ -50,7 +50,13 @@
   (select↔string).
 - A revision-sync **HTTP API** for Category & Feature (list/retrieve, carousel,
   `/features`, `/children`, bulk-commands, feature-editor draft/apply,
-  validate-dto / validate-configs).
+  validate-dto / validate-configs). The public category payload is a **frozen
+  key set** (`tests/test_public_read.py::PUBLIC_CATEGORY_KEYS`): every
+  anonymous read serves the same projection, and `external_id` /
+  `external_source` — the source catalogue's own node ids — are NOT in it
+  (0.13.0). Provenance is an operator fact: it stays on the Django admin, the
+  staff bulk serializer and the staff write serializer
+  (`CategoryStaffSerializer`, served on create/update only).
 - **Three public tree reads that share one visibility rule** (`roots`,
   `{id}/children`, `by-slug/{slug}`). `roots` returns the top-level
   categories and `by-slug` resolves a storefront URL segment to one category;
@@ -63,8 +69,9 @@
   `categories.suggest` mechanism), so an edit retires the entry immediately
   instead of waiting out a TTL.
 - A **comm surface**: Functions `categories.features` (resolved schema for a
-  category), `categories.path` (root->leaf ancestry for a batch of categories)
-  and `categories.suggest` (category NAMES matched for a type-ahead, answered
+  category), `categories.path` (root->leaf ancestry for a batch of categories),
+  `categories.names` (batch of ids -> display name + slug) and
+  `categories.suggest` (category NAMES matched for a type-ahead, answered
   with their ancestry), plus emitted Action `category.changed`.
 - **Catalog fixtures sync** (`export_catalog` / `load_catalog` management
   commands): a byte-stable, natural-key JSON snapshot of the live catalog in a
@@ -191,6 +198,7 @@ through `StapelModelAdmin`.
 |---|---|---|---|
 | Function (provides) | `categories.features` | `{category_id}` -> `{category_id, revision, features:[ResolvedFeature]}` | `schemas/functions/categories.features.json` |
 | Function (provides) | `categories.path` | `{category_ids:[id,...]}` -> `{"<id>": ["<root_id>",…,"<id>"]}` | `schemas/functions/categories.path.json` |
+| Function (provides) | `categories.names` | `{ids:[id,...]}` -> `{names: {"<id>": {name, slug}}}` | `schemas/functions/categories.names.json` |
 | Function (provides) | `categories.suggest` | `{terms:[folded,...], limit}` -> `{categories:[{id, slug, name, path, path_ids, depth, match}]}` | `schemas/functions/categories.suggest.json` |
 | Action (emits) | `category.changed` | `{category_id, revision}` | `schemas/emits/category.changed.json` |
 
@@ -214,6 +222,18 @@ into `categories.features`, whose payload is typed as an integer id. An id
 with no row is absent from the answer rather than mapped to an empty path, so
 "no such category" stays distinguishable from "a root category" (whose path is
 one element long).
+
+`categories.names` is the caption counterpart: a batch of bare category ids
+in, `{"<id>": {name, slug}}` out — keys as strings on both sides of the wire
+(the `categories.path` rule), names rendered through the `DISPLAY_TRANSLATOR`
+seam exactly as `categories.suggest` renders them. It exists because a
+consumer holding path IDS (stapel-search's goods-driven suggest rows) had no
+fleet Function that answers "what is 163 called?" — `path` answers id-paths
+and `suggest` answers terms — and re-deriving names from a projection is the
+seam defect the comm surface exists to prevent. Deleted rows and unknown ids
+are absent from the mapping (stale ids degrade to no caption, not an error);
+inactive rows still answer, because a listing can sit in a category retired
+after publication. The batch is schema-capped at 200.
 
 `categories.suggest` matches category names for a type-ahead. «Шорты» is not
 one category — it is a leaf under men's, under women's and under children's
@@ -259,6 +279,15 @@ same file: children of filtered-out parents (soft-deleted / `is_test`) are
 re-parented to the nearest exported ancestor. Design:
 `docs/catalog-fixtures-sync.md`.
 
+The fixture's contract is **taxonomy + features; presentation is the
+operator's** (0.13.0). `catalog_icon` / `carousel_icon` / `carousel_enabled`
+still travel in `categories.json` (an export→restore of a whole stand keeps
+its curation) but are excluded from the 3-way content hash on every side
+(`catalog_fixtures.category_sync_view`, sidecar `STATE_VERSION` 3), and the
+loader writes them **only when it creates the row** — a catalogue re-import
+can never reset a curated carousel again. `tn_priority` was already
+fixture-invisible; these three now follow the same ownership.
+
 `python manage.py load_catalog` reconciles those fixtures back into the DB:
 base = sidecar hashes, theirs = files, ours = live DB. Fast-forwards apply;
 both-sides-changed records **abort per-record by default** (report + non-zero
@@ -272,7 +301,21 @@ and a re-run on materialized fixtures is zero saves / zero events. Engine:
 empty catalog, no-op otherwise — "empty" ignores `is_test` rows: a DB holding
 only test/scratch data still seeds the canon); `--dry-run` prints the full
 classification without writing. After a successful load the sidecar is
-rewritten to the applied state. A stale-link removal that leaves an override
+rewritten to the applied state. The report also carries three
+duplicate/dead-end diagnostics (0.13.0): a db-only row whose PARENT the
+fixture owns is re-graded from the generic `db_new` to `db_new_in_canon`
+(duplicate-shaped — a hand row parked between imported canon siblings),
+`name_collision` warns when two live, active siblings share a case-folded
+name (what a seller sees as one option offered twice), and
+`report.dead_end_leaves` lists the active leaves that type nothing after the
+load (the `catalog_health` gate's finding, echoed at import time). All three
+warn without failing the load.
+
+`python manage.py catalog_health` is the standing gate on dead ends: it lists
+every ACTIVE, non-deleted leaf category with zero features (own + inherited,
+resolved with `Category.get_all_features` — the same logic the product
+renders with) and exits non-zero when any exist. No escape flag: attach a
+feature, deactivate the leaf, or merge it. A stale-link removal that leaves an override
 row (`tn_parent` set) linked to zero categories soft-deletes it — an override
 has no natural key of its own, so an unreferenced one would otherwise be
 invisible to every future export/load and leak forever; `export_catalog`

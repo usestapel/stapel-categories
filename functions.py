@@ -16,6 +16,9 @@ are no-ops. Other modules call by name, no import of this package needed:
     call("categories.suggest", {"terms": ["шорты", "shorty"], "limit": 50})
     # -> {"categories": [{id, slug, name, path, path_ids, depth, match}]}
 
+    call("categories.names", {"ids": [42, "7"]})
+    # -> {"names": {"42": {"name": ..., "slug": ...}, "7": {...}}}
+
 ``categories.features`` returns the *resolved* feature definitions for a
 category (own + inherited, config merged with type defaults). stapel-listings
 calls it to validate listing attribute values against the category schema
@@ -29,6 +32,11 @@ declared by stapel-search before a provider existed
 (``STAPEL_SEARCH["CATEGORY_PATH_FUNCTION"]``), and without an answer a
 search index degrades to a single path segment — a filter on a parent
 category finds none of its descendants.
+
+``categories.names`` resolves a batch of ids to display names + slugs — the
+question the other two skirt (``path`` answers id-paths, ``suggest`` answers
+terms). stapel-search's goods-driven suggest rows carry bare path ids and
+need captions; absence marks a deleted/unknown id, string keys survive JSON.
 
 ``categories.suggest`` matches category NAMES for a type-ahead. It is the
 counterpart of ``categories.path`` for the other direction — text in, nodes
@@ -204,6 +212,57 @@ def path_function(payload: dict) -> dict:
     )
     return {
         str(pk): [*split_pks(ancestors), str(pk)] for pk, ancestors in rows
+    }
+
+
+@function("categories.names", schema=_schema("categories.names"))
+def names_function(payload: dict) -> dict:
+    """Display names for a batch of category ids.
+
+    Payload: ``{"ids": [163, "149", ...]}`` (ints or strings — the ids
+    usually arrive out of a JSON document that already stringified them).
+    Returns ``{"names": {"<id>": {"name": ..., "slug": ...}}}`` — keys are
+    ids AS STRINGS on the way out too, so a round trip through JSON cannot
+    change the key type (the ``categories.path`` rule).
+
+    Exists because the other two Functions answer adjacent questions and
+    neither answers this one: ``categories.path`` maps ids to id-paths (the
+    caller still holds ids), ``categories.suggest`` matches TERMS (text in,
+    nodes out). A consumer holding bare path ids — stapel-search's
+    goods-driven suggest rows — had no fleet way to caption them without
+    re-deriving names from a projection, which is the seam defect the comm
+    surface exists to prevent.
+
+    A deleted row and an unknown id are simply absent (the ``projections.
+    read()`` convention: the caller tells "gone" from "root" by absence, and
+    a stale id in an old document degrades to no caption, not to an error).
+    An INACTIVE row still answers — a listing can sit in a category that was
+    retired after publication, and its suggest row still needs a caption.
+    Names go through :func:`stapel_categories.translation.translate` (the
+    ``DISPLAY_TRANSLATOR`` seam), exactly as ``categories.suggest`` renders
+    them — this module stores translation keys, and handing a consumer the
+    raw key would put "categories.electronics" in a dropdown.
+
+    The batch is capped by the schema (``maxItems: 200``, validated at the
+    call boundary like ``categories.path``'s 1000): a suggest page needs
+    tens of captions, and an uncapped batch is a catalogue dump through the
+    caption endpoint.
+    """
+    from .models import Category
+    from .translation import translate
+
+    wanted = {str(value) for value in (payload.get("ids") or [])}
+    numeric = [value for value in wanted if value.lstrip("-").isdigit()]
+    if not numeric:
+        return {"names": {}}
+    rows = Category.objects.filter(pk__in=numeric, deleted=False).values_list(
+        "pk", "name", "slug"
+    )
+    return {
+        "names": {
+            str(pk): {"name": translate(name), "slug": slug}
+            for pk, name, slug in rows
+        }
     }
 
 

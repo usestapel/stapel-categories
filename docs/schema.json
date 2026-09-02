@@ -85,17 +85,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Category"
+                "$ref": "#/components/schemas/CategoryStaff"
               }
             },
             "application/x-www-form-urlencoded": {
               "schema": {
-                "$ref": "#/components/schemas/Category"
+                "$ref": "#/components/schemas/CategoryStaff"
               }
             },
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Category"
+                "$ref": "#/components/schemas/CategoryStaff"
               }
             }
           },
@@ -111,7 +111,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Category"
+                  "$ref": "#/components/schemas/CategoryStaff"
                 }
               }
             },
@@ -177,17 +177,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Category"
+                "$ref": "#/components/schemas/CategoryStaff"
               }
             },
             "application/x-www-form-urlencoded": {
               "schema": {
-                "$ref": "#/components/schemas/Category"
+                "$ref": "#/components/schemas/CategoryStaff"
               }
             },
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Category"
+                "$ref": "#/components/schemas/CategoryStaff"
               }
             }
           },
@@ -203,7 +203,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Category"
+                  "$ref": "#/components/schemas/CategoryStaff"
                 }
               }
             },
@@ -232,17 +232,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PatchedCategory"
+                "$ref": "#/components/schemas/PatchedCategoryStaff"
               }
             },
             "application/x-www-form-urlencoded": {
               "schema": {
-                "$ref": "#/components/schemas/PatchedCategory"
+                "$ref": "#/components/schemas/PatchedCategoryStaff"
               }
             },
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/PatchedCategory"
+                "$ref": "#/components/schemas/PatchedCategoryStaff"
               }
             }
           }
@@ -257,7 +257,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Category"
+                  "$ref": "#/components/schemas/CategoryStaff"
                 }
               }
             },
@@ -1640,7 +1640,7 @@
       },
       "Category": {
         "type": "object",
-        "description": "Category serializer with feature references and revision tracking.",
+        "description": "The PUBLIC category projection — every anonymous read serves this.\n\nList, detail, ``children``, ``roots``, ``carousel`` and ``by-slug`` all\nanswer to strangers (the whole surface is ``ReadOnlyOrStaff``), so which\nkeys ride here is a disclosure decision. ``external_id`` /\n``external_source`` do NOT: they are the source catalogue's own node ids,\nstamped by ``load_catalog`` so a re-import can find its rows again — an\noperator fact. A stand that imported a competitor's catalogue was serving\nthat catalogue's internal numbering to anyone with curl, one key per row.\nProvenance lives on the staff surfaces only: the Django admin, the\nstaff-gated bulk serializer, and :class:`CategoryStaffSerializer` on the\nwrite actions.\n\nThe exact key set is frozen by ``test_public_read.\nPUBLIC_CATEGORY_KEYS`` — adding a field here is a conscious act that\nextends that contract in the same commit.",
         "properties": {
           "id": {
             "type": "integer",
@@ -1653,16 +1653,6 @@
           "slug": {
             "type": "string",
             "maxLength": 100
-          },
-          "external_id": {
-            "type": "string",
-            "description": "Identifier in the source catalogue this category was imported from.",
-            "maxLength": 64
-          },
-          "external_source": {
-            "type": "string",
-            "description": "Source catalogue `external_id` belongs to (blank = the single/default source).",
-            "maxLength": 32
           },
           "catalog_icon": {
             "type": "string",
@@ -1852,6 +1842,101 @@
         },
         "required": [
           "command"
+        ]
+      },
+      "CategoryStaff": {
+        "type": "object",
+        "description": "The public projection plus provenance — staff writes only.\n\n``create``/``update``/``partial_update`` are gated by ``ReadOnlyOrStaff``,\nand an operator hand-fixing an imported row legitimately needs to see and\nset ``external_id``/``external_source`` (re-pointing a row at its source\nnode is how a botched match is repaired). Extending the public class keeps\nthe two projections structurally one serializer: a field added to the\npublic set is automatically part of this one, and this one can never lose\na public field silently.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "catalog_icon": {
+            "type": "string",
+            "description": "CDN catalog icon reference (opaque string, e.g. catalog/asset-name)",
+            "maxLength": 255
+          },
+          "carousel_icon": {
+            "type": "string",
+            "description": "CDN carousel icon reference (opaque string, e.g. carousel/asset-name)",
+            "maxLength": 255
+          },
+          "carousel_enabled": {
+            "type": "boolean",
+            "description": "Whether this category appears in the carousel"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether this category is active"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "readOnly": true
+          },
+          "translatable": {
+            "type": "boolean",
+            "description": "If True, category name is a translation key"
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          },
+          "tn_priority": {
+            "type": "integer",
+            "maximum": 9999999999,
+            "minimum": 0,
+            "format": "int64",
+            "title": "Priority"
+          },
+          "tn_ancestors_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Ancestors pks"
+          },
+          "tn_children_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Children pks"
+          },
+          "revision": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "external_id": {
+            "type": "string",
+            "description": "Identifier in the source catalogue this category was imported from.",
+            "maxLength": 64
+          },
+          "external_source": {
+            "type": "string",
+            "description": "Source catalogue `external_id` belongs to (blank = the single/default source).",
+            "maxLength": 32
+          }
+        },
+        "required": [
+          "features",
+          "id",
+          "name",
+          "revision",
+          "slug",
+          "tn_ancestors_pks",
+          "tn_children_pks"
         ]
       },
       "CommandEnum": {
@@ -2396,6 +2481,9 @@
       "FeatureConfig": {
         "oneOf": [
           {
+            "$ref": "#/components/schemas/RefSelectConfig"
+          },
+          {
             "$ref": "#/components/schemas/IntConfig"
           },
           {
@@ -2426,9 +2514,6 @@
             "$ref": "#/components/schemas/ConvertibleUnitConfig"
           },
           {
-            "$ref": "#/components/schemas/RefSelectConfig"
-          },
-          {
             "$ref": "#/components/schemas/RefHierarchicalSelectConfig"
           },
           {
@@ -2438,6 +2523,7 @@
         "discriminator": {
           "propertyName": "type",
           "mapping": {
+            "ref_select": "#/components/schemas/RefSelectConfig",
             "int": "#/components/schemas/IntConfig",
             "float": "#/components/schemas/FloatConfig",
             "string": "#/components/schemas/StringConfig",
@@ -2448,7 +2534,6 @@
             "header": "#/components/schemas/HeaderConfig",
             "hierarchical_select": "#/components/schemas/HierarchicalSelectConfig",
             "convertible_unit": "#/components/schemas/ConvertibleUnitConfig",
-            "ref_select": "#/components/schemas/RefSelectConfig",
             "ref_hierarchical_select": "#/components/schemas/RefHierarchicalSelectConfig",
             "group": "#/components/schemas/GroupConfig"
           }
@@ -2656,6 +2741,9 @@
       "FeatureDto": {
         "oneOf": [
           {
+            "$ref": "#/components/schemas/RefSelectDto"
+          },
+          {
             "$ref": "#/components/schemas/IntDto"
           },
           {
@@ -2686,9 +2774,6 @@
             "$ref": "#/components/schemas/ConvertibleUnitDto"
           },
           {
-            "$ref": "#/components/schemas/RefSelectDto"
-          },
-          {
             "$ref": "#/components/schemas/RefHierarchicalSelectDto"
           },
           {
@@ -2698,6 +2783,7 @@
         "discriminator": {
           "propertyName": "type",
           "mapping": {
+            "ref_select": "#/components/schemas/RefSelectDto",
             "int": "#/components/schemas/IntDto",
             "float": "#/components/schemas/FloatDto",
             "string": "#/components/schemas/StringDto",
@@ -2708,7 +2794,6 @@
             "header": "#/components/schemas/HeaderDto",
             "hierarchical_select": "#/components/schemas/HierarchicalSelectDto",
             "convertible_unit": "#/components/schemas/ConvertibleUnitDto",
-            "ref_select": "#/components/schemas/RefSelectDto",
             "ref_hierarchical_select": "#/components/schemas/RefHierarchicalSelectDto",
             "group": "#/components/schemas/GroupDto"
           }
@@ -3351,6 +3436,14 @@
           },
           "precision": {
             "type": "integer"
+          },
+          "optionsRef": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OptionsRef"
+              }
+            ],
+            "nullable": true
           }
         }
       },
@@ -3569,9 +3662,9 @@
           }
         }
       },
-      "PatchedCategory": {
+      "PatchedCategoryStaff": {
         "type": "object",
-        "description": "Category serializer with feature references and revision tracking.",
+        "description": "The public projection plus provenance — staff writes only.\n\n``create``/``update``/``partial_update`` are gated by ``ReadOnlyOrStaff``,\nand an operator hand-fixing an imported row legitimately needs to see and\nset ``external_id``/``external_source`` (re-pointing a row at its source\nnode is how a botched match is repaired). Extending the public class keeps\nthe two projections structurally one serializer: a field added to the\npublic set is automatically part of this one, and this one can never lose\na public field silently.",
         "properties": {
           "id": {
             "type": "integer",
@@ -3584,16 +3677,6 @@
           "slug": {
             "type": "string",
             "maxLength": 100
-          },
-          "external_id": {
-            "type": "string",
-            "description": "Identifier in the source catalogue this category was imported from.",
-            "maxLength": 64
-          },
-          "external_source": {
-            "type": "string",
-            "description": "Source catalogue `external_id` belongs to (blank = the single/default source).",
-            "maxLength": 32
           },
           "catalog_icon": {
             "type": "string",
@@ -3652,6 +3735,16 @@
           },
           "deleted": {
             "type": "boolean"
+          },
+          "external_id": {
+            "type": "string",
+            "description": "Identifier in the source catalogue this category was imported from.",
+            "maxLength": 64
+          },
+          "external_source": {
+            "type": "string",
+            "description": "Source catalogue `external_id` belongs to (blank = the single/default source).",
+            "maxLength": 32
           }
         }
       },

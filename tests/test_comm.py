@@ -439,3 +439,53 @@ class TestSuggestFunction:
     def test_schema_rejects_an_unknown_key(self, db):
         with pytest.raises(Exception):
             call("categories.suggest", {"q": "шорты"})
+
+
+@pytest.mark.django_db
+class TestNamesFunction:
+    """``categories.names`` — ids in, display names out.
+
+    stapel-search's goods-driven suggest rows carry category path IDS and had
+    no fleet Function to resolve them to display names (``categories.path``
+    answers id-paths, ``categories.suggest`` matches terms — neither answers
+    "what is 163 called?"). The consumer is wired against exactly this shape:
+    ``{"ids": [...]}`` -> ``{"names": {"<id>": {"name", "slug"}}}`` with
+    STRING keys (a JSON round trip must not change key types), deleted and
+    unknown ids simply absent.
+    """
+
+    def test_resolves_ids_to_name_and_slug(self, db):
+        electronics = Category.objects.create(name="Electronics", slug="electronics")
+        phones = Category.objects.create(
+            name="Phones", slug="phones", tn_parent=electronics
+        )
+        result = call("categories.names", {"ids": [electronics.pk, str(phones.pk)]})
+        assert result["names"] == {
+            str(electronics.pk): {"name": "Electronics", "slug": "electronics"},
+            str(phones.pk): {"name": "Phones", "slug": "phones"},
+        }
+
+    def test_deleted_and_unknown_ids_are_omitted(self, db):
+        live = Category.objects.create(name="Live", slug="live")
+        dead = Category.objects.create(name="Dead", slug="dead", deleted=True)
+        result = call("categories.names", {"ids": [live.pk, dead.pk, 999999]})
+        assert set(result["names"]) == {str(live.pk)}
+
+    def test_inactive_rows_still_resolve(self, db):
+        # A listing can sit in a category that was later retired; its rows
+        # still need a caption. Only DELETED rows are gone.
+        retired = Category.objects.create(name="Retired", slug="retired", active=False)
+        result = call("categories.names", {"ids": [retired.pk]})
+        assert result["names"][str(retired.pk)]["name"] == "Retired"
+
+    def test_non_numeric_ids_answer_empty_not_error(self, db):
+        assert call("categories.names", {"ids": ["electronics"]}) == {"names": {}}
+        assert call("categories.names", {"ids": []}) == {"names": {}}
+
+    def test_schema_caps_the_batch_at_200(self, db):
+        with pytest.raises(Exception):
+            call("categories.names", {"ids": list(range(201))})
+
+    def test_schema_rejects_an_unknown_key(self, db):
+        with pytest.raises(Exception):
+            call("categories.names", {"category_ids": [1]})

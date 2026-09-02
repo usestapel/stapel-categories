@@ -131,12 +131,28 @@ class FeatureCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 class CategorySerializer(serializers.ModelSerializer):
-    """Category serializer with feature references and revision tracking."""
+    """The PUBLIC category projection — every anonymous read serves this.
+
+    List, detail, ``children``, ``roots``, ``carousel`` and ``by-slug`` all
+    answer to strangers (the whole surface is ``ReadOnlyOrStaff``), so which
+    keys ride here is a disclosure decision. ``external_id`` /
+    ``external_source`` do NOT: they are the source catalogue's own node ids,
+    stamped by ``load_catalog`` so a re-import can find its rows again — an
+    operator fact. A stand that imported a competitor's catalogue was serving
+    that catalogue's internal numbering to anyone with curl, one key per row.
+    Provenance lives on the staff surfaces only: the Django admin, the
+    staff-gated bulk serializer, and :class:`CategoryStaffSerializer` on the
+    write actions.
+
+    The exact key set is frozen by ``test_public_read.
+    PUBLIC_CATEGORY_KEYS`` — adding a field here is a conscious act that
+    extends that contract in the same commit.
+    """
 
     class Meta:
         model = Category
         fields = [
-            "id", "name", "slug", "external_id", "external_source",
+            "id", "name", "slug",
             "catalog_icon", "carousel_icon", "carousel_enabled", "active",
             "features", "translatable",
             "tn_parent", "tn_priority",
@@ -144,6 +160,22 @@ class CategorySerializer(serializers.ModelSerializer):
             "revision", "deleted",
         ]
         read_only_fields = ["revision"]
+
+
+class CategoryStaffSerializer(CategorySerializer):
+    """The public projection plus provenance — staff writes only.
+
+    ``create``/``update``/``partial_update`` are gated by ``ReadOnlyOrStaff``,
+    and an operator hand-fixing an imported row legitimately needs to see and
+    set ``external_id``/``external_source`` (re-pointing a row at its source
+    node is how a botched match is repaired). Extending the public class keeps
+    the two projections structurally one serializer: a field added to the
+    public set is automatically part of this one, and this one can never lose
+    a public field silently.
+    """
+
+    class Meta(CategorySerializer.Meta):
+        fields = CategorySerializer.Meta.fields + ["external_id", "external_source"]
 
 
 class CategoryWithFeaturesSerializer(serializers.ModelSerializer):

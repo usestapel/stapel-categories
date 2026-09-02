@@ -61,6 +61,7 @@ from .serializers import (
     CategoryBulkCommandSerializer,
     CategoryBulkSerializer,
     CategorySerializer,
+    CategoryStaffSerializer,
     FeatureBulkSerializer,
     FeatureCompactSerializer,
     FeatureConfigSchemaField,
@@ -148,6 +149,16 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     queryset = Category.objects.all()
     permission_classes = [ReadOnlyOrStaff]
     pagination_class = RevisionPagination
+
+    def get_serializer_class(self):
+        # Two projections, one disclosure rule: the write actions are the
+        # staff-gated part of this viewset (ReadOnlyOrStaff refuses anonymous
+        # writes before a serializer is ever built), so they carry provenance
+        # (external_id/external_source); every read action serves the public
+        # projection, which does not. See CategorySerializer's docstring.
+        if self.action in ("create", "update", "partial_update"):
+            return CategoryStaffSerializer
+        return CategorySerializer
 
     @extend_schema(
         description="List categories with revision-based pagination.",

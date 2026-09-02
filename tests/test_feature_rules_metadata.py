@@ -230,9 +230,15 @@ class TestSerializersCarryTheNewFields:
         assert serializer.validated_data["rules"] == CONDITION_RULES
         assert serializer.validated_data["default"] == ["used"]
 
-    def test_category_serializer_carries_external_id(self):
+    def test_staff_category_serializer_carries_external_id(self):
+        # Provenance moved OFF the public projection in 0.13.0 (it is the
+        # source catalogue's own numbering — an operator fact, not a public
+        # one); the staff write serializer is where it survives.
+        from stapel_categories.serializers import CategoryStaffSerializer
+
         category = Category.objects.create(name="Phones", slug="phones", external_id="129639")
-        assert CategorySerializer(category).data["external_id"] == "129639"
+        assert "external_id" not in CategorySerializer(category).data
+        assert CategoryStaffSerializer(category).data["external_id"] == "129639"
 
 
 # ── HTTP surface ─────────────────────────────────────────────────────

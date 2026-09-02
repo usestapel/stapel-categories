@@ -46,8 +46,35 @@ STATE_FILE = ".sync-state.json"
 # what it meant, so CAT-2 rejects an incompatible base loudly instead of
 # reading every key as a conflict. Bumped to 2 in 0.7.0: the feature record
 # grew `rules` + the five form-metadata keys and the category record grew
-# `external_id`, so every hash a 0.6.x export wrote is now stale.
-STATE_VERSION = 2
+# `external_id`, so every hash a 0.6.x export wrote is now stale. Bumped to 3
+# in 0.13.0: category hashes are now computed over the SYNC VIEW of a record
+# (presentation keys excluded — see PRESENTATION_KEYS), so every category
+# hash a 0.12.x export wrote would read as a phantom two-sided change.
+STATE_VERSION = 3
+
+#: Category fields the catalogue sync does NOT own. The fixture's contract is
+#: taxonomy + features; which roots sit on the home-screen carousel and under
+#: which icons is the deployment operator's curation, made in the admin of one
+#: stand. These keys still travel in ``categories.json`` (an export→restore of
+#: a whole stand must keep its curation, and the files are the only carrier),
+#: but they are excluded from the 3-way content hash on every side — a
+#: presentation-only difference is not a sync event, in either direction.
+#: ``tn_priority`` needs no entry: it was never serialized into the record at
+#: all. The loader honours the same split on write: ``_apply_category_upsert``
+#: sets these only when it creates the row.
+PRESENTATION_KEYS = ("catalog_icon", "carousel_icon", "carousel_enabled")
+
+
+def category_sync_view(record: dict) -> dict:
+    """A category record as the 3-way diff sees it — presentation stripped.
+
+    Used for every category content-hash: the DB side (the sidecar state
+    built below), the fixture side (``catalog_load._plan_side``) and, by
+    construction, the base (old sidecar entries were written by this same
+    function). Never used for the fixture *files* — export output keeps the
+    full record.
+    """
+    return {k: v for k, v in record.items() if k not in PRESENTATION_KEYS}
 
 
 def canonical_json(obj) -> str:
@@ -232,7 +259,12 @@ def build_catalog(include_test: bool = False):
         "version": STATE_VERSION,
         "max_revision": max_revision,
         "features": {r["slug"]: content_hash(r) for r in feature_records},
-        "categories": {r["slug"]: content_hash(r) for r in category_records},
+        # Hashed over the sync view, not the full record: presentation keys
+        # are stand-owned and must not register as catalogue changes (see
+        # PRESENTATION_KEYS). The files above still carry them.
+        "categories": {
+            r["slug"]: content_hash(category_sync_view(r)) for r in category_records
+        },
     }
     return feature_records, category_records, state
 

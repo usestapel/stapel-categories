@@ -196,3 +196,88 @@ def test_anonymous_write_is_401_where_a_challenge_exists(
     assert patched.status_code == 401, patched.content
 
     assert not Category.objects.filter(slug="injected").exists()
+
+
+# --- the public projection is a frozen key set ------------------------------
+#
+# The rows above answer to strangers, so WHICH keys they carry is a disclosure
+# decision, not a serializer detail. The stand that imported a competitor's
+# catalogue shipped every row with `external_id`/`external_source` — the source
+# catalogue's own node ids, readable by anyone with curl. Provenance is an
+# operator fact: it stays in the Django admin and on the staff-gated write
+# serializers, and it never rides the anonymous read surface.
+#
+# The set is asserted EXACTLY (sorted keys == the frozen list) rather than
+# "does not contain the two leaked keys": the next leak will not be called
+# external-anything, and an exact contract makes adding a public field a
+# conscious act — extend this list in the same commit, with the same "who may
+# read this?" question answered.
+
+PUBLIC_CATEGORY_KEYS = sorted([
+    "id", "name", "slug",
+    "catalog_icon", "carousel_icon", "carousel_enabled",
+    "active", "translatable",
+    "features",
+    "tn_parent", "tn_priority", "tn_ancestors_pks", "tn_children_pks",
+    "revision", "deleted",
+])
+
+
+@pytest.fixture
+def imported_category():
+    """A row as ``load_catalog`` writes it — provenance stamped."""
+    return Category.objects.create(
+        name="Phones", slug="phones",
+        external_id="129639", external_source="somecatalog",
+        carousel_enabled=True, active=True,
+    )
+
+
+def _rows(resp):
+    data = resp.data
+    if isinstance(data, dict) and "results" in data:
+        return data["results"]
+    return data if isinstance(data, list) else [data]
+
+
+def test_public_category_payload_is_the_frozen_key_set(
+    anonymous_client, parent_category, imported_category
+):
+    imported_category.tn_parent = parent_category
+    imported_category.save()
+    urls = (
+        f"{BASE}/categories/",                                    # list
+        f"{BASE}/categories/{imported_category.id}/",             # detail
+        f"{BASE}/categories/{parent_category.id}/children/",      # children
+        f"{BASE}/categories/carousel/",                           # carousel
+        f"{BASE}/categories/roots/",                              # roots
+        f"{BASE}/categories/by-slug/{imported_category.slug}/",   # by-slug
+    )
+    for url in urls:
+        resp = anonymous_client.get(url)
+        assert resp.status_code == 200, (url, resp.content)
+        rows = _rows(resp)
+        assert rows, url
+        for row in rows:
+            assert sorted(row.keys()) == PUBLIC_CATEGORY_KEYS, url
+
+
+def test_provenance_stays_on_the_staff_surfaces(imported_category):
+    """Operators keep the fact; strangers lose it.
+
+    The admin changeform and the staff-gated bulk serializer still carry
+    ``external_id``/``external_source`` — de-duplicating a re-import needs
+    them, and both surfaces sit behind staff authentication.
+    """
+    from django.contrib.admin.sites import AdminSite
+
+    from stapel_categories.admin import CategoryAdmin
+    from stapel_categories.serializers import CategoryBulkSerializer
+
+    admin_fields = set()
+    for _, spec in CategoryAdmin(Category, AdminSite()).fieldsets:
+        admin_fields.update(spec["fields"])
+    assert {"external_id", "external_source"} <= admin_fields
+    assert {"external_id", "external_source"} <= set(
+        CategoryBulkSerializer.Meta.fields
+    )

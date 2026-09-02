@@ -1,5 +1,104 @@
 # Changelog
 
+## [0.13.0] — 2026-09-02
+
+Minor (pre-1.0: minor = breaking, patch = compatible). Five findings from one
+event: a live classified stand imported a full external catalogue through
+`load_catalog` into a tree that already had hand-seeded categories and
+operator curation. Everything worked. Five things were wrong anyway, and each
+fix here is a mechanism, not a stand patch.
+
+### The public read surface stops serving provenance (breaking)
+
+Every anonymous category read — list, detail, `children`, `roots`,
+`carousel`, `by-slug` — was serializing `external_id` and `external_source`
+on every row: the source catalogue's **own node ids**, i.e. a competitor's
+internal numbering, readable by anyone with curl. The fields exist so a
+re-import can find its rows again; that is an operator fact, and it now lives
+only where operators are: the Django admin, the staff bulk serializer, and a
+new `CategoryStaffSerializer` served on the staff-gated write actions
+(create/update responses included — a staff edit round-trips what it may
+set).
+
+This removes two keys from public payloads, hence the minor bump. The public
+projection is now a **frozen key set**, asserted exactly
+(`tests/test_public_read.py::PUBLIC_CATEGORY_KEYS`): the next leaked field
+will not be called external-anything, and an exact contract makes adding a
+public key a conscious act rather than a serializer default.
+
+### A re-import can no longer clobber the operator's curation
+
+The stand's operator had curated ten roots onto the home-screen carousel
+(`carousel_enabled`, `carousel_icon`, `tn_priority`). The next catalogue
+re-sync — any fixture-side change to those records — wrote the fixture's
+defaults (`""`, `""`, `False`) over all of it, and the home screen lost its
+tiles. The fixture's contract is **taxonomy + features; presentation is the
+operator's**, and the code now says so twice:
+
+- `catalog_icon` / `carousel_icon` / `carousel_enabled` are excluded from
+  BOTH sides of the 3-way content hash (`catalog_fixtures.category_sync_view`
+  is applied to the DB state, the fixture record and — by construction — the
+  sidecar base), so a presentation-only difference is not a sync event in
+  either direction: no fast-forward, no db-only-drift warning, no phantom
+  conflict, no revision churn.
+- `_apply_category_upsert` writes the three only when it **creates** the row.
+  An export→restore of a whole stand keeps its curation (the fixture files
+  still carry the fields); an update leaves whatever the row has, under every
+  `--on-conflict` policy. `tn_priority` was already fixture-invisible and is
+  now pinned by a test to stay that way.
+
+The sidecar hash semantics changed, so `STATE_VERSION` is bumped to 3 —
+a 0.12.x sidecar is refused loudly with "regenerate via export_catalog"
+instead of reading every category as a phantom two-sided change.
+
+### A hand row inside a canon subtree is duplicate-shaped — the report says so
+
+The stand ended up with seed children («Smartphones», «Laptops»…) sitting
+BESIDE imported canon siblings under an imported root; sellers picked between
+near-duplicates and no report line ever distinguished that state from a
+deliberately local subtree. Two new machine-readable report kinds:
+
+- `db_new_in_canon` — a live category the fixture does not know whose PARENT
+  is fixture-owned. The generic `db_new` ("not in canon") is a legitimate
+  steady state for a local root; a hand row parked between imported siblings
+  is not, and the warning names both the row and its canon parent.
+- `name_collision` — two live, active, non-deleted siblings under one parent
+  carrying the same case-folded name (the stand's literal case: two active
+  «Другое» under one branch). Diagnosed over the whole live tree after apply,
+  and over the current tree in `--dry-run`, because either colliding row may
+  be hand-seeded, imported, or years old.
+
+Both warn without failing the load; both print as warning lines in the
+command output.
+
+### `catalog_health`: no active dead ends
+
+An ACTIVE leaf category with ZERO features — own or inherited — is a dead
+end: a seller can pick it, and it types nothing (no form, no validation, no
+facet). The imported catalogue's untyped scraps landed exactly like that and
+sellers found them before tooling did. The new `catalog_health` management
+command lists every such leaf and exits non-zero when any exist — a CI/deploy
+gate, deliberately with **no** allow-flag (attach a feature, deactivate, or
+merge; an allowed dead end is still a dead end). The finder resolves features
+with `Category.get_all_features` — the library's real inheritance logic — so
+the gate cannot disagree with the form the product renders. `load_catalog`
+surfaces the same finding at import time (`report.dead_end_leaves` + a
+summary line), so the import that creates dead ends says so itself.
+
+### `categories.names`: ids in, captions out
+
+stapel-search 0.9.1's goods-driven suggest rows carry category path IDS and
+had no fleet Function to caption them — `categories.path` maps ids to
+id-paths and `categories.suggest` matches terms; nothing answered "what is
+163 called?". New comm Function `categories.names`: `{"ids": [163, "149"]}`
+→ `{"names": {"163": {"name": …, "slug": …}}}`. Keys are ids as strings on
+both sides of the wire (a JSON round trip must not change key types — the
+`categories.path` rule); deleted rows and unknown ids are absent (a stale id
+degrades to no caption, not an error); inactive rows still answer, because a
+listing can sit in a category retired after publication; names render through
+the `DISPLAY_TRANSLATOR` seam exactly as `suggest` renders them. The batch is
+schema-capped at 200.
+
 ## [0.12.2] — 2026-09-02
 
 Patch. Reverts 0.12.1's floor, and corrects what 0.12.1 said.

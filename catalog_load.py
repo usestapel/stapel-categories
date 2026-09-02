@@ -73,6 +73,19 @@ CONFLICT = "conflict"
 DELETED = "deleted"
 DB_ONLY = "db_only"      # changed in DB since last export — not touched, warn
 DB_NEW = "db_new"        # present only in DB, never exported — "not in canon"
+# A db_new row whose PARENT the fixture owns. A deliberately local category
+# is a local root or hangs under a local parent; a hand row parked between
+# imported canon siblings is duplicate-shaped — on a live stand, seed
+# children («Smartphones», «Laptops»…) sat beside the imported canon's own
+# («Phones», «Notebooks»…) and sellers picked between near-duplicates while
+# the report filed both states under the same generic db_new note.
+DB_NEW_IN_CANON = "db_new_in_canon"
+# Two LIVE, active, non-deleted siblings carrying the same case-folded name —
+# what a seller experiences as one option offered twice (the stand's real
+# case: two active «Другое» under one parent). Diagnosed over the whole live
+# tree after apply (and over the current tree in a dry run), not per fixture
+# record: either colliding row may be hand-seeded, imported, or years old.
+NAME_COLLISION = "name_collision"
 ERROR = "error"          # bad fixture record (validation / dangling reference)
 
 # Inline (override) feature-list entries carry at least these keys; a bare
@@ -130,6 +143,13 @@ class Report:
     dry_run: bool = False
     features: List[Item] = field(default_factory=list)
     categories: List[Item] = field(default_factory=list)
+    #: Slugs of active leaf categories that type nothing, measured over the
+    #: tree the load just produced (real runs only — a dry run has no "after").
+    #: Not a failure: the load applied exactly what it was asked to; whether
+    #: dead ends block a deploy is ``catalog_health``'s call (that command IS
+    #: a gate). Carried here so the import that creates them says so at
+    #: import time instead of at the next audit.
+    dead_end_leaves: List[str] = field(default_factory=list)
 
     def add(self, side: str, item: Item) -> None:
         (self.features if side == "features" else self.categories).append(item)
@@ -1057,9 +1077,19 @@ def _apply_category_upsert(record: dict):
     cat.external_id = record.get("external_id", "")
     cat.external_source = record.get("external_source", "")
     cat.comment = record.get("comment", "")
-    cat.catalog_icon = record.get("catalog_icon", "")
-    cat.carousel_icon = record.get("carousel_icon", "")
-    cat.carousel_enabled = bool(record.get("carousel_enabled", False))
+    if created:
+        # Presentation is stand-owned (cf.PRESENTATION_KEYS): the fixture
+        # seeds it on a fresh row (an export→restore keeps its curation), but
+        # an update leaves whatever the operator set — a catalogue re-import
+        # resetting carousel_enabled to False is how a live stand's home
+        # screen lost its tiles. The 3-way hash ignores these keys on both
+        # sides, so this branch is also what keeps the diff honest: a record
+        # never classifies as changed *because* of a key an update would
+        # then refuse to write. tn_priority is not in the record at all —
+        # same ownership, enforced one layer earlier.
+        cat.catalog_icon = record.get("catalog_icon", "")
+        cat.carousel_icon = record.get("carousel_icon", "")
+        cat.carousel_enabled = bool(record.get("carousel_enabled", False))
     cat.active = bool(record.get("active", True))
     cat.translatable = bool(record.get("translatable", True))
     cat.is_test = bool(record.get("is_test", False))
@@ -1167,8 +1197,17 @@ class _Planned:
 
 
 def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions,
-               idents: Optional[_Identities] = None):
-    """Classify every natural key on one side (features or categories)."""
+               idents: Optional[_Identities] = None, hash_view=None):
+    """Classify every natural key on one side (features or categories).
+
+    ``hash_view`` (categories only) maps a record to the projection that gets
+    content-hashed — the presentation strip (``cf.category_sync_view``). It
+    must match how the OTHER two sides were hashed: ``build_catalog`` applies
+    the same view to the DB state, and the sidecar base was written from one
+    of those two, so all three hashes describe the same subset of the record.
+    The full record still rides ``_Planned.record`` — an upsert that CREATES
+    the row applies the presentation keys the hash ignores.
+    """
     keys = set(fix) | set(base) | set(db_hashes)
     planned: List[_Planned] = []
     for key in sorted(keys):
@@ -1180,7 +1219,10 @@ def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions
                 note=idents.problems[key],
             ))
             continue
-        f_hash = cf.content_hash(fix[key]) if key in fix else None
+        if key in fix:
+            f_hash = cf.content_hash(hash_view(fix[key]) if hash_view else fix[key])
+        else:
+            f_hash = None
         b_hash = base.get(key)
         d_hash = db_hashes.get(key)
         raw = _classify(b_hash, f_hash, d_hash)
@@ -1310,8 +1352,11 @@ def _run_plan(
     )
     cat_plan = _plan_side(
         fix_cat, base_cat, db_cat, on_conflict=on_conflict, deletions=deletions,
-        idents=idents,
+        idents=idents, hash_view=cf.category_sync_view,
     )
+    # A db_new row under a fixture-owned parent is duplicate-shaped — say so,
+    # in the same plan the operator reads (dry run and apply alike).
+    _flag_db_new_in_canon(cat_plan, fix_cat)
 
     # Category upserts must run parents-before-children (a child's create needs
     # its parent to exist and to have its features already reconciled so
@@ -1354,6 +1399,13 @@ def _run_plan(
         _record_passive(report, "features", feat_plan)
         _record_passive(report, "categories", cat_plan)
 
+        # Post-apply health of the tree the load just produced: sibling name
+        # collisions, whichever side each colliding row came from — and the
+        # active leaves that type nothing (see dead_end_leaves).
+        for item in _sibling_name_collisions():
+            report.add("categories", item)
+        report.dead_end_leaves = dead_end_leaves()
+
         # Sidecar reflects the applied state. Deliberately NO "max_revision":
         # that key is export's pre-filter base ("has the DB changed since the
         # last EXPORT"). If a load wrote the post-load max here, the very next
@@ -1371,7 +1423,126 @@ def _run_plan(
     for side, plan in (("features", feat_plan), ("categories", cat_plan)):
         for p in plan:
             report.add(side, _item(p))
+    # The collisions that already exist — a dry run cannot see the post-apply
+    # tree, but a clash the operator can fix before loading belongs in the plan.
+    for item in _sibling_name_collisions():
+        report.add("categories", item)
     return None
+
+
+def dead_end_leaves() -> List[str]:
+    """Slugs of ACTIVE, non-deleted leaf categories that type nothing.
+
+    A "leaf" is a category with no active, non-deleted (non-test) children —
+    a parent whose children are all retired is what a seller reaches, so it
+    counts. "Types nothing" is measured with the library's real resolution
+    (``Category.get_all_features``: own + inherited, override-aware), NOT a
+    hand-rolled join, so this check can never disagree with the form the
+    product would actually render. Such a leaf is a dead end: pickable, and
+    producing a listing no form validates and no facet can filter.
+
+    Served two ways: the ``catalog_health`` management command turns a
+    non-empty answer into a non-zero exit (a deploy/CI gate), and
+    ``load_catalog`` stamps it onto its report so the import that creates
+    dead ends says so at import time. ``is_test`` rows are outside canon and
+    outside this check on both sides (a scratch row neither is a dead end nor
+    shields its parent from being one).
+    """
+    from .models import Category
+
+    rows = list(
+        Category.objects.filter(active=True, deleted=False, is_test=False)
+        .only("pk", "slug", "tn_parent_id")
+    )
+    parents_with_active_child = {
+        c.tn_parent_id for c in rows if c.tn_parent_id is not None
+    }
+    return sorted(
+        c.slug
+        for c in rows
+        if c.pk not in parents_with_active_child
+        and not c.get_all_features().exists()
+    )
+
+
+def _flag_db_new_in_canon(cat_plan: List["_Planned"], fix_cat: Dict[str, dict]) -> None:
+    """Re-grade db_new rows whose parent the fixture owns (in place).
+
+    ``db_new`` alone says "the catalogue has a row canon never heard of",
+    which is a legitimate steady state for a deliberately local subtree. What
+    it cannot be legitimate for is a hand row INSIDE an imported subtree: the
+    canon almost certainly has a sibling for the same real-world thing under
+    a different name, and nothing else in the pipeline will ever say so —
+    the row is not in the fixture, so no diff class touches it. One query for
+    all db_new keys; the parent is read from the LIVE tree (that is where the
+    row actually hangs), the ownership from the fixture keyset.
+    """
+    from .models import Category
+
+    keys = [p.key for p in cat_plan if p.decision.kind == DB_NEW]
+    if not keys:
+        return
+    parents = {
+        slug: parent_slug
+        for slug, parent_slug in Category.objects.filter(slug__in=keys).values_list(
+            "slug", "tn_parent__slug"
+        )
+    }
+    for p in cat_plan:
+        if p.decision.kind != DB_NEW:
+            continue
+        parent_slug = parents.get(p.key)
+        if parent_slug and parent_slug in fix_cat:
+            p.decision = Decision("note", DB_NEW_IN_CANON)
+            p.note = (
+                f"live category '{p.key}' is unknown to the fixture but sits "
+                f"under fixture-owned parent '{parent_slug}' — duplicate-shaped: "
+                "the imported canon likely offers a sibling for the same thing; "
+                "merge into the canon sibling (move listings, then delete) or "
+                "move it out of the imported subtree"
+            )
+
+
+def _sibling_name_collisions() -> List[Item]:
+    """Live, active, non-deleted siblings sharing a case-folded name.
+
+    Scanned over the whole live tree, because the collision the seller sees
+    does not care which side each row came from. ``is_test`` rows are outside
+    canon and outside this check for the same reason they are invisible to
+    the rest of the loader. Case-folded (``str.casefold``), not search-folded:
+    «Другое» vs «другое» is the duplicate a seller sees; «шорты» vs a
+    transliteration is a search concern and lives in the search module.
+    One report item per (parent, folded name) group, keyed by the parent's
+    slug so an operator can find the branch.
+    """
+    from .models import Category
+
+    rows = Category.objects.filter(
+        active=True, deleted=False, is_test=False
+    ).values_list("slug", "name", "tn_parent_id")
+    parent_slug_by_pk = dict(Category.objects.values_list("pk", "slug"))
+
+    groups: Dict[tuple, List[tuple]] = {}
+    for slug, name, parent_id in rows:
+        groups.setdefault((parent_id, (name or "").casefold()), []).append((slug, name))
+
+    items: List[Item] = []
+    for (parent_id, _), members in sorted(
+        groups.items(), key=lambda kv: sorted(m[0] for m in kv[1])
+    ):
+        if len(members) < 2:
+            continue
+        members.sort()
+        slugs = ", ".join(f"'{slug}'" for slug, _ in members)
+        name = members[0][1]
+        parent = parent_slug_by_pk.get(parent_id, "(root)") if parent_id else "(root)"
+        items.append(Item(
+            NAME_COLLISION, parent,
+            f"{len(members)} live active siblings share the name "
+            f"'{name}': {slugs} — a seller sees one option offered twice; "
+            "merge or rename",
+        ))
+    return items
 
 
 def _db_category_depths() -> dict:

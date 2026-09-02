@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "categories.names",
+  "description": "Resolve category ids to display names. This object validates the request payload; the response is {\"names\": {\"<category_id>\": {\"name\": ..., \"slug\": ...}}} — see $defs.Entry. Keys are category IDS AS STRINGS (a JSON round trip must not change key types). A deleted category and an unknown id are simply absent from the mapping, mirroring the projections read() convention; an inactive category still answers (a listing can sit in a retired category and its rows still need a caption). Names are display names (the configured DISPLAY_TRANSLATOR applied), not raw translation keys.",
+  "type": "object",
+  "required": ["ids"],
+  "properties": {
+    "ids": {
+      "type": "array",
+      "description": "IDs of the categories to resolve. Capped: a suggest page needs tens of captions, and an uncapped batch is a catalogue dump through the caption endpoint.",
+      "items": { "type": ["integer", "string"] },
+      "maxItems": 200
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Entry": {
+      "type": "object",
+      "description": "One response value: the category's display name and slug.",
+      "required": ["name", "slug"],
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string" }
+      }
+    }
+  }
+}

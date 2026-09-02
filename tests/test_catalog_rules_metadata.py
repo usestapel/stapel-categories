@@ -258,7 +258,13 @@ class RulesAndMetadataRoundTripTests(TestCase):
 
 
 class SidecarVersionTests(TestCase):
-    """A 0.6.x sidecar's hashes no longer describe a 0.7.0 record."""
+    """A stale sidecar's hashes no longer describe a current record.
+
+    v1→v2 (0.7.0): the records grew fields. v2→v3 (0.13.0): category hashes
+    are now computed over the sync view (presentation keys stripped —
+    ``cf.category_sync_view``), so every category hash a v2 sidecar holds
+    would read as a phantom two-sided change on every key.
+    """
 
     def test_an_older_sidecar_is_refused_loudly(self):
         with tempfile.TemporaryDirectory() as out:
@@ -273,5 +279,5 @@ class SidecarVersionTests(TestCase):
                 load_catalog(out)
             self.assertIn("incompatible .sync-state.json version", str(ctx.exception))
 
-    def test_the_current_version_is_two(self):
-        self.assertEqual(cf.STATE_VERSION, 2)
+    def test_the_current_version_is_three(self):
+        self.assertEqual(cf.STATE_VERSION, 3)

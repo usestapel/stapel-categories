@@ -36,7 +36,8 @@ from stapel_categories import catalog_load as cl
 
 _KIND_ORDER = (
     cl.CREATED, cl.UPDATED, cl.DELETED, cl.SKIPPED,
-    cl.CONFLICT, cl.DB_ONLY, cl.DB_NEW, cl.ERROR,
+    cl.CONFLICT, cl.DB_ONLY, cl.DB_NEW, cl.DB_NEW_IN_CANON,
+    cl.NAME_COLLISION, cl.ERROR,
 )
 _KIND_LABEL = {
     cl.CREATED: "created",
@@ -46,6 +47,8 @@ _KIND_LABEL = {
     cl.CONFLICT: "CONFLICT",
     cl.DB_ONLY: "db-only drift",
     cl.DB_NEW: "db-only (not in canon)",
+    cl.DB_NEW_IN_CANON: "db-only INSIDE canon subtree",
+    cl.NAME_COLLISION: "sibling name collision",
     cl.ERROR: "ERROR",
 }
 _KIND_MARK = {
@@ -56,6 +59,8 @@ _KIND_MARK = {
     cl.CONFLICT: "!",
     cl.DB_ONLY: "?",
     cl.DB_NEW: "?",
+    cl.DB_NEW_IN_CANON: "?",
+    cl.NAME_COLLISION: "?",
     cl.ERROR: "E",
 }
 
@@ -175,9 +180,23 @@ class Command(BaseCommand):
                     line += f"  ({it.detail})"
                 if it.kind in (cl.CONFLICT, cl.ERROR):
                     self.stdout.write(self.style.ERROR(line))
-                elif it.kind in (cl.DB_ONLY, cl.DB_NEW):
+                elif it.kind in (
+                    cl.DB_ONLY, cl.DB_NEW, cl.DB_NEW_IN_CANON, cl.NAME_COLLISION
+                ):
                     self.stdout.write(self.style.WARNING(line))
                 else:
                     self.stdout.write(line)
+        if report.dead_end_leaves:
+            # Import-time echo of catalog_health's gate: the tree this load
+            # just produced has active leaves that type nothing. The load
+            # itself did what it was asked; whether this blocks a deploy is
+            # catalog_health's non-zero exit, not this command's.
+            slugs = ", ".join(report.dead_end_leaves)
+            self.stdout.write(self.style.WARNING(
+                f"{len(report.dead_end_leaves)} active leaf categor"
+                f"{'y' if len(report.dead_end_leaves) == 1 else 'ies'} now "
+                f"type(s) nothing — dead end(s): {slugs} "
+                "(run catalog_health for the standing gate)"
+            ))
         if report.dry_run:
             self.stdout.write("[dry-run] no changes were written.")

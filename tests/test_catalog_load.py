@@ -197,7 +197,6 @@ class FastForwardTests(_CatalogTestCase):
             cats = _read_json(out, cf.CATEGORIES_FILE)
             rec = next(c for c in cats if c["slug"] == "apparel")
             rec["name"] = "Clothing"
-            rec["carousel_enabled"] = True
             _write_json(out, cf.CATEGORIES_FILE, cats)
 
             old_revision = Category.objects.get(slug="apparel").revision
@@ -207,7 +206,9 @@ class FastForwardTests(_CatalogTestCase):
             self.assertFalse(report.failed)
             apparel = Category.objects.get(slug="apparel")
             self.assertEqual(apparel.name, "Clothing")
-            self.assertTrue(apparel.carousel_enabled)
+            # carousel_enabled is deliberately NOT part of this test any
+            # more: presentation is stand-owned and fixture-invisible since
+            # 0.13.0 — see test_catalog_presentation.py.
             self.assertGreater(apparel.revision, old_revision)
             # save()-path emitted the invalidation event (outbox contract).
             self.assertTrue(any(p["category_id"] == apparel.pk for p in received))
@@ -1519,3 +1520,151 @@ class DeferredTreeRebuildTests(_CatalogTestCase):
         parent = Category.objects.create(name="Books", slug="books")
         child = Category.objects.create(name="Comics", slug="comics", tn_parent=parent)
         self.assertEqual(Category.objects.get(pk=child.pk).tn_level, 2)
+
+
+# ---------------------------------------------------------------------------
+# Duplicate-shaped rows: hand rows inside canon subtrees, sibling name clashes
+# ---------------------------------------------------------------------------
+
+
+class DbNewInCanonSubtreeTests(_CatalogTestCase):
+    """A live category the fixture does not know, PARKED inside a subtree the
+    fixture owns, is duplicate-shaped: on a live stand, hand-seeded children
+    («Smartphones», «Laptops»…) sat beside imported canon siblings («Phones»,
+    «Notebooks»…) under an imported root, and sellers saw near-duplicate
+    options — while the report filed the rows under the same generic db_new
+    note as any deliberately local root. The parent being fixture-owned is
+    what makes it a warning of its own."""
+
+    def _seed_and_export(self, out):
+        self.seed_catalog()
+        _export(out)
+
+    def test_db_new_under_fixture_owned_parent_is_its_own_warning_kind(self):
+        with tempfile.TemporaryDirectory() as out:
+            self._seed_and_export(out)
+            Category.objects.create(
+                name="Smartphones", slug="smartphones-hand", tn_parent=self.electronics
+            )
+            report = cl.load_catalog(out)
+            self.assertFalse(report.failed)
+            items = {it.key: it for it in report.categories}
+            item = items.get("smartphones-hand")
+            self.assertIsNotNone(item)
+            self.assertEqual(item.kind, cl.DB_NEW_IN_CANON)
+            self.assertIn("electronics", item.detail)   # names the canon parent
+            self.assertIn("smartphones-hand", item.key)
+
+    def test_db_new_at_a_root_the_fixture_does_not_own_stays_generic(self):
+        with tempfile.TemporaryDirectory() as out:
+            self._seed_and_export(out)
+            Category.objects.create(name="Local services", slug="local-services")
+            report = cl.load_catalog(out)
+            items = {it.key: it for it in report.categories}
+            self.assertEqual(items["local-services"].kind, cl.DB_NEW)
+
+    def test_dry_run_plan_carries_the_same_warning(self):
+        with tempfile.TemporaryDirectory() as out:
+            self._seed_and_export(out)
+            Category.objects.create(
+                name="Smartphones", slug="smartphones-hand", tn_parent=self.electronics
+            )
+            report = cl.load_catalog(out, dry_run=True)
+            items = {it.key: it for it in report.categories}
+            self.assertEqual(items["smartphones-hand"].kind, cl.DB_NEW_IN_CANON)
+
+    def test_command_prints_a_line_for_it(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        with tempfile.TemporaryDirectory() as out:
+            self._seed_and_export(out)
+            Category.objects.create(
+                name="Smartphones", slug="smartphones-hand", tn_parent=self.electronics
+            )
+            stdout = StringIO()
+            call_command("load_catalog", dir=out, stdout=stdout)
+            text = stdout.getvalue()
+            self.assertIn("smartphones-hand", text)
+            self.assertIn("electronics", text)
+
+
+class SiblingNameCollisionTests(_CatalogTestCase):
+    """Two live, active siblings carrying the same case-folded name is the
+    state a seller actually experiences as a duplicate — the stand's real
+    case was two active «Другое» under «Растения». Nothing enforced it and
+    nothing even said it."""
+
+    def test_same_folded_name_under_one_parent_warns_after_load(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            Category.objects.create(
+                name="Другое", slug="other-1", tn_parent=self.apparel
+            )
+            Category.objects.create(
+                name="другое", slug="other-2", tn_parent=self.apparel
+            )
+            report = cl.load_catalog(out)
+            self.assertFalse(report.failed)   # a warning, not a gate
+            collisions = [
+                it for it in report.categories if it.kind == cl.NAME_COLLISION
+            ]
+            self.assertEqual(len(collisions), 1)
+            self.assertIn("other-1", collisions[0].detail)
+            self.assertIn("other-2", collisions[0].detail)
+            self.assertIn("apparel", collisions[0].key)
+
+    def test_inactive_or_deleted_siblings_do_not_trigger(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            Category.objects.create(
+                name="Другое", slug="other-1", tn_parent=self.apparel
+            )
+            Category.objects.create(
+                name="Другое", slug="other-2", tn_parent=self.apparel, active=False
+            )
+            Category.objects.create(
+                name="Другое", slug="other-3", tn_parent=self.apparel, deleted=True
+            )
+            report = cl.load_catalog(out)
+            self.assertEqual(
+                [it for it in report.categories if it.kind == cl.NAME_COLLISION], []
+            )
+
+    def test_dry_run_plan_output_warns_too(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            Category.objects.create(
+                name="Другое", slug="other-1", tn_parent=self.apparel
+            )
+            Category.objects.create(
+                name="Другое", slug="other-2", tn_parent=self.apparel
+            )
+            report = cl.load_catalog(out, dry_run=True)
+            self.assertTrue(
+                any(it.kind == cl.NAME_COLLISION for it in report.categories)
+            )
+
+    def test_command_prints_a_human_line(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            Category.objects.create(
+                name="Другое", slug="other-1", tn_parent=self.apparel
+            )
+            Category.objects.create(
+                name="Другое", slug="other-2", tn_parent=self.apparel
+            )
+            stdout = StringIO()
+            call_command("load_catalog", dir=out, stdout=stdout)
+            text = stdout.getvalue()
+            self.assertIn("other-1", text)
+            self.assertIn("other-2", text)

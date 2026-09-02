@@ -1,8 +1,8 @@
-# stapel-categories 0.12.2
+# stapel-categories 0.13.0
 
 Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.
 
-Contract: axes 1 · surface 19 · extension points 4 · operations 33 · error codes 64.
+Contract: axes 1 · surface 21 · extension points 4 · operations 33 · error codes 64.
 Generated from docs/capabilities.json by `stapel-llms-txt` — do not edit; drift-gated by `make contract-check`.
 
 ## Configuration axes — what a product switches on
@@ -23,6 +23,8 @@ This is the answer to "does Stapel already have something for X?". `instead of` 
   instead of: a hand-rolled scan for duplicate root_pk across category.features
   Reject a category that carries two features sharing the same root (two versions of one inherited feature the host must pick between) — call this from wherever a category's feature set is validated (Category.clean() already does) instead of writing your own root-collision scan over category.features.
 ### predicate
+- dead_end_leaves — stapel_categories.catalog_load.dead_end_leaves
+  Slugs of ACTIVE, non-deleted leaf categories with zero features (own + inherited, resolved with Category.get_all_features — the same logic the product renders with): pickable dead ends that type nothing. Branch on this in health/gate tooling instead of re-deriving leaf-ness and inheritance by hand; the catalog_health command turns a non-empty answer into a non-zero exit, and load_catalog stamps it onto its report.
 - find_orphan_overrides — stapel_categories.catalog_fixtures.find_orphan_overrides
   Detect override Feature rows (tn_parent set) linked to zero live categories — the check an ops/audit job should branch on to flag leaked override rows before they accumulate. Read-only: it reports, it does not clean up (catalog_load's own cleanup runs during a load, not from here).
 ### factory
@@ -35,6 +37,9 @@ This is the answer to "does Stapel already have something for X?". `instead of` 
 - canonical_json — stapel_categories.catalog_fixtures.canonical_json
   instead of: json.dumps(obj) with ad hoc sort_keys/indent/ensure_ascii choices
   Byte-stable JSON text (sorted keys, no ASCII-escaping, trailing newline) for anything meant to diff cleanly across runs — a committed fixture file or a hash input. Use this instead of calling json.dumps with your own parameter choices, or the file stops being byte-identical for identical DB state.
+- category_sync_view — stapel_categories.catalog_fixtures.category_sync_view
+  instead of: content_hash(record) over the full category record, which disagrees with the sidecar's category hashes
+  A category record as the 3-way catalogue sync sees it: the presentation keys (catalog_icon/carousel_icon/carousel_enabled — stand-owned curation, see PRESENTATION_KEYS) stripped before hashing. Apply this to a category record before content_hash wherever a tool must agree with export/load about whether the record changed; hashing the full record reads an operator's carousel edit as catalogue drift.
 - collect_all_catalog_translation_keys — stapel_categories.translation_keys.collect_all_catalog_translation_keys
   instead of: manually calling and merging collect_category_translation_keys_with_refs + collect_feature_translation_keys_with_refs
   Categories and features combined into one manifest (deduplicated all_keys + total_count) — the one call a translation-catalog completeness/dump tool needs instead of running and merging the four collect_*_translation_keys* calls itself.
