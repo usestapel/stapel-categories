@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.15.0"
+version = "0.15.1"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -86,7 +86,16 @@ dependencies = [
     # FeatureDef that has the field. A host still on stapel-attributes 0.6/0.7
     # stays on stapel-categories 0.10.0, where nothing about disclosure exists
     # to be half-wired.
-    "stapel-attributes>=0.8,<0.9",
+    #
+    # >=0.8.3 as of stapel-categories 0.15.1: the floor moves for NOISE, not
+    # for behaviour. `config["facet"]` works on any 0.8.x — `config` is opaque
+    # and passes through untouched — but before 0.8.3 every feature carrying it
+    # answers `validate-configs` with "Unknown config key(s) ignored: facet",
+    # and that sentence is a lie which reads as an instruction to delete the
+    # key. A documented opt-out the module's own validation endpoint calls dead
+    # weight is worse than no opt-out, so this module refuses to run against
+    # the version that says it.
+    "stapel-attributes>=0.8.3,<0.9",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
 ]

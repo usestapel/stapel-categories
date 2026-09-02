@@ -33,6 +33,22 @@
   title and never a badge — `clean()` and `save()` both force the two flags
   off, so no row can claim otherwise. Changing the axis on a live catalogue is
   not complete until `listings_reproject_features` re-stamps stored values.
+- **The buyer-facet opt-out** `config["facet"]` — `false` when the category
+  does not offer the feature as a filter axis; **absent means true**, so a
+  definition that says nothing keeps the behaviour it had before the key
+  existed. It rides in `config` (an engine-level key, allowlisted out of
+  stapel-attributes' unknown-key warning by `validation.ENGINE_CONFIG_KEYS`)
+  because it is not an input to value validation: nothing about a value
+  changes, only whether the panel offers it. This module stores it verbatim
+  and carries it across every boundary the disclosure axis crosses — the
+  loader, the export, an inline per-category override, the admin form, the
+  feature editor and `categories.features` — and `tests/test_facet_optout.py`
+  is the standing gate on all of them; the READING is stapel-search's
+  (`facets._is_facetable`). It exists for the field no library can classify
+  from its type: the parcel's weight/length/height/width and the wholesale
+  block are metadata about the SALE, while the same `int` one category over is
+  a real filter. A live stand's «Аквариум» offered a buyer nothing but those
+  four delivery numbers.
 - **The composite `group`** (stapel-attributes 0.6.0) is the one feature type
   whose `config` carries other feature definitions: `config.fields` is a list
   of full FeatureDefs and the value is a list of rows keyed by child slug.

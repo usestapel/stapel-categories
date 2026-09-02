@@ -69,7 +69,7 @@
           "description": "Form section this feature belongs to; sections order by first appearance. Default: \"\" (the unnamed leading section).",
           "default": ""
         },
-        "config": { "type": "object", "description": "Type-specific config (merged with type defaults), with a 'type' discriminator." }
+        "config": { "type": "object", "description": "Type-specific config (merged with type defaults), with a 'type' discriminator. Also carries the ENGINE-LEVEL keys no type's config declares and stapel-attributes' unknown-key warning allowlists (validation.ENGINE_CONFIG_KEYS): 'facet' — false when this category does NOT offer the feature as a buyer filter axis. ABSENT means true, so a definition that says nothing keeps behaving as it did before the axis existed. It is what a category author says about a field no library can classify from its type: the parcel's weight/length/height/width and the wholesale block are metadata about the SALE, while the very same 'int' one category over is a real filter." }
       }
     }
   }

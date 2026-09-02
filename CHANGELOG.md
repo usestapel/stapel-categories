@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.15.1] — 2026-09-03
+
+Patch (pre-1.0: minor = breaking, patch = compatible). The buyer-facet
+opt-out is documented and gated; no behaviour changes.
+
+### Added
+
+- **`config["facet"]` is now a named, gated key.** stapel-search's facet plan
+  has always read a `facet` flag off a resolved feature (defaulting to TRUE
+  when absent) to decide whether a category offers the feature as a filter
+  axis — and nothing in any fleet wrote it, because nothing said it existed.
+  A live classified stand's «Аквариум» consequently offered a buyer a filter
+  panel made entirely of the delivery block (parcel weight, length, height,
+  width), and its phone leaf planned the wholesale ladder as facets. The key
+  is an ENGINE-LEVEL config key, not a type's: it is not an input to value
+  validation (nothing about the value changes), and the same `int` is a real
+  filter one category over, so no type could ever infer it.
+
+  Nothing on the path had to change — `config` is opaque to the FeatureDef
+  canon and passes through the loader, the export, the inline-override shape,
+  the admin form, the feature editor and `categories.features` verbatim. What
+  was missing was anyone knowing that, so this release makes it load-bearing
+  rather than accidental: `tests/test_facet_optout.py` is a standing gate over
+  all seven of those surfaces (including the export/load idempotency the
+  3-way diff needs, and the two REWRITE paths where a typed rebuild would
+  silently drop the key and put the delivery weight back in the panel), the
+  `categories.features` schema describes it on `config`, and MODULE.md
+  documents it beside the disclosure axis. Requires stapel-attributes 0.8.3,
+  which allowlists it out of the "unknown config key ignored" warning — that
+  warning's contract is "your key was dropped and does nothing", and it was
+  telling reviewers to delete a working opt-out.
+
 ## [0.15.0] — 2026-09-03
 
 Minor (breaking: `active` leaves the catalogue sync's ownership, and the
