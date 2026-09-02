@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.12.0"
+version = "0.12.1"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -26,7 +26,7 @@ classifiers = [
 dependencies = [
     # Floor: 0.26.0 emits docs/errors.json with the `owner` field the
     # committed artifact and its drift gate require.
-    "stapel-core>=0.26.0,<1.0",
+    "stapel-core>=0.54.1,<1.0",
     # Floor: 0.5.0 brings the rule grammar + evaluator (parse_rules,
     # rule_warnings, evaluate_rules), the FeatureDef v2 fields this module
     # stores, validate_configs_structured(known_slugs=...) and

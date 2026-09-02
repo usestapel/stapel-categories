@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.1] — 2026-09-02
+
+Patch. `stapel-core>=0.54.1` — a floor that has to exclude, not just include.
+
+stapel-core 0.51.0 through 0.53.0 shipped wheels missing
+`stapel_core.django.sites`: the subpackage was never added to core's explicit
+`[tool.setuptools] packages` list, so it was tracked in git, importable from a
+checkout, present in an editable install — and absent from the artifact on
+PyPI. `stapel_core.django.apps.ready()` imports it unconditionally, so **any**
+Django app that resolves one of those three releases dies at
+`django.setup()`. The previous floor here admitted all three.
+
+Core 0.54.1 restores the line; this raises the floor past the versions that
+cannot work. No code change.
+
 ## [0.12.0] — 2026-09-02
 
 Minor (pre-1.0: minor = breaking, patch = compatible). Two new public
