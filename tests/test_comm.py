@@ -489,3 +489,170 @@ class TestNamesFunction:
     def test_schema_rejects_an_unknown_key(self, db):
         with pytest.raises(Exception):
             call("categories.names", {"category_ids": [1]})
+
+
+@pytest.fixture
+def cascade_tree(db):
+    """The storefront cascade, one of every state a rung has to handle.
+
+    Two live roots (priorities apart), a retired root and a deleted root that
+    must not be rungs at all; under ``vehicles`` a live branch, a live leaf
+    and a retired child; under ``cars`` one live and one retired grandchild —
+    the pair that tells a truthful ``children_count`` from a raw one.
+    """
+    vehicles = Category.objects.create(
+        name="Vehicles", slug="vehicles", tn_priority=10
+    )
+    property_ = Category.objects.create(
+        name="Property", slug="property", tn_priority=5
+    )
+    retired_root = Category.objects.create(
+        name="Retired root", slug="retired-root", active=False
+    )
+    Category.objects.create(name="Gone root", slug="gone-root", deleted=True)
+    cars = Category.objects.create(
+        name="Cars", slug="cars", tn_parent=vehicles, tn_priority=2
+    )
+    bikes = Category.objects.create(
+        name="Bikes", slug="bikes", tn_parent=vehicles, tn_priority=1
+    )
+    Category.objects.create(
+        name="Retired child", slug="retired-child", tn_parent=vehicles, active=False
+    )
+    Category.objects.create(
+        name="Gone child", slug="gone-child", tn_parent=vehicles, deleted=True
+    )
+    sedans = Category.objects.create(name="Sedans", slug="sedans", tn_parent=cars)
+    Category.objects.create(
+        name="Retired sedan", slug="retired-sedan", tn_parent=cars, active=False
+    )
+    return {
+        "vehicles": vehicles, "property": property_, "retired_root": retired_root,
+        "cars": cars, "bikes": bikes, "sedans": sedans,
+    }
+
+
+@pytest.mark.django_db
+class TestChildrenFunction:
+    """``categories.children`` — one rung of the cascade, as a person sees it.
+
+    svc-agent walks the tree the way a buyer walks the storefront: "give me
+    the children of node X", null for the top. The consumer is wired against
+    exactly this shape: ``{"parent_id": <int|null>}`` ->
+    ``{"parent_id": <int|null>, "children": [{id, slug, name,
+    children_count}]}`` where ``children_count`` counts ACTIVE children (0
+    means leaf, so the walker needs no second call to know it hit bottom).
+    """
+
+    def test_null_parent_answers_the_active_roots(self, cascade_tree):
+        result = call("categories.children", {"parent_id": None})
+
+        assert result["parent_id"] is None
+        assert [row["slug"] for row in result["children"]] == [
+            "vehicles", "property"
+        ]
+
+    def test_absent_parent_means_the_roots_too(self, cascade_tree):
+        assert call("categories.children", {}) == call(
+            "categories.children", {"parent_id": None}
+        )
+
+    def test_children_of_a_mid_node(self, cascade_tree):
+        vehicles = cascade_tree["vehicles"]
+        result = call("categories.children", {"parent_id": vehicles.pk})
+
+        assert result["parent_id"] == vehicles.pk
+        by_slug = {row["slug"]: row for row in result["children"]}
+        assert set(by_slug) == {"cars", "bikes"}
+        cars = by_slug["cars"]
+        assert cars["id"] == cascade_tree["cars"].pk
+        assert cars["name"] == "Cars"
+        # Two grandchildren exist, ONE is active — the count a walker plans
+        # its next rung on must be the count of rungs it will actually get.
+        assert cars["children_count"] == 1
+
+    def test_a_leaf_answers_an_empty_list(self, cascade_tree):
+        leaf = cascade_tree["bikes"]
+        result = call("categories.children", {"parent_id": leaf.pk})
+        assert result == {"parent_id": leaf.pk, "children": []}
+
+    def test_inactive_children_are_excluded_from_list_and_counts(
+        self, cascade_tree
+    ):
+        result = call("categories.children", {"parent_id": cascade_tree["vehicles"].pk})
+        slugs = {row["slug"] for row in result["children"]}
+        assert "retired-child" not in slugs and "gone-child" not in slugs
+        # And a live child leading only to retired rungs reads as a leaf.
+        assert {
+            row["slug"]: row["children_count"] for row in result["children"]
+        } == {"cars": 1, "bikes": 0}
+
+    def test_missing_parent_raises_lookup(self, db):
+        from stapel_core.comm.exceptions import FunctionCallError
+
+        with pytest.raises(FunctionCallError) as excinfo:
+            call("categories.children", {"parent_id": 999999})
+        assert isinstance(excinfo.value.__cause__, LookupError)
+
+    def test_an_inactive_parent_raises_lookup_like_a_missing_one(
+        self, cascade_tree
+    ):
+        # A retired node is not a rung: "no such node" and "retired node"
+        # answer the same, and both are distinct from a leaf's empty list.
+        from stapel_core.comm.exceptions import FunctionCallError
+
+        with pytest.raises(FunctionCallError) as excinfo:
+            call(
+                "categories.children",
+                {"parent_id": cascade_tree["retired_root"].pk},
+            )
+        assert isinstance(excinfo.value.__cause__, LookupError)
+
+    def test_ordering_matches_the_http_tree_view(self, db):
+        # The HTTP children/roots views order by (-tn_priority, id) — the
+        # cascade a person sees. Same rungs, same order, or the agent and
+        # the buyer walk two different storefronts.
+        root = Category.objects.create(name="Root", slug="root")
+        low = Category.objects.create(
+            name="Low", slug="low", tn_parent=root, tn_priority=1
+        )
+        high = Category.objects.create(
+            name="High", slug="high", tn_parent=root, tn_priority=9
+        )
+        tie_a = Category.objects.create(
+            name="Tie A", slug="tie-a", tn_parent=root, tn_priority=5
+        )
+        tie_b = Category.objects.create(
+            name="Tie B", slug="tie-b", tn_parent=root, tn_priority=5
+        )
+
+        result = call("categories.children", {"parent_id": root.pk})
+        assert [row["id"] for row in result["children"]] == [
+            high.pk, min(tie_a.pk, tie_b.pk), max(tie_a.pk, tie_b.pk), low.pk
+        ]
+
+    def test_names_go_through_the_display_translator_seam(self, cascade_tree):
+        # The module stores translation keys; a raw key in a cascade would
+        # hand the agent "categories.electronics" as a rung caption. Same
+        # seam categories.names and categories.suggest render through.
+        from django.test import override_settings
+
+        with override_settings(
+            STAPEL_CATEGORIES={
+                "DISPLAY_TRANSLATOR": (
+                    "stapel_categories.tests.test_extension_points.loud_translator"
+                ),
+            }
+        ):
+            result = call("categories.children", {"parent_id": None})
+        assert [row["name"] for row in result["children"]] == [
+            "T(Vehicles)", "T(Property)"
+        ]
+
+    def test_schema_rejects_an_unknown_key(self, db):
+        with pytest.raises(Exception):
+            call("categories.children", {"category_id": 1})
+
+    def test_schema_rejects_a_string_parent(self, db):
+        with pytest.raises(Exception):
+            call("categories.children", {"parent_id": "vehicles"})

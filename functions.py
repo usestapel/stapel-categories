@@ -19,6 +19,9 @@ are no-ops. Other modules call by name, no import of this package needed:
     call("categories.names", {"ids": [42, "7"]})
     # -> {"names": {"42": {"name": ..., "slug": ...}, "7": {...}}}
 
+    call("categories.children", {"parent_id": None})
+    # -> {"parent_id": None, "children": [{id, slug, name, children_count}]}
+
 ``categories.features`` returns the *resolved* feature definitions for a
 category (own + inherited, config merged with type defaults). stapel-listings
 calls it to validate listing attribute values against the category schema
@@ -47,6 +50,15 @@ the seam defect the comm surface exists to prevent. What it deliberately
 does NOT own is the query language: terms arrive already folded and already
 expanded (synonyms, transliteration) by whoever asked, because a second
 normalizer here would be a second answer to "what did the user mean".
+
+``categories.children`` answers one rung of the cascade — the children of a
+node, null for the top — the way a person walks the storefront: same order
+as the tree HTTP views, active rungs only, each child carrying its own
+count of active children so a walker knows a leaf without a second call.
+It exists for callers that walk the tree over comm rather than HTTP
+(svc-agent descending the catalogue rung by rung), and the other three
+Functions each answer an adjacent question but not this one: ``path`` goes
+up, ``suggest`` goes by name, ``names`` captions ids the caller already has.
 """
 import json
 import unicodedata
@@ -263,6 +275,81 @@ def names_function(payload: dict) -> dict:
             str(pk): {"name": translate(name), "slug": slug}
             for pk, name, slug in rows
         }
+    }
+
+
+@function("categories.children", schema=_schema("categories.children"))
+def children_function(payload: dict) -> dict:
+    """One rung of the category cascade, as the storefront shows it.
+
+    Payload: ``{"parent_id": <int|null>}`` — null (or absent) means the
+    active roots. Returns ``{"parent_id": <int|null>, "children": [{id,
+    slug, name, children_count}]}`` where ``children_count`` counts the
+    child's own ACTIVE children — 0 means leaf, so a walker descending the
+    tree rung by rung (svc-agent walking the catalogue the way a buyer
+    walks the cascade) knows the bottom without a second call.
+
+    A ``parent_id`` that names no walkable node — unknown, inactive or
+    soft-deleted — raises ``LookupError``, the ``categories.features``
+    convention: the caller must be able to tell "no such rung" from "a leaf",
+    and a leaf is the empty list, never an error.
+
+    Ordering is the tree HTTP views' ordering (``-tn_priority``, then
+    ``id`` — ``children``/``roots`` in views.py), so the agent sees the
+    rungs in the order a person sees them. Visibility is DELIBERATELY
+    narrower than ``visible_categories()`` there: the HTTP reads keep
+    inactive rows (a client greys them out on the ``active`` flag the
+    serializer ships), but this Function's rows carry no such flag and its
+    caller is choosing where to step next — an inactive category is not a
+    place the storefront lets a buyer go, so here it is not a rung at all,
+    on the row, in the counts, and as a parent. ``is_test`` is not filtered,
+    for the reason ``visible_categories()`` states: it is an export filter,
+    and a deployment that wants test rows off the storefront retires them
+    with ``active``.
+
+    Names go through the ``DISPLAY_TRANSLATOR`` seam exactly as
+    ``categories.names`` and ``categories.suggest`` render theirs — this
+    module stores translation keys, and a raw key would hand the walker
+    «categories.electronics» as a rung caption.
+
+    Two queries flat (parent check + one annotated read), whatever the
+    width of the rung.
+    """
+    from django.db.models import Count, Q
+
+    from .models import Category
+    from .translation import translate
+
+    parent_id = payload.get("parent_id")
+    walkable = Category.objects.filter(active=True, deleted=False)
+    if parent_id is None:
+        queryset = walkable.filter(tn_parent__isnull=True)
+    else:
+        if not walkable.filter(pk=parent_id).exists():
+            raise LookupError(f"category {parent_id} not found")
+        queryset = walkable.filter(tn_parent_id=parent_id)
+
+    rows = (
+        queryset.annotate(
+            active_children=Count(
+                "tn_children",
+                filter=Q(tn_children__active=True, tn_children__deleted=False),
+            )
+        )
+        .order_by("-tn_priority", "id")
+        .values_list("pk", "slug", "name", "active_children")
+    )
+    return {
+        "parent_id": parent_id,
+        "children": [
+            {
+                "id": pk,
+                "slug": slug,
+                "name": translate(name),
+                "children_count": count,
+            }
+            for pk, slug, name, count in rows
+        ],
     }
 
 

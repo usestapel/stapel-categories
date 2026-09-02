@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.14.0] — 2026-09-02
+
+### Added — `categories.children`: one rung of the cascade, over comm
+
+The tree was walkable over HTTP from 0.12.0 (`roots/`, `children/`,
+`by-slug/`) and over comm not at all: `features` resolves a node,
+`path` goes up, `suggest` goes by name, `names` captions ids the caller
+already holds — nothing listed a node's children. svc-agent walks the
+catalogue the way a buyer walks the storefront cascade — "give me the
+children of X" — and it walks over comm, so the missing rung is a comm
+Function.
+
+```python
+call("categories.children", {"parent_id": None})   # null/absent = the roots
+# -> {"parent_id": None, "children": [
+#      {"id": 46, "slug": "vehicles", "name": "Vehicles",
+#       "children_count": 2},
+#      … ]}
+```
+
+- **Same rungs, same order as the storefront.** Ordering is the tree HTTP
+  views' (`-tn_priority`, then `id`), pinned by
+  `test_ordering_matches_the_http_tree_view`.
+- **Active rungs only, and the counts agree.** Each child carries
+  `children_count` — its own number of ACTIVE children, 0 meaning leaf, so
+  the walker knows the bottom without a second call. Deliberately narrower
+  than the HTTP reads' `visible_categories()` (which keeps inactive rows
+  and ships the `active` flag for a client to grey out): this caller is
+  choosing where to step next and the rows carry no flag, so an inactive
+  category is not a rung at all — on the row, in the counts, and as a
+  parent.
+- **"No such rung" is not a leaf.** An unknown, inactive or deleted
+  `parent_id` raises `LookupError` (the `categories.features` convention);
+  a leaf answers `{"children": []}`.
+- **Names are display names.** Rendered through the `DISPLAY_TRANSLATOR`
+  seam exactly as `categories.names` and `categories.suggest` render
+  theirs — a raw key would hand the walker `categories.electronics` as a
+  rung caption.
+- **Two queries flat** (parent check + one annotated read), whatever the
+  width of the rung. Contract committed as
+  `schemas/functions/categories.children.json`, validated at the call
+  boundary like its siblings.
+
 ## [0.13.0] — 2026-09-02
 
 Minor (pre-1.0: minor = breaking, patch = compatible). Five findings from one

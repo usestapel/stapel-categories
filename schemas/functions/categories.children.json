@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "categories.children",
+  "description": "One rung of the category cascade: the ACTIVE children of a node, in storefront order. This object validates the request payload; the response is {\"parent_id\": <int|null>, \"children\": [Child]} — see $defs.Child. parent_id null (or absent) asks for the active roots. Rows are active, non-deleted categories only, ordered exactly as the public tree HTTP views order the cascade (tn_priority descending, then id), so an agent walking the tree sees the same rungs in the same order a person sees in the storefront. Each Child carries children_count — its own number of ACTIVE children, 0 meaning leaf — so the walker knows it hit bottom without a second call. A parent_id that names no walkable node (unknown, inactive or deleted) raises LookupError, the categories.features convention: \"no such rung\" is an error, a leaf is an empty list. Names are display names (the configured DISPLAY_TRANSLATOR applied), not raw translation keys.",
+  "type": "object",
+  "properties": {
+    "parent_id": {
+      "type": ["integer", "null"],
+      "description": "ID of the node whose children to list; null (or absent) means the active roots — the cascade's first rung."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Child": {
+      "type": "object",
+      "description": "One rung in the response 'children' array.",
+      "required": ["id", "slug", "name", "children_count"],
+      "properties": {
+        "id": { "type": "integer", "description": "Category id — feed it back as the next parent_id to descend." },
+        "slug": { "type": "string", "description": "The storefront's URL vocabulary for this node." },
+        "name": { "type": "string", "description": "Display name (DISPLAY_TRANSLATOR applied)." },
+        "children_count": {
+          "type": "integer",
+          "description": "How many ACTIVE, non-deleted children this child has. 0 means leaf — descending further raises nothing, there is simply no rung to ask for."
+        }
+      }
+    }
+  }
+}

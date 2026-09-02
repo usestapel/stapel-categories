@@ -70,7 +70,9 @@
   instead of waiting out a TTL.
 - A **comm surface**: Functions `categories.features` (resolved schema for a
   category), `categories.path` (root->leaf ancestry for a batch of categories),
-  `categories.names` (batch of ids -> display name + slug) and
+  `categories.names` (batch of ids -> display name + slug),
+  `categories.children` (one rung of the cascade — a node's active children
+  in storefront order, null for the roots) and
   `categories.suggest` (category NAMES matched for a type-ahead, answered
   with their ancestry), plus emitted Action `category.changed`.
 - **Catalog fixtures sync** (`export_catalog` / `load_catalog` management
@@ -199,6 +201,7 @@ through `StapelModelAdmin`.
 | Function (provides) | `categories.features` | `{category_id}` -> `{category_id, revision, features:[ResolvedFeature]}` | `schemas/functions/categories.features.json` |
 | Function (provides) | `categories.path` | `{category_ids:[id,...]}` -> `{"<id>": ["<root_id>",…,"<id>"]}` | `schemas/functions/categories.path.json` |
 | Function (provides) | `categories.names` | `{ids:[id,...]}` -> `{names: {"<id>": {name, slug}}}` | `schemas/functions/categories.names.json` |
+| Function (provides) | `categories.children` | `{parent_id: <int\|null>}` -> `{parent_id, children:[{id, slug, name, children_count}]}` | `schemas/functions/categories.children.json` |
 | Function (provides) | `categories.suggest` | `{terms:[folded,...], limit}` -> `{categories:[{id, slug, name, path, path_ids, depth, match}]}` | `schemas/functions/categories.suggest.json` |
 | Action (emits) | `category.changed` | `{category_id, revision}` | `schemas/emits/category.changed.json` |
 
@@ -234,6 +237,22 @@ seam defect the comm surface exists to prevent. Deleted rows and unknown ids
 are absent from the mapping (stale ids degrade to no caption, not an error);
 inactive rows still answer, because a listing can sit in a category retired
 after publication. The batch is schema-capped at 200.
+
+`categories.children` is the cascade rung: `{parent_id}` (null for the top)
+in, that node's ACTIVE children out, ordered as the tree HTTP views order
+them (`-tn_priority`, then `id`) so a walker over comm — svc-agent
+descending the catalogue "give me the children of X" at a time — sees the
+same rungs in the same order a buyer sees in the storefront. Each child
+carries `children_count`, its own number of active children (0 = leaf), so
+the walker knows the bottom without a second call. An unknown, inactive or
+deleted `parent_id` raises `LookupError` (the `categories.features`
+convention) — "no such rung" stays distinguishable from a leaf's empty
+list. Visibility is deliberately narrower than the HTTP reads'
+`visible_categories()`: those keep inactive rows and ship the `active` flag
+for a client to grey out, but this Function's caller is choosing where to
+step next, so an inactive category is not a rung at all — on the row, in
+the counts, and as a parent. Names render through `DISPLAY_TRANSLATOR`,
+exactly as `names` and `suggest` do.
 
 `categories.suggest` matches category names for a type-ahead. «Шорты» is not
 one category — it is a leaf under men's, under women's and under children's
