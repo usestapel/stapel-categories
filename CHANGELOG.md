@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.2] — 2026-09-03
+
+### Fixed
+
+- Re-cut of 0.15.1, which never reached PyPI: it raised the `stapel-attributes`
+  floor to `>=0.8.3` and its own CI ran in the minutes before 0.8.3 finished
+  publishing, so every matrix leg failed to resolve. Identical code. Pin
+  0.15.2.
+
 ## [0.15.1] — 2026-09-03
 
 Patch (pre-1.0: minor = breaking, patch = compatible). The buyer-facet
