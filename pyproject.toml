@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.16.0"
+version = "0.16.1"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -95,7 +95,13 @@ dependencies = [
     # key. A documented opt-out the module's own validation endpoint calls dead
     # weight is worse than no opt-out, so this module refuses to run against
     # the version that says it.
-    "stapel-attributes>=0.8.3,<0.9",
+    # <0.10 as of stapel-categories 0.16.1: stapel-attributes 0.9.0 changes one
+    # rule semantic — `in` / `not_in` no longer match a controller that reads
+    # EMPTY, so a `require when X not_in [...]` stops firing before anyone has
+    # answered X. This module stores and validates rules; it does not evaluate
+    # them for a form, and its whole suite is green on 0.9.0 unchanged. The
+    # floor stays at 0.8.3 for the `facet` reason below.
+    "stapel-attributes>=0.8.3,<0.10",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
 ]

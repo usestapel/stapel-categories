@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.16.1] — 2026-09-03
+
+Patch. Cap only: `stapel-attributes>=0.8.3,<0.10`.
+
+stapel-attributes 0.9.0 changes one rule semantic — a VALUE predicate (`in` /
+`not_in`) no longer matches a controller that reads EMPTY, so a
+`require when X not_in […]` rule stops firing before anyone has answered `X`.
+Two UX walkers had hit that wall on an imported catalogue: a field starred and
+refusing "Next" while its own help line said it was needed only *if* another
+field said so, with that field untouched.
+
+This module STORES and VALIDATES rules (`Feature.rules` -> `parse_rules`); it
+does not evaluate them for a form, and the grammar `parse_rules` accepts is
+unchanged. The whole suite is green against 0.9.0 with no edit, which is why
+this is a cap-only patch rather than a behaviour release. The floor stays at
+0.8.3 for the `facet` reason recorded in `pyproject.toml`.
+
 ## [0.16.0] — 2026-09-03
 
 ### Fixed
