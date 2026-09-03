@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.18.0] — 2026-09-03
+
+### Fixed
+
+- **`--on-conflict fixture-wins` reverts a db-only EDIT, not only a db-only
+  delete.** The two halves of db-only drift were asymmetric: a fixture-owned
+  row DELETED in the DB was resurrected from canon under this policy, while a
+  fixture-owned row EDITED in the DB was kept and warned about. So the flag
+  meant "the fixture wins, unless the DB got there first" — and, worse, it did
+  not converge: `db_only` is "base == fixture, db differs", so a record the
+  fixture never changes again is classified `db_only` on every future run and
+  re-running the load can never repair it. `abort` (the default) and `db-wins`
+  are unchanged.
+
+  What that cost on a live stand: two fixture directories legitimately shared
+  one feature-slug namespace (a 20-leaf reviewed subset and the full 2901-leaf
+  catalogue, whose importer picks a root feature's type by majority across the
+  leaves it emits). The narrow one was loaded last and left **63 root features
+  retyped** — `fuel_type` `select` → `ref_select`, `weight` `int` → `select`,
+  `load_capacity`, `power`, `drive_type`, `parking` and 57 more. A root's type
+  is what `Feature.clean` checks every per-category override against, so
+  **15 category records failed with `Child config.type must match parent
+  config.type` on every pass, and a second pass failed on the same 15** — the
+  wider fixture had not changed, its roots were `db_only`, and `fixture-wins`
+  declined to put them back.
+
+- **A dry run reports the writes the apply would refuse.** `--dry-run`
+  classified every record and printed a clean plan for the load above, which
+  then errored on 15 of them: the plan never asked whether the rows it
+  intended to write were writable. It now walks the overrides of every planned
+  category upsert and reports an ERROR wherever an override's `config.type`
+  contradicts the type its root feature will hold **after** this plan is
+  applied (fixture type for a root the plan upserts, live DB type otherwise).
+  The message names the feature, both types and the reason, and the run exits
+  non-zero — the plan and the apply now agree about whether a load can succeed.
+
 ## [0.17.0] — 2026-09-03
 
 ### Fixed

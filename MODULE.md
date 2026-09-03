@@ -329,7 +329,12 @@ both-sides-changed records **abort per-record by default** (report + non-zero
 exit; override with `--on-conflict fixture-wins|db-wins`); removals from the
 fixture **soft-delete** by default (`--deletions hard|ignore` to change; hard
 refuses per-record when the treenode/FK cascade would silently take down live
-children or still-linked categories); DB-only drift warns and is kept. All writes go through `save()`/`full_clean()`
+children or still-linked categories); DB-only drift warns and is kept, except
+under `fixture-wins`, which reverts it (0.18.0 — the delete half of db-only
+drift already resurrected from canon under that flag, and a flag that meant
+"the fixture wins, unless the DB got there first" never converged: a record
+the fixture does not change again stays classified `db_only` forever, so
+re-running the load could not repair it). All writes go through `save()`/`full_clean()`
 (never bulk/`.update()` — H-2), under a `select_for_update` catalog lock (M-5),
 and a re-run on materialized fixtures is zero saves / zero events. Engine:
 `catalog_load.py`. `--seed-if-empty` is the bootstrap idiom (full load on an
@@ -344,7 +349,12 @@ fixture owns is re-graded from the generic `db_new` to `db_new_in_canon`
 name (what a seller sees as one option offered twice), and
 `report.dead_end_leaves` lists the active leaves that type nothing after the
 load (the `catalog_health` gate's finding, echoed at import time). All three
-warn without failing the load.
+warn without failing the load. A `--dry-run` additionally reports, as an
+ERROR, every per-category override whose `config.type` contradicts the type
+its root feature will hold once the plan is applied (0.18.0): the model
+refuses such a child, so the apply would fail on exactly those records — and
+a plan that predicted a clean load and then failed is a gate that proves
+nothing.
 
 `python manage.py catalog_health` is the standing gate on dead ends: it lists
 every ACTIVE, non-deleted leaf category with zero features (own + inherited,

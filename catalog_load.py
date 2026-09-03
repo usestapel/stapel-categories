@@ -261,6 +261,20 @@ def _decide(raw: str, *, db_present: bool, on_conflict: str, deletions: str) -> 
     if raw == _DB_ONLY:
         if on_conflict == ON_CONFLICT_DB:
             return Decision("skip", SKIPPED)   # db-wins: silent, same effect
+        if on_conflict == ON_CONFLICT_FIXTURE:
+            # fixture-wins reverts a db-only EDIT too, not only a db-only
+            # deletion (_DB_ONLY_DELETION below already resurrects from canon
+            # under this policy). Leaving the two halves asymmetric made the
+            # flag mean "the fixture wins, unless the DB got there first",
+            # and it did not converge: a row the fixture never changes again
+            # is classified db_only forever, so the drift is never revertible
+            # by re-running the load. That is not academic for a FEATURE — a
+            # root whose config.type drifted (two fixture directories sharing
+            # one feature-slug namespace, the narrower one loaded last) makes
+            # every per-category override the fixture carries for it
+            # unwritable, and every category record holding one fails
+            # validation on every pass.
+            return Decision("upsert", UPDATED, reconciled=True)
         return Decision("warn", DB_ONLY)       # default: keep DB, warn, base unchanged
     if raw == _DB_ONLY_DELETION:
         if on_conflict == ON_CONFLICT_FIXTURE:
@@ -1453,7 +1467,68 @@ def _run_plan(
     # tree, but a clash the operator can fix before loading belongs in the plan.
     for item in _sibling_name_collisions():
         report.add("categories", item)
+    # …and the writes this plan would attempt and the model would refuse. An
+    # apply discovers these by failing; a plan that stayed silent about them
+    # is a gate that proves nothing.
+    for item in _unwritable_override_items(fix_feat, feat_plan, cat_upserts):
+        report.add("categories", item)
     return None
+
+
+def _root_types_after(fix_feat, feat_plan) -> dict:
+    """``{feature slug: the root's config.type once this plan is applied}``.
+
+    A root the plan will upsert takes the fixture's type; every other root
+    keeps the type the DB holds now. Roots absent from both are absent here —
+    a dangling reference is a different finding, reported at apply time.
+    """
+    from .models import Feature
+
+    types = {
+        slug: (config or {}).get("type")
+        for slug, config in Feature.objects.filter(
+            tn_parent__isnull=True, deleted=False, is_test=False
+        ).values_list("slug", "config")
+    }
+    for planned in feat_plan:
+        if planned.decision.op != "upsert":
+            continue
+        record = fix_feat.get(planned.key)
+        if record is not None:
+            types[planned.key] = (record.get("config") or {}).get("type")
+    return types
+
+
+def _unwritable_override_items(fix_feat, feat_plan, cat_upserts) -> List[Item]:
+    """The overrides ``Feature.clean`` would refuse, found before writing any.
+
+    A per-category override is a CHILD of the root that shares its slug, and
+    the model requires the two to agree on ``config.type``. The fixture is
+    self-consistent about that by construction; the DB is not, because a root
+    can be retyped by anything else that writes the catalog — another fixture
+    directory sharing this feature-slug namespace, the feature editor, an
+    admin. When that root is left as it is (db-only drift the policy does not
+    revert, or a conflict the policy aborts), every category record carrying
+    an override for it is refused, the same records on every pass.
+    """
+    after = _root_types_after(fix_feat, feat_plan)
+    items: List[Item] = []
+    for planned in cat_upserts:
+        record = planned.record or {}
+        for entry in record.get("features") or ():
+            slug = entry.get("slug") or ""
+            if not slug or not _is_inline(entry):
+                continue
+            child = (entry.get("config") or {}).get("type")
+            parent = after.get(slug)
+            if child and parent and child != parent:
+                items.append(Item(ERROR, planned.key, (
+                    f"override '{slug}' is '{child}' but its root feature will be "
+                    f"'{parent}' after this load — Feature.clean refuses a child "
+                    "whose config.type differs from its parent's"
+                )))
+                break   # the apply stops at the first refusal too
+    return items
 
 
 def dead_end_leaves() -> List[str]:

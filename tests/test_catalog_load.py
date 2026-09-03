@@ -367,6 +367,70 @@ class ConflictTests(_CatalogTestCase):
             report2 = cl.load_catalog(out)
             self.assertEqual(report2.count(cl.DB_ONLY), 1)
 
+    def test_fixture_wins_reverts_db_only_drift(self):
+        """``fixture-wins`` means the fixture wins an EDIT too, not only a delete.
+
+        The delete-side of db-only drift already resurrects from canon under
+        this policy (``_DB_ONLY_DELETION``); leaving the edit-side on "keep
+        the DB, warn" made the flag mean two opposite things.
+        """
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            apparel = Category.objects.get(slug="apparel")
+            apparel.name = "Admin Edited"
+            apparel.save()
+
+            report = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertFalse(report.failed)
+            self.assertEqual(report.count(cl.DB_ONLY), 0)
+            self.assertEqual(Category.objects.get(slug="apparel").name, "Apparel")
+
+            # Converged: nothing left to say on the next run.
+            report2 = cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE)
+            self.assertEqual(report2.count(cl.UPDATED), 0)
+            self.assertEqual(report2.count(cl.DB_ONLY), 0)
+
+    def test_fixture_wins_restores_a_root_type_the_db_drifted(self):
+        """A drifted ROOT type strands every override the fixture carries for it.
+
+        The stand shape this comes from: two fixture directories share one
+        feature-slug namespace, the narrower one was loaded last and left
+        ``color`` typed differently from what the wider one's per-category
+        overrides say. The root was db-only drift (the wider fixture had not
+        changed), so it was never reverted — and every category record whose
+        override the fixture DID change was then refused by ``Feature.clean``
+        ("Child config.type must match parent config.type"), the same 15
+        records on every pass. Reverting the drift is what makes it converge.
+        """
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+
+            # Someone (here: another fixture directory's load) retypes the root.
+            root = Feature.objects.get(slug="color", tn_parent__isnull=True)
+            root.config = {"type": "string", "maxLength": 64}
+            root.save()
+
+            # …and this directory's fixture edits the override that hangs off it.
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            entry = next(e for e in next(c for c in cats if c["slug"] == "phones")["features"]
+                         if e.get("slug") == "color")
+            entry["description"] = "pick one"
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = cl.load_catalog(
+                out, on_conflict=cl.ON_CONFLICT_FIXTURE, deletions=cl.DELETIONS_IGNORE,
+            )
+            self.assertEqual(report.count(cl.ERROR), 0)
+            self.assertFalse(report.failed)
+            self.assertEqual(
+                Feature.objects.get(slug="color", tn_parent__isnull=True).config["type"],
+                "select",
+            )
+            override = Feature.objects.get(slug="color", tn_parent__isnull=False)
+            self.assertEqual(override.description, "pick one")
+
     def test_db_new_record_is_left_alone_and_noted(self):
         """Created in DB after the export, never in canon -> untouched."""
         self.seed_catalog()
@@ -869,6 +933,43 @@ class CommandTests(_CatalogTestCase):
             # dry run mutated nothing
             self.assertFalse(Category.objects.filter(slug="toys").exists())
             self.assertFalse(Category.objects.get(slug="apparel").deleted)
+
+    def test_dry_run_predicts_an_override_the_apply_would_refuse(self):
+        """A plan is worth nothing if the load it predicts fails anyway.
+
+        An override whose ``config.type`` contradicts the type its root will
+        hold after this load is refused by ``Feature.clean`` at write time.
+        Under ``--on-conflict abort`` the drifted root is left alone, so the
+        refusal is certain — and the dry run has to SAY so, not report a
+        clean plan and let the apply discover it.
+        """
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            root = Feature.objects.get(slug="color", tn_parent__isnull=True)
+            root.config = {"type": "string", "maxLength": 64}
+            root.save()
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            entry = next(e for e in next(c for c in cats if c["slug"] == "phones")["features"]
+                         if e.get("slug") == "color")
+            entry["description"] = "pick one"
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = cl.load_catalog(out, dry_run=True, deletions=cl.DELETIONS_IGNORE)
+            self.assertTrue(report.failed)
+            item = next(it for it in report.categories
+                        if it.key == "phones" and it.kind == cl.ERROR)
+            self.assertIn("color", item.detail)
+            self.assertIn("select", item.detail)
+            self.assertIn("string", item.detail)
+
+            # …and the same plan is clean once the root is reconciled by the
+            # policy that reverts the drift.
+            clean = cl.load_catalog(
+                out, dry_run=True, on_conflict=cl.ON_CONFLICT_FIXTURE,
+                deletions=cl.DELETIONS_IGNORE,
+            )
+            self.assertEqual(clean.count(cl.ERROR), 0)
 
     def test_dangling_feature_reference_is_per_record_error(self):
         self.seed_catalog()
