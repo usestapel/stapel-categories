@@ -19,6 +19,10 @@ Design: ``docs/catalog-fixtures-sync.md``. Key decisions realized here:
   (``{"slug", "config", "mandatory", "show_as_badge", "show_at_title",
   "visibility", "translate", "rules", "description", "example", "default",
   "hints", "group"}``) when the linked row is a tree override (``tn_parent`` set).
+  An override may additionally carry ``name`` — its own display label — and
+  does so ONLY when that label differs from the root's. Absent means "inherit
+  the root's name", which is what every fixture written before 0.17.0 says, so
+  no content hash on disk moves and no sidecar regeneration is forced.
 * **Override owner heuristic (§2).** When one override row is propagated to a
   category + its descendants, several categories reference it. We deliberately
   do *not* pick an "owning" category: every referencing category inlines its
@@ -138,6 +142,12 @@ def _feature_record(feature, include_test: bool) -> dict:
     return rec
 
 
+def _root_name(feature) -> str:
+    """The name a slug-bearing override inherits when it says nothing itself."""
+    root = feature.tn_parent
+    return (root.name if root is not None else "") or ""
+
+
 def _feature_list_entry(feature, include_test: bool) -> dict:
     """One entry in a category's materialized feature list.
 
@@ -151,7 +161,7 @@ def _feature_list_entry(feature, include_test: bool) -> dict:
 
     if not is_override and slug:
         entry = {"slug": slug}
-    else:
+    else:  # noqa: PLR5501
         entry = {
             "slug": slug,
             "config": feature.config or {},
@@ -173,6 +183,24 @@ def _feature_list_entry(feature, include_test: bool) -> dict:
             entry["name"] = feature.name
             entry["icon"] = feature.icon
             entry["comment"] = feature.comment
+        elif feature.name and feature.name != _root_name(feature):
+            # A slug-bearing override with its OWN label. It used to be
+            # dropped here — "the override keeps the root's identity fields" —
+            # which made DB -> fixture -> DB lossy for the one identity field
+            # a category legitimately restates: an operator's rename in the
+            # admin was undone by the next export, and an importer had no way
+            # to say what its source said. Measured on one live catalogue import:
+            # 566 of the 760 leaves offering `brand` rendered the ROOT's
+            # «Бренд одежды» while their source said «Бренд»,
+            # «Производитель» or «Марка» — a cookware leaf asking a clothing
+            # question.
+            #
+            # Written only when it DIFFERS from the root, the way
+            # ``external_source`` is written only when set: a catalogue with no
+            # renamed override exports byte-identically to before, so every
+            # content hash already on disk stays valid and no STATE_VERSION
+            # bump forces a sidecar regeneration on upgrade.
+            entry["name"] = feature.name
     if include_test and feature.is_test:
         entry["is_test"] = True
     return entry

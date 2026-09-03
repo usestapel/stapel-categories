@@ -656,3 +656,63 @@ class TestChildrenFunction:
     def test_schema_rejects_a_string_parent(self, db):
         with pytest.raises(Exception):
             call("categories.children", {"parent_id": "vehicles"})
+
+
+@pytest.mark.django_db
+class TestAMalformedIdIsALookupError:
+    """An id that is not an id must come back as ``LookupError``.
+
+    ``Category.pk`` is an ``AutoField``, so ``objects.get(pk="32/149/163")``
+    raises ``ValueError`` — not ``DoesNotExist``. It therefore walked straight
+    past ``features_function``'s own ``except`` clause and surfaced as an
+    unhandled fault, when every caller in the fleet is written against the
+    ``LookupError`` this module's docstrings promise: stapel-listings'
+    re-projection counts it as ``category_unresolved`` and its publish path
+    turns it into a 400.
+
+    That promise cannot be conditional on ``VALIDATE_SCHEMAS`` being on — the
+    payload schemas do type ``category_id`` as an integer, but a contract that
+    only holds while a runtime flag is set is not a contract. These call the
+    handlers directly, past the schema, which is exactly the condition being
+    pinned.
+
+    Three drafts on one live stand (243/244/245) carry
+    ``category_id = "32/149/163"`` — a search PATH in the id column — which is
+    how the shape got measured. stapel-listings 0.19.0 stops the write; this
+    stops the read from being a 500.
+    """
+
+    MALFORMED = ["32/149/163", "not-an-id", "", None, 1.5, [163]]
+
+    @pytest.mark.parametrize("category_id", MALFORMED)
+    def test_features_answers_lookup_error(self, db, category_id):
+        from stapel_categories.functions import features_function
+
+        with pytest.raises(LookupError):
+            features_function({"category_id": category_id})
+
+    @pytest.mark.parametrize("parent_id", ["32/149/163", "not-an-id", 1.5])
+    def test_children_answers_lookup_error(self, db, parent_id):
+        """The same hazard, the same answer: ``categories.children`` resolved
+        its ``parent_id`` with a bare ``filter(pk=…).exists()``."""
+        from stapel_categories.functions import children_function
+
+        with pytest.raises(LookupError):
+            children_function({"parent_id": parent_id})
+
+    def test_children_still_answers_the_roots_for_a_null_parent(self, db):
+        """The regression guard: ``None`` means "the roots", and it must not
+        be swept up as a malformed id."""
+        from stapel_categories.functions import children_function
+
+        Category.objects.create(name="Root", slug="root-for-null-parent")
+
+        result = children_function({"parent_id": None})
+
+        assert [c["slug"] for c in result["children"]] == ["root-for-null-parent"]
+
+    def test_a_real_id_still_resolves(self, category_with_feature):
+        from stapel_categories.functions import features_function
+
+        category, _ = category_with_feature
+        assert features_function({"category_id": category.pk})["features"]

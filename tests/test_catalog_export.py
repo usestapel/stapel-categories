@@ -359,3 +359,102 @@ class OrphanOverrideTests(TestCase):
             tn_parent=root, name="Color", slug="color", config={"type": "select", "options": []},
         )
         self.assertEqual(cf.find_orphan_overrides(), [orphan.slug])
+
+
+class OverrideNameRoundTripTests(TestCase):
+    """An override may carry its own display NAME, and the fixture must keep it.
+
+    Measured on one live catalogue import: 566 of the 760 leaves that offer
+    `brand` render the label «Бренд одежды» — the *root's* name — while their
+    source says «Бренд», «Производитель» or «Марка». A cookware leaf offering
+    "Бренд одежды" is not a cosmetic slip; it is the field asking a different
+    question from the one the catalogue meant.
+
+    The cause is here, not in the importer: a slug-bearing override row has a
+    real ``name`` column and the export dropped it ("a slug-bearing override
+    keeps the root's identity fields"), so the round trip DB -> fixture -> DB
+    silently reset every per-category label to the root's. An operator renaming
+    an override in the admin lost the rename on the next export, and an
+    importer had no way to express the label its source carried.
+
+    ``name`` now travels on a slug-bearing override — but ONLY when it differs
+    from the root's, following the ``external_source`` precedent: every content
+    hash a catalogue already wrote stays valid and no sidecar regeneration is
+    forced on upgrade.
+    """
+
+    def setUp(self):
+        self.brand = Feature.objects.create(
+            name="Бренд одежды", slug="brand", config={"type": "string"},
+        )
+        self.clothes = Category.objects.create(name="Пальто", slug="palto")
+        CategoryFeature.objects.create(category=self.clothes, feature=self.brand, order=0)
+        self.pans = Category.objects.create(name="Сковороды", slug="skovorody")
+        self.override = Feature.objects.create(
+            tn_parent=self.brand, name="Производитель", slug="brand",
+            config={"type": "string"}, mandatory=True,
+        )
+        CategoryFeature.objects.create(
+            category=self.pans, feature=self.override, order=0
+        )
+
+    def test_export_carries_the_overrides_own_name(self):
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = {c["slug"]: c for c in _load(out, cf.CATEGORIES_FILE)}
+            self.assertEqual(cats["skovorody"]["features"][0]["name"], "Производитель")
+
+    def test_a_name_equal_to_the_roots_is_not_written(self):
+        """The hash-stability half: an override that says nothing new says
+        nothing at all, so a catalogue with no renamed override exports
+        byte-identically to before this existed."""
+        self.override.name = "Бренд одежды"
+        self.override.save()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = {c["slug"]: c for c in _load(out, cf.CATEGORIES_FILE)}
+            self.assertNotIn("name", cats["skovorody"]["features"][0])
+
+    def test_the_bare_reference_is_untouched(self):
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = {c["slug"]: c for c in _load(out, cf.CATEGORIES_FILE)}
+            self.assertEqual(cats["palto"]["features"], [{"slug": "brand"}])
+
+    def test_load_applies_the_name_to_a_fresh_catalogue(self):
+        from stapel_categories import catalog_load as cl
+
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            Feature.objects.all().delete()
+            Category.objects.all().delete()
+            report = cl.load_catalog(out, seed_if_empty=True)
+            self.assertFalse(report.failed)
+
+            pans = Category.objects.get(slug="skovorody")
+            feature = pans.category_features.get().feature
+            self.assertEqual(feature.slug, "brand")
+            self.assertIsNotNone(feature.tn_parent_id)
+            self.assertEqual(feature.name, "Производитель")
+            self.assertEqual(
+                Feature.objects.get(tn_parent__isnull=True).name, "Бренд одежды"
+            )
+
+    def test_load_over_the_live_tree_is_a_noop(self):
+        """The idempotence half: a load of the fixture this very DB exported
+        must change nothing — otherwise every sync would rewrite the same row
+        forever, and the "renamed override" would read as a two-sided conflict
+        on the next one."""
+        from stapel_categories import catalog_load as cl
+
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            report = cl.load_catalog(out)
+
+            self.assertFalse(report.failed)
+            self.assertEqual(report.count(cl.UPDATED), 0)
+            self.assertEqual(report.count(cl.CREATED), 0)
+        self.assertEqual(
+            Category.objects.get(slug="skovorody").category_features.get().feature.name,
+            "Производитель",
+        )

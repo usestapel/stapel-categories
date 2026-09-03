@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.17.0] — 2026-09-03
+
+### Fixed
+
+- **A per-category override keeps its own display name.** A slug-bearing
+  override row has a real `name` column, and both halves of the fixture round
+  trip dropped it: the export wrote no `name` ("a slug-bearing override keeps
+  the root's identity fields") and the load reset one to `root.name` on create.
+  So DB → fixture → DB was lossy for the one identity field a category
+  legitimately restates. An operator renaming an override in the admin lost the
+  rename on the next export, and an importer had no way to say what its source
+  said.
+
+  Measured on one live catalogue import: **566 of the 760 leaves that offer
+  `brand` render «Бренд одежды»** — the root's label, from the 172-leaf fashion
+  majority variant — while their own source says «Бренд», «Производитель» or
+  «Марка». Corpus-wide it is 3512 of 54208 (leaf, feature) pairs across 206
+  slugs; `video_file_url` shows «Видеофайлы» on 1852 leaves that say «URL
+  видеофайла». A cookware leaf asking a clothing question is not a cosmetic
+  slip.
+
+  `name` now travels on a slug-bearing override, **only when it differs from
+  the root's** — the `external_source` precedent. A catalogue with no renamed
+  override exports byte-identically to before, every content hash already on
+  disk stays valid, and `STATE_VERSION` is unchanged: no sidecar regeneration
+  on upgrade. Absent still means "inherit the root's name".
+
+  `name` also joined `_INLINE_KEYS`, so a per-category RENAME is an override on
+  its own: an entry may carry the root's config verbatim and differ only in the
+  label it puts on the field. Without that it read as a bare reference and the
+  rename was dropped on the way in — the mirror image of the export dropping it
+  on the way out.
+
+  Round-trip idempotence is pinned: a load of the fixture the live DB just
+  exported reports zero updates.
+
+- **A malformed category id answers `LookupError`, not a 500.** `Category.pk`
+  is an `AutoField`, so `objects.get(pk="32/149/163")` — a search PATH where an
+  id belongs, which is what three drafts on one live stand carried — raises
+  `ValueError`, not `DoesNotExist`. It walked straight past
+  `features_function`'s own `except` and surfaced as an unhandled fault, while
+  every caller in the fleet is written against the `LookupError` this module's
+  docstrings promise: stapel-listings' re-projection counts it as
+  `category_unresolved`, its publish path turns it into a 400.
+
+  The payload schemas do type these ids as integers, but that only holds while
+  `VALIDATE_SCHEMAS` is on, and a contract conditional on a runtime flag is not
+  a contract.
+
+  `categories.children` had the same hazard on `parent_id` (a bare
+  `filter(pk=…).exists()`) and the same fix. `categories.path` and
+  `categories.names` already carried a private form of the guard — an
+  `.isdigit()` filter on the incoming list — which is exactly why two of the
+  five providers had none: three treatments of one hazard. There is one now,
+  `_resolve_category` / `_category_exists`, and `None` still means "the roots"
+  rather than a malformed id.
+
 ## [0.16.1] — 2026-09-03
 
 Patch. Cap only: `stapel-attributes>=0.8.3,<0.10`.

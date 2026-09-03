@@ -64,6 +64,7 @@ import json
 import unicodedata
 from pathlib import Path
 
+from django.core.exceptions import ObjectDoesNotExist
 from stapel_core.comm import function
 
 _SCHEMAS_DIR = Path(__file__).resolve().parent / "schemas" / "functions"
@@ -139,6 +140,43 @@ def _schema(name: str) -> dict:
     return json.loads((_SCHEMAS_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
 
+# ── an id that is not an id ─────────────────────────────────────────────────
+#
+# ``Category.pk`` is an ``AutoField``. ``objects.get(pk="32/149/163")`` — a
+# search PATH where an id belongs, which is what three drafts on one live
+# stand carried — raises ``ValueError``, not ``DoesNotExist``, so it walked
+# straight past the provider's own ``except`` and surfaced as an unhandled
+# fault. Every caller in the fleet is written against the ``LookupError`` the
+# docstrings here promise: stapel-listings' re-projection counts it as
+# ``category_unresolved``, its publish path turns it into a 400.
+#
+# The payload schemas do type these ids as integers, but that only holds while
+# ``VALIDATE_SCHEMAS`` is on, and a contract conditional on a runtime flag is
+# not a contract. So the resolution goes through these two, and there are two
+# rather than one because "not found" and "not a rung" are different answers.
+#
+# ``path``/``names`` already had a private form of this — a `.isdigit()` filter
+# on the incoming list. Three treatments of one hazard is why two of the five
+# providers did not have it at all.
+
+
+def _resolve_category(queryset, category_id):
+    """One row, or ``LookupError`` — for EVERY way an id can fail to be one."""
+    try:
+        return queryset.get(pk=category_id)
+    except (ObjectDoesNotExist, ValueError, TypeError):
+        raise LookupError(f"category {category_id} not found") from None
+
+
+def _category_exists(queryset, category_id) -> bool:
+    """Whether the id names a row. A malformed id names none; it is not a crash."""
+    try:
+        return queryset.filter(pk=category_id).exists()
+    except (ValueError, TypeError):
+        return False
+
+
+
 @function("categories.features", schema=_schema("categories.features"))
 def features_function(payload: dict) -> dict:
     """Resolve the feature schema for a category.
@@ -153,10 +191,7 @@ def features_function(payload: dict) -> dict:
     from .models import Category
 
     category_id = payload["category_id"]
-    try:
-        category = Category.objects.get(pk=category_id)
-    except Category.DoesNotExist:
-        raise LookupError(f"category {category_id} not found") from None
+    category = _resolve_category(Category.objects, category_id)
 
     # M-6: revision and features must come from ONE snapshot. Under READ
     # COMMITTED the row read (revision) and feature_defs() (its own SELECTs)
@@ -325,7 +360,7 @@ def children_function(payload: dict) -> dict:
     if parent_id is None:
         queryset = walkable.filter(tn_parent__isnull=True)
     else:
-        if not walkable.filter(pk=parent_id).exists():
+        if not _category_exists(walkable, parent_id):
             raise LookupError(f"category {parent_id} not found")
         queryset = walkable.filter(tn_parent_id=parent_id)
 

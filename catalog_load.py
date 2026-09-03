@@ -93,6 +93,12 @@ ERROR = "error"          # bad fixture record (validation / dangling reference)
 _INLINE_KEYS = (
     "config", "mandatory", "show_as_badge", "show_at_title", "visibility", "translate",
     "rules", "description", "example", "default", "hints", "group",
+    # A per-category RENAME is an override on its own: an entry may carry the
+    # root's config verbatim and differ only in the label it puts on the field.
+    # Without `name` here such an entry read as a bare reference and the rename
+    # was dropped on the way in, the mirror image of the export dropping it on
+    # the way out.
+    "name",
 )
 
 
@@ -356,6 +362,13 @@ def _normalize_entry(entry: dict) -> dict:
         out["name"] = entry.get("name", "")
         out["icon"] = entry.get("icon", "")
         out["comment"] = entry.get("comment", "")
+    elif "name" in entry:
+        # A slug-bearing override that states its own label. Absent means
+        # "inherit the root's", which is what every fixture written before this
+        # said and what most entries still say — so normalization must not
+        # invent an empty string here, or every such entry would read as a
+        # rename to "".
+        out["name"] = entry["name"]
     if entry.get("is_test"):
         out["is_test"] = True
     return out
@@ -857,7 +870,10 @@ def _materialize_override(cat, slug: str, entry: dict, used: set):
     root = _root_feature(slug, cat.slug) if slug else None
 
     desired = {
-        "name": entry.get("name", "") if not slug else _UNSET,
+        # A slug-less row always states its identity; a slug-bearing override
+        # states a name only when it differs from the root's, and _UNSET means
+        # "this entry says nothing, leave/inherit whatever is there".
+        "name": entry.get("name", "") if (not slug or "name" in entry) else _UNSET,
         "icon": entry.get("icon", "") if not slug else _UNSET,
         "comment": entry.get("comment", "") if not slug else _UNSET,
         "config": entry.get("config") or {},
