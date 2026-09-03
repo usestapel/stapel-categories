@@ -20,6 +20,16 @@ def pytest_configure(config):
                 "stapel_categories",
             ],
             AUTH_USER_MODEL="users.User",
+            # Header-gated and inert without a matching key, so it changes
+            # nothing for any other test. Wired because the catalogue's
+            # public list now DEPENDS on the service-principal signal: a
+            # fleet service syncing the tree is one of the two readers
+            # entitled to retired rows, and a harness that cannot express
+            # one cannot test the split (test_public_read.py, Д88).
+            MIDDLEWARE=[
+                "stapel_core.django.jwt.middleware.ServiceAPIKeyMiddleware",
+            ],
+            SERVICE_API_KEY="test-service-key",
             STATIC_URL="/static/",
             DATABASES={
                 "default": {

@@ -225,19 +225,55 @@ class TestOneVisibilityRule:
         assert "gone-child" not in {r["slug"] for r in children.data}
         assert by_slug.status_code == 404
 
-    def test_inactive_is_shown_by_all_three_as_children_always_has(
+    def test_a_retired_branch_with_live_stock_under_it_still_shows(
         self, anonymous_client, tree
     ):
-        """`active` is a flag on the row, not a visibility gate on the tree.
+        """The reason `active` is not a visibility gate, stated exactly.
 
-        Hiding an inactive category here would open a hole under the live
-        categories beneath it. The serializer ships `active`, so a client
-        that wants to grey one out can.
+        Hiding an inactive category would open a HOLE under the live
+        categories beneath it — a child reachable in the tree whose parent
+        the tree denies. So an inactive row that an active row still hangs
+        from is served, and the serializer ships `active` so a client can
+        grey it out.
+
+        This is the half of the old rule that was load-bearing. The other
+        half — an inactive row with nothing live under it — was covered by
+        the same assertion and should never have been: see the test below.
         """
-        inactive_root = Category.objects.create(
-            name="Quiet", slug="quiet", active=False
+        retired = Category.objects.create(name="Quiet", slug="quiet", active=False)
+        live = Category.objects.create(
+            name="Loud", slug="loud", tn_parent=retired, active=True
         )
-        inactive_child = Category.objects.create(
+
+        roots = anonymous_client.get(f"{BASE}/categories/roots/")
+        by_slug = anonymous_client.get(f"{BASE}/categories/by-slug/quiet/")
+        children = anonymous_client.get(f"{BASE}/categories/{retired.id}/children/")
+
+        assert "quiet" in {r["slug"] for r in roots.data}, "a hole under `loud`"
+        assert by_slug.status_code == 200
+        assert by_slug.data["active"] is False
+        assert "loud" in {r["slug"] for r in children.data}
+        assert live.id
+
+    def test_a_retired_dead_end_is_not_in_the_public_catalogue(
+        self, anonymous_client, tree
+    ):
+        """Nothing live hangs from it, so hiding it opens no hole.
+
+        The live defect: a stand's public feed served 174 rows named
+        `smoke-1787331903`, `authz-1787369370`, `storefront-…` — every
+        acceptance run this fleet has ever done, readable by anyone with
+        curl. They were all `active=False` already; they showed anyway
+        because "inactive rows are structural" was applied to rows that
+        structure nothing.
+
+        Retiring a category is how an operator takes it out of the
+        catalogue. If it still appears, `active` was never a control — and
+        the module told operators to use exactly that field to hide test
+        rows (`visible_categories`, `is_test`), advice that could not work.
+        """
+        Category.objects.create(name="Quiet", slug="quiet", active=False)
+        Category.objects.create(
             name="Quiet child", slug="quiet-child",
             tn_parent=tree["vehicles"], active=False,
         )
@@ -248,11 +284,31 @@ class TestOneVisibilityRule:
         )
         by_slug = anonymous_client.get(f"{BASE}/categories/by-slug/quiet/")
 
-        assert "quiet" in {r["slug"] for r in roots.data}
-        assert "quiet-child" in {r["slug"] for r in children.data}
-        assert by_slug.status_code == 200
-        assert by_slug.data["active"] is False
-        assert inactive_root.id and inactive_child.id  # created, not filtered away
+        assert "quiet" not in {r["slug"] for r in roots.data}
+        assert "quiet-child" not in {r["slug"] for r in children.data}
+        assert by_slug.status_code == 404
+
+    def test_a_retired_branch_goes_when_its_last_live_leaf_does(
+        self, anonymous_client, tree
+    ):
+        """The rule is about the SUBTREE, not the row.
+
+        A retired parent holding one retired child holds nothing live, so
+        both leave together — otherwise a two-deep test fixture survives a
+        rule written for a one-deep one, which is how 174 rows lived through
+        every previous sweep.
+        """
+        retired = Category.objects.create(name="Quiet", slug="quiet", active=False)
+        Category.objects.create(
+            name="Quieter", slug="quieter", tn_parent=retired, active=False
+        )
+
+        roots = anonymous_client.get(f"{BASE}/categories/roots/")
+        assert "quiet" not in {r["slug"] for r in roots.data}
+        assert (
+            anonymous_client.get(f"{BASE}/categories/by-slug/quieter/").status_code
+            == 404
+        )
 
     def test_is_test_is_shown_by_all_three_it_is_an_export_filter(
         self, anonymous_client, tree

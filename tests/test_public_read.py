@@ -281,3 +281,103 @@ def test_provenance_stays_on_the_staff_surfaces(imported_category):
     assert {"external_id", "external_source"} <= set(
         CategoryBulkSerializer.Meta.fields
     )
+
+
+# --- the sync feed and the public catalogue are two readers ----------------
+#
+# Д88, from a live stand: `GET /categories/?page=1` returned 174 rows named
+# `smoke-1787331903`, `authz-1787369370`, `storefront-…` — every acceptance
+# run the fleet had ever done, to anyone with curl and no credentials.
+#
+# The cause is a collision of two contracts on one URL. The flat list is the
+# revision-SYNC feed: it must serve retired and soft-deleted rows, because
+# that is how a consumer converges on a retirement. The same URL is also the
+# catalogue a storefront reads. The sync contract won, and the catalogue
+# leaked the fixtures.
+#
+# They are separated here rather than in the data, because the rows are
+# legitimately inactive and a syncing consumer is legitimately entitled to
+# them. What is not legitimate is a stranger getting the same answer.
+
+
+@pytest.fixture
+def retired_fixtures(parent_category, child_category):
+    """One live branch, plus the shape a smoke run leaves behind."""
+    return [
+        Category.objects.create(name="Smoke 1787331903", slug="smoke-1787331903", active=False),
+        Category.objects.create(name="Authz 1787369370", slug="authz-1787369370", active=False),
+        Category.objects.create(name="Gone", slug="gone-1787369371", deleted=True),
+    ]
+
+
+def _slugs(response):
+    body = response.json()
+    return {row["slug"] for row in (body.get("results") or body.get("items") or [])}
+
+
+def test_an_anonymous_list_serves_the_catalogue_not_the_fixtures(
+    anonymous_client, retired_fixtures, parent_category, child_category
+):
+    response = anonymous_client.get(f"{BASE}/categories/")
+
+    assert response.status_code == 200
+    slugs = _slugs(response)
+    assert "vehicles" in slugs and "cars" in slugs
+    assert not {s for s in slugs if s.startswith(("smoke-", "authz-", "gone-"))}
+
+
+def test_no_row_an_anonymous_list_serves_is_inactive(
+    anonymous_client, retired_fixtures, parent_category, child_category
+):
+    """The acceptance criterion, asserted on the FLAG rather than on slugs.
+
+    A slug assertion passes the day somebody renames the smoke fixtures.
+    """
+    body = anonymous_client.get(f"{BASE}/categories/").json()
+    rows = body.get("results") or body.get("items") or []
+    assert rows
+    assert [r for r in rows if r["active"] is False] == []
+    assert [r for r in rows if r["deleted"]] == []
+
+
+def test_a_staff_sync_still_sees_every_retirement(
+    api_client, django_user_model, retired_fixtures, parent_category
+):
+    """Convergence, which is the reason the feed serves these at all.
+
+    A consumer that cannot see a retirement cannot apply it, and silently
+    truncating its feed would be a worse defect than the leak: it would keep
+    a retired category forever and never learn why.
+    """
+    staff = django_user_model.objects.create(username="ops", is_staff=True)
+    api_client.force_authenticate(staff)
+
+    slugs = _slugs(api_client.get(f"{BASE}/categories/"))
+    assert {"smoke-1787331903", "authz-1787369370", "gone-1787369371"} <= slugs
+
+
+def test_a_service_principal_syncs_without_being_staff(
+    anonymous_client, retired_fixtures, parent_category
+):
+    """A fleet service is the other legitimate sync reader, and it holds no
+    user at all — `IsServiceRequest` is the fleet's word for it."""
+    response = anonymous_client.get(
+        f"{BASE}/categories/", HTTP_X_API_KEY="test-service-key"
+    )
+
+    assert {"smoke-1787331903", "authz-1787369370"} <= _slugs(response)
+
+
+def test_the_public_list_and_the_tree_reads_agree(
+    anonymous_client, retired_fixtures, parent_category, child_category
+):
+    """One catalogue, whichever door a client came through.
+
+    The three tree reads share `visible_categories()`; before this the flat
+    list did not, which is exactly how the two answers drifted apart.
+    """
+    listed = _slugs(anonymous_client.get(f"{BASE}/categories/"))
+    roots = {r["slug"] for r in anonymous_client.get(f"{BASE}/categories/roots/").data}
+
+    assert roots <= listed
+    assert not {s for s in roots if s.startswith(("smoke-", "authz-"))}

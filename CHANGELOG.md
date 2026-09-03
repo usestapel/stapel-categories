@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.16.0] — 2026-09-03
+
+### Fixed
+
+- **The public catalogue served the sync feed's answer to strangers (Д88).**
+  `GET /categories/` returned 174 rows named `smoke-1787331903`,
+  `authz-1787369370`, `storefront-…` on a live stand — every acceptance run
+  the fleet had ever done, to anyone with curl and no credentials. Two
+  contracts had collided on one URL: the flat list is the revision-SYNC feed
+  and MUST serve retired rows (a consumer that cannot see a retirement cannot
+  apply it), and it is also the catalogue a storefront walks. The sync
+  contract won.
+
+  Fixed by splitting the READERS, not by deleting the rows — the rows are
+  legitimately inactive and a syncing consumer is legitimately entitled to
+  them. A sync principal (a fleet service via `X-API-KEY`, or staff) gets
+  exactly what it always got, `include_deleted` included. Everyone else gets
+  `visible_categories()`, which the flat list now shares with the three tree
+  reads; that it did not was the other half of the defect, since the two
+  doors answered differently about the same tree.
+
+### Changed
+
+- **`active` is a visibility gate where hiding the row opens no hole.**
+  `visible_categories()` served every inactive row, on the grounds that
+  hiding one "would open a hole under the live categories beneath it". True —
+  and it was being applied to rows with nothing beneath them, which structure
+  nothing. A category is now public iff it is active or an active category
+  still hangs from it (`structural_ancestor_ids()`, one column read over the
+  active set — django-treenode already denormalises the ancestry — cached on
+  the same revision fingerprint the roots cache uses).
+
+  A retired branch therefore leaves as a whole once its last live leaf does,
+  and retiring a category finally does what an operator means by it. The
+  advice this module used to give — "a deployment that wants test rows hidden
+  hides them with `active`" — could not work while `active` was not a gate,
+  which is how those 174 rows survived every sweep that took it.
+
+  `is_test` is still not a runtime filter, and is still a field nothing in
+  the fleet writes; nothing should be built on it.
+
+  **Upgrade note:** a deployment carrying published content under a retired
+  category will find that category gone from the public tree. The content
+  stays searchable — `categories.path` and `categories.names` are unfiltered
+  and unchanged, so an index keeps its ancestry — but the storefront will not
+  offer the category. That is the intended meaning of retiring one; move or
+  archive the content, or reactivate the category.
+
 ## [0.15.2] — 2026-09-03
 
 ### Fixed

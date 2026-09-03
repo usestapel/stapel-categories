@@ -103,6 +103,40 @@ def _roots_cache_key() -> str:
     )
 
 
+def structural_ancestor_ids() -> set[int]:
+    """Ids of the rows an ACTIVE category still hangs from, retired or not.
+
+    The small half of :func:`visible_categories`'s rule, and the reason it
+    can be a rule at all: django-treenode denormalises every row's ancestry
+    into ``tn_ancestors_pks``, so "which retired rows are still holding
+    something live up" is one column read over the active set, not a tree
+    walk per row.
+
+    Cached on the same revision+row-count fingerprint the roots cache uses.
+    Any write to any category bumps ``revision``, so the key moves with the
+    tree and there is no invalidation to remember.
+    """
+    key = f"{_ROOTS_CACHE_PREFIX}anc:{_roots_cache_key()}"
+    cached = cache.get(key)
+    if cached is not None:
+        return set(cached)
+
+    from treenode.utils import split_pks
+
+    ancestors: set[int] = set()
+    rows = Category.objects.filter(deleted=False, active=True).values_list(
+        "tn_ancestors_pks", flat=True
+    )
+    for pks in rows:
+        for pk in split_pks(pks):
+            try:
+                ancestors.add(int(pk))
+            except (TypeError, ValueError):  # pragma: no cover - defensive
+                continue
+    cache.set(key, sorted(ancestors), categories_settings.CAROUSEL_CACHE_TIMEOUT)
+    return ancestors
+
+
 def visible_categories():
     """The rows the public tree reads are allowed to return.
 
@@ -114,24 +148,43 @@ def visible_categories():
 
     What it filters, and what it deliberately does not:
 
+    * ``active`` is filtered **only where hiding the row opens no hole**. A
+      retired category that an active one still hangs from is served, and
+      the serializer ships ``active`` so a client can grey it out — take it
+      away and the tree denies a parent whose child it still offers. A
+      retired category with nothing live beneath it structures nothing, and
+      is gone.
+
+      Until 0.16.0 the first half of that sentence was applied to both, and
+      a live stand's public feed served 174 rows named ``smoke-1787331903``,
+      ``authz-1787369370``, ``storefront-…`` — every acceptance run the
+      fleet had ever done, to anyone with curl. They were already
+      ``active=False``; "inactive rows are structural" was being applied to
+      rows that structure nothing. Retiring a category is how an operator
+      takes it out of the catalogue, and it now does that.
+
+    * ``is_test`` is **not** filtered, for the reason the model states at
+      its declaration: it is an *export* filter (``export_catalog`` excludes
+      it from committed fixtures), not a runtime-visibility gate. The advice
+      that used to sit here — "a deployment that wants test rows hidden
+      hides them with ``active``" — could not work while ``active`` was not
+      a gate, which is how the 174 rows survived every sweep that took it.
+      It works now. (``is_test`` remains a field with no writer in this
+      fleet; nothing sets it, so nothing should be built on it.)
+
     * ``deleted=False`` — a soft-deleted category is gone as far as any
       reader is concerned. ``deleted-children`` is the staff view that asks
       for them on purpose.
-    * ``active`` is **not** filtered, and that is the pre-existing contract
-      of ``children``. An inactive category still occupies a place in the
-      tree; hiding it here would open a hole under the live categories
-      beneath it, and the serializer ships ``active`` on every row so a
-      client that wants to grey one out can.
-    * ``is_test`` is **not** filtered either, for the reason the model states
-      at its declaration: it is an *export* filter (``export_catalog``
-      excludes it from committed fixtures), not a runtime-visibility gate. A
-      deployment that wants test rows hidden from the storefront hides them
-      with ``active``, which is what that field is for.
 
-    Changing any of the three is a change to all three reads at once, which
-    is the point of it being one function.
+    Changing any of these is a change to every read at once, which is the
+    point of it being one function — and since 0.16.0 that includes the flat
+    LIST, which used to answer the sync contract to strangers.
     """
-    return Category.objects.filter(deleted=False)
+    from django.db.models import Q
+
+    return Category.objects.filter(deleted=False).filter(
+        Q(active=True) | Q(pk__in=structural_ancestor_ids())
+    )
 
 
 @extend_schema(tags=["Categories"])
@@ -149,6 +202,49 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     queryset = Category.objects.all()
     permission_classes = [ReadOnlyOrStaff]
     pagination_class = RevisionPagination
+
+    @staticmethod
+    def is_sync_reader(request) -> bool:
+        """Whether *request* is entitled to the SYNC feed, not the catalogue.
+
+        Two principals, and only two: a fleet service (``X-API-KEY``, the
+        fleet's one word for "not a person") and staff. Both are operating
+        the catalogue rather than shopping it.
+        """
+        user = getattr(request, "user", None)
+        return bool(
+            getattr(request, "is_service_request", False)
+            or (user is not None and getattr(user, "is_staff", False))
+        )
+
+    def get_queryset(self):
+        """Two readers on one URL, told apart (Д88).
+
+        The flat list is the revision-SYNC feed, and a sync feed MUST serve
+        retired rows: a consumer that cannot see a retirement cannot apply
+        it, and would keep a dead category forever. The same URL is also the
+        catalogue a storefront walks, unauthenticated, and on a live stand
+        the sync contract won — 174 rows named ``smoke-1787331903``,
+        ``authz-1787369370``, ``storefront-…`` served to anyone with curl.
+
+        Fixed by splitting the READERS, not by deleting the rows: they are
+        legitimately inactive and a syncing consumer is legitimately
+        entitled to them. A sync principal gets what it always got, down to
+        ``include_deleted``. Everyone else gets ``visible_categories()`` —
+        the same catalogue the three tree reads serve, which is the other
+        half of the defect: the list never shared that definition, so the
+        two doors answered differently about the same tree.
+
+        Note for a consumer that only ever syncs INCREMENTALLY: convergence
+        on retirements lives on the authenticated feed. A public reader is
+        served a catalogue, and re-walks it (which is what this fleet's
+        storefront does — a full paginated walk pinned to one
+        ``max_revision``, every session).
+        """
+        queryset = super().get_queryset()
+        if self.action != "list" or self.is_sync_reader(self.request):
+            return queryset
+        return queryset.filter(pk__in=visible_categories().values("pk"))
 
     def get_serializer_class(self):
         # Two projections, one disclosure rule: the write actions are the

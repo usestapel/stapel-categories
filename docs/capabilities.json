@@ -1,6 +1,6 @@
 {
   "module": "stapel-categories",
-  "version": "0.15.2",
+  "version": "0.16.0",
   "provides": "Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.",
   "axes": [
     {
