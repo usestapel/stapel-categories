@@ -10,7 +10,7 @@
 [![license](https://img.shields.io/github/license/usestapel/stapel-categories)](https://github.com/usestapel/stapel-categories/blob/main/LICENSE)
 [![llms.txt](https://img.shields.io/badge/llms.txt-blue)](https://github.com/usestapel/stapel-categories/blob/main/docs/llms.txt)
 
-> Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.
+> Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree. Each node also declares how its CHILDREN are presented (`children_as`: `tiles` for real subcategories, `chips` for a partition of one attribute template), authored or derived by the `derive_children_as` command, and the whole visible tree is readable nested in one cached call (`GET /categories/api/v1/tree/?depth=N`).
 
 Part of the [Stapel framework](https://github.com/usestapel) — composable Django apps that deploy as a monolith or as microservices without changing module code.
 
@@ -24,9 +24,9 @@ pip install stapel-categories
 
 | Fact | Value |
 |---|---|
-| Version | `0.18.0` |
+| Version | `0.19.0` |
 | Python | `>=3.11` (3.11, 3.12, 3.13, 3.14) |
-| HTTP operations | 33 |
+| HTTP operations | 34 |
 | Config axes | 1 |
 | Usage surface | 22 |
 | Extension points | 4 |
@@ -64,6 +64,44 @@ path("categories/api/", include("stapel_categories.urls"))
 
 `stapel-attributes` is an imported library (no app to install); its config
 editor ships static assets, so run `collectstatic` if you use the admin.
+
+## Presenting the tree
+
+Every node says how its **children** should be drawn, as `children_as` on
+every public read:
+
+| value | meaning |
+|---|---|
+| `tiles` | the children are real subcategories — a tile grid of destinations |
+| `chips` | the children partition ONE attribute template (new/used, buy/sell/rent, boys/girls) — a chip row over the parent's own feed |
+| `null` | the node has no children |
+
+The stored column takes a third value, `auto`, which a reader never sees:
+`auto` means "nobody has decided", and it is resolved server-side. Two
+columns hold the two answers — `children_as` is the authored intent,
+`children_as_derived` is the derivation's cache — so a re-run can improve its
+own output without ever overwriting an operator's.
+
+```bash
+django-admin derive_children_as              # report only
+django-admin derive_children_as --apply      # write the derived column
+```
+
+The command prints one line per parent with the decision, the signal that
+carried it (`schema`, `vocabulary`, `empty-schema`, `structure`) and the
+Jaccard overlap of the children's own feature keys, so a wrong call can be
+pinned by hand — set `children_as` to `tiles` or `chips` in the admin and no
+future run touches it.
+
+The whole visible tree comes back nested in one cached call:
+
+```
+GET /categories/api/v1/tree/?depth=3     # 1..4, default 3
+```
+
+Active nodes, ordered by `tn_priority` descending at every level, carrying
+`id`, `slug`, `name`, `path` (the `/`-joined id path a search query takes),
+`catalog_icon`, `children_as` and `children`. One query whatever the depth.
 
 ## Settings
 

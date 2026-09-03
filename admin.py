@@ -69,6 +69,16 @@ class CategoryAdmin(RevisionAdmin, TreeNodeModelAdmin):
             "fields": ("catalog_icon", "carousel_icon", "carousel_enabled"),
             "description": "CDN asset references as opaque strings (e.g. catalog/electronics).",
         }),
+        ("Presentation", {
+            "fields": ("children_as",),
+            "description": (
+                "How a storefront presents this category's CHILDREN. `auto` "
+                "leaves the answer to the `derive_children_as` command; "
+                "`tiles` (the children are real subcategories) and `chips` "
+                "(the children partition one attribute template) are your "
+                "decision and are never overwritten by a re-run."
+            ),
+        }),
         ("Feature Editor", {"fields": ("draft",), "description": "Manage features for this category"}),
         ("Advanced", {"fields": ("revision",), "classes": ("collapse",)}),
     )

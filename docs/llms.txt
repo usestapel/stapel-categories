@@ -1,8 +1,8 @@
-# stapel-categories 0.18.0
+# stapel-categories 0.19.0
 
-Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree.
+Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree. Each node also declares how its CHILDREN are presented (`children_as`: `tiles` for real subcategories, `chips` for a partition of one attribute template), authored or derived by the `derive_children_as` command, and the whole visible tree is readable nested in one cached call (`GET /categories/api/v1/tree/?depth=N`).
 
-Contract: axes 1 · surface 22 · extension points 4 · operations 33 · error codes 64.
+Contract: axes 1 · surface 22 · extension points 4 · operations 34 · error codes 64.
 Generated from docs/capabilities.json by `stapel-llms-txt` — do not edit; drift-gated by `make contract-check`.
 
 ## Configuration axes — what a product switches on
@@ -85,7 +85,7 @@ This is the answer to "does Stapel already have something for X?". `instead of` 
 - stapel-attributes (required) — the feature-type registry, config/DTO validation, polymorphic serializers and admin widgets are imported from stapel-attributes and never re-implemented (pyproject.toml dependency; admin.py:16, forms.py:14, serializers.py:11, views.py:23-24)
 - stapel-core (required) — comm bus (mutate_and_emit/function), RevisionMixin, AppSettings, error registry (pyproject.toml dependency; models.py:28-29, conf.py:11, functions.py:22)
 
-## HTTP operations (33) — call by operationId, never by a typed path
+## HTTP operations (34) — call by operationId, never by a typed path
 Paths are relative to `/categories/api/v1/`.
 ### Categories
 - POST /categories/bulk_add/ — categories_api_v1_categories_bulk_add_create
@@ -107,6 +107,7 @@ Paths are relative to `/categories/api/v1/`.
 - PUT /categories/{id}/ — categories_api_v1_categories_update
 - GET /categories/{id}/validate-configs/ — categories_api_v1_categories_validate_configs_retrieve
 - POST /categories/{id}/validate-dto/ — categories_api_v1_categories_validate_dto_create
+- GET /tree/ — categories_api_v1_tree_list
 - GET /categories/translation-keys/ — collect_translation_keys
 ### Feature Editor
 - POST /categories/{id}/feature-editor/apply/ — categories_api_v1_categories_feature_editor_apply_create

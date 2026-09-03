@@ -36,6 +36,56 @@ from .validators import validate_features
 HINT_KEYS = ("title", "content")
 
 
+#: ``Category.children_as`` — "nobody has decided; let derivation answer".
+CHILDREN_AS_AUTO = "auto"
+#: The children are real subcategories: render them as a tile grid.
+CHILDREN_AS_TILES = "tiles"
+#: The children partition ONE attribute template (new/used, buy/sell/rent,
+#: boys/girls): render a chip row on the parent's own feed page.
+CHILDREN_AS_CHIPS = "chips"
+
+#: What a READER can be told. ``auto`` never crosses the API boundary.
+CHILDREN_AS_RESOLVED_CHOICES = (
+    (CHILDREN_AS_TILES, "Tiles"),
+    (CHILDREN_AS_CHIPS, "Chips"),
+)
+#: What an OPERATOR may author, ``auto`` included.
+CHILDREN_AS_AUTHORED_CHOICES = (
+    (CHILDREN_AS_AUTO, "Auto (derive)"),
+) + CHILDREN_AS_RESOLVED_CHOICES
+
+
+def resolve_children_as(
+    authored: str, derived: str, has_children: bool
+) -> str | None:
+    """The value a reader is served, from three plain column reads.
+
+    ONE definition, so the serializer, the tree endpoint and the derivation
+    report cannot disagree about what a row means:
+
+    * a childless node presents no children, so the answer is ``None`` — the
+      key is still emitted, as ``null``, rather than omitted: a client that
+      switches on it reads one shape for every node, and an absent key and a
+      null one are the same branch anyway;
+    * an authored ``tiles``/``chips`` wins outright;
+    * ``auto`` falls through to the derivation cache;
+    * an ``auto`` row nobody has derived yet answers ``tiles``. That is the
+      conservative half of the pair: tiles show every child as its own
+      destination, so the worst case is an extra click, where a wrong
+      ``chips`` hides a branch behind a filter nobody looks at.
+
+    "Childless" is a STRUCTURAL fact (``tn_children_count``), not "how many
+    children this particular read is allowed to show" — a node whose children
+    are all retired still says how its children would be presented, and a
+    depth-capped tree read says it about the level it did not send.
+    """
+    if not has_children:
+        return None
+    if authored in (CHILDREN_AS_TILES, CHILDREN_AS_CHIPS):
+        return authored
+    return derived or CHILDREN_AS_TILES
+
+
 def _validate_hints(hints) -> None:
     """Reject anything that is not ``[{"title": str, "content": str}, ...]``."""
     if not isinstance(hints, list):
@@ -363,6 +413,46 @@ class Category(RevisionMixin, TreeNodeModel):
         help_text="CDN carousel icon reference (opaque string, e.g. carousel/asset-name)",
     )
 
+    # How a storefront presents this node's CHILDREN. Two columns, because
+    # the question has two independent answers and collapsing them loses one:
+    #
+    # * ``children_as`` is the AUTHORED intent. ``auto`` (the default) means
+    #   "nobody has decided"; ``tiles``/``chips`` mean an operator has, and
+    #   derivation must never overwrite that.
+    # * ``children_as_derived`` is the derivation's CACHE, written only by
+    #   ``derive_children_as --apply``. Blank means "not derived yet".
+    #
+    # One column cannot hold both: writing a derived value into
+    # ``children_as`` makes it indistinguishable from an authored one, so the
+    # next run would refuse to touch its own output and the command would be
+    # a one-shot rather than the re-runnable step the catalogue import needs.
+    #
+    # Readers never see either raw value — they see
+    # :attr:`resolved_children_as`, which is a plain column read (no query,
+    # no per-row work, so a list of N rows costs what it cost before).
+    children_as = models.CharField(
+        max_length=8,
+        choices=CHILDREN_AS_AUTHORED_CHOICES,
+        default=CHILDREN_AS_AUTO,
+        help_text=(
+            "Authored presentation of this category's children: `auto` "
+            "(derive), `tiles` (real subcategories) or `chips` (a partition "
+            "of one attribute template). An authored value wins over "
+            "derivation."
+        ),
+    )
+    children_as_derived = models.CharField(
+        max_length=8,
+        blank=True,
+        default="",
+        choices=CHILDREN_AS_RESOLVED_CHOICES,
+        editable=False,
+        help_text=(
+            "Cache of `derive_children_as --apply`. Read only when "
+            "`children_as` is `auto`; never overwrites an authored value."
+        ),
+    )
+
     carousel_enabled = models.BooleanField(
         default=False, help_text="Whether this category appears in the carousel"
     )
@@ -423,6 +513,17 @@ class Category(RevisionMixin, TreeNodeModel):
     def clean(self):
         if self.pk:
             validate_features(self)
+
+    @property
+    def resolved_children_as(self) -> str | None:
+        """How this node's children are presented — see :func:`resolve_children_as`.
+
+        Three columns already loaded on the row, no query: a list of N
+        categories serializes this for free.
+        """
+        return resolve_children_as(
+            self.children_as, self.children_as_derived, bool(self.tn_children_count)
+        )
 
     def get_all_features(self):
         """All features for this category, including inherited from ancestors.

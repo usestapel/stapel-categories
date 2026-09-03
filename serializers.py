@@ -16,7 +16,7 @@ from stapel_attributes import (
 from stapel_core.django.api.serializers import StapelDataclassSerializer
 
 from .dto import FeatureEditorDraftResponse, UndeleteResponse
-from .models import Category, Feature
+from .models import CHILDREN_AS_AUTHORED_CHOICES, Category, Feature
 
 
 class FeatureConfigSchemaField(serializers.JSONField):
@@ -149,17 +149,37 @@ class CategorySerializer(serializers.ModelSerializer):
     extends that contract in the same commit.
     """
 
+    children_as = serializers.SerializerMethodField(
+        help_text=(
+            "How this category's children are presented: `tiles` (real "
+            "subcategories) or `chips` (a partition of one attribute "
+            "template). `null` when the category has no children. The "
+            "authoring value `auto` is resolved server-side and never "
+            "appears here."
+        )
+    )
+
     class Meta:
         model = Category
         fields = [
             "id", "name", "slug",
             "catalog_icon", "carousel_icon", "carousel_enabled", "active",
+            "children_as",
             "features", "translatable",
             "tn_parent", "tn_priority",
             "tn_ancestors_pks", "tn_children_pks",
             "revision", "deleted",
         ]
         read_only_fields = ["revision"]
+
+    @extend_schema_field(
+        serializers.ChoiceField(choices=["tiles", "chips"], allow_null=True)
+    )
+    def get_children_as(self, obj) -> str | None:
+        # Three columns already on the row (see Category.resolved_children_as)
+        # — no query, so a page of N categories costs exactly what it did
+        # before this key existed.
+        return obj.resolved_children_as
 
 
 class CategoryStaffSerializer(CategorySerializer):
@@ -172,10 +192,70 @@ class CategoryStaffSerializer(CategorySerializer):
     the two projections structurally one serializer: a field added to the
     public set is automatically part of this one, and this one can never lose
     a public field silently.
+
+    ``children_as_authored`` is the same split, one field further: the
+    inherited ``children_as`` stays the RESOLVED read (an operator wants to
+    see what a visitor sees), and the raw authoring column — ``auto``
+    included — gets its own key, writable. Without it "an authored value wins
+    over derivation" would be reachable only from the admin or a DB console.
+    ``children_as_derived`` rides along read-only so an operator can tell an
+    inherited decision from their own.
     """
 
+    children_as_authored = serializers.ChoiceField(
+        source="children_as",
+        choices=CHILDREN_AS_AUTHORED_CHOICES,
+        required=False,
+        help_text=(
+            "Authoring value: `auto` leaves it to `derive_children_as`, "
+            "`tiles`/`chips` pin it."
+        ),
+    )
+    children_as_derived = serializers.CharField(read_only=True)
+
     class Meta(CategorySerializer.Meta):
-        fields = CategorySerializer.Meta.fields + ["external_id", "external_source"]
+        fields = CategorySerializer.Meta.fields + [
+            "external_id", "external_source",
+            "children_as_authored", "children_as_derived",
+        ]
+
+
+class CategoryTreeNodeSerializer(serializers.Serializer):
+    """One node of ``GET /categories/api/v1/tree/`` — schema, not machinery.
+
+    The endpoint assembles plain dicts from a single flat ``values()`` read
+    (a nested serializer over model instances would be one query per level),
+    so this class exists to give the emitted contract a named shape rather
+    than to run.
+
+    ``children`` is declared as a list of objects instead of recursing into
+    this same serializer: the nesting is depth-capped at request time, and a
+    self-referential component makes a generator that inlines definitions
+    recur until it gives up. The element shape is this one.
+
+    Provenance (``external_id``/``external_source``) is absent here for the
+    reason :class:`CategorySerializer` states — this is an anonymous read.
+    """
+
+    id = serializers.IntegerField()
+    slug = serializers.CharField()
+    name = serializers.CharField()
+    path = serializers.CharField(
+        help_text=(
+            "Ancestor ids root->self, `/`-joined (e.g. `141/151/166`) — the "
+            "form the search query's `category` parameter takes."
+        )
+    )
+    catalog_icon = serializers.CharField(allow_blank=True)
+    children_as = serializers.ChoiceField(
+        choices=["tiles", "chips"],
+        allow_null=True,
+        help_text="`null` when the node has no children.",
+    )
+    children = serializers.ListField(
+        child=serializers.DictField(),
+        help_text="Nodes of this same shape; empty at the requested depth.",
+    )
 
 
 class CategoryWithFeaturesSerializer(serializers.ModelSerializer):

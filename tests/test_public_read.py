@@ -217,6 +217,13 @@ PUBLIC_CATEGORY_KEYS = sorted([
     "id", "name", "slug",
     "catalog_icon", "carousel_icon", "carousel_enabled",
     "active", "translatable",
+    # A presentation hint about this node's own children — how a storefront
+    # should draw the level below. Answered "who may read this?" with
+    # everyone: it is derived from the shape of the public tree the same
+    # reader can already walk, and carries nothing about where the tree came
+    # from. The RESOLVED value only; the authoring column, `auto` included,
+    # stays on the staff serializer.
+    "children_as",
     "features",
     "tn_parent", "tn_priority", "tn_ancestors_pks", "tn_children_pks",
     "revision", "deleted",

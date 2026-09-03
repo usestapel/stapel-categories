@@ -1562,6 +1562,45 @@
           }
         }
       }
+    },
+    "/categories/api/v1/tree/": {
+      "get": {
+        "operationId": "categories_api_v1_tree_list",
+        "description": "The active category tree, nested, ordered by `tn_priority` descending at every level. One call, one query, cached.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "depth",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Levels to return, 1..4 (default 3). Out-of-range values are clamped, not refused."
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryTreeNode"
+                  }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1672,6 +1711,19 @@
             "type": "boolean",
             "description": "Whether this category is active"
           },
+          "children_as": {
+            "description": "How this category's children are presented: `tiles` (real subcategories) or `chips` (a partition of one attribute template). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
+            "nullable": true,
+            "readOnly": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChildrenAsEnum"
+              },
+              {
+                "$ref": "#/components/schemas/NullEnum"
+              }
+            ]
+          },
           "features": {
             "type": "array",
             "items": {
@@ -1714,6 +1766,7 @@
           }
         },
         "required": [
+          "children_as",
           "features",
           "id",
           "name",
@@ -1846,7 +1899,7 @@
       },
       "CategoryStaff": {
         "type": "object",
-        "description": "The public projection plus provenance — staff writes only.\n\n``create``/``update``/``partial_update`` are gated by ``ReadOnlyOrStaff``,\nand an operator hand-fixing an imported row legitimately needs to see and\nset ``external_id``/``external_source`` (re-pointing a row at its source\nnode is how a botched match is repaired). Extending the public class keeps\nthe two projections structurally one serializer: a field added to the\npublic set is automatically part of this one, and this one can never lose\na public field silently.",
+        "description": "The public projection plus provenance — staff writes only.\n\n``create``/``update``/``partial_update`` are gated by ``ReadOnlyOrStaff``,\nand an operator hand-fixing an imported row legitimately needs to see and\nset ``external_id``/``external_source`` (re-pointing a row at its source\nnode is how a botched match is repaired). Extending the public class keeps\nthe two projections structurally one serializer: a field added to the\npublic set is automatically part of this one, and this one can never lose\na public field silently.\n\n``children_as_authored`` is the same split, one field further: the\ninherited ``children_as`` stays the RESOLVED read (an operator wants to\nsee what a visitor sees), and the raw authoring column — ``auto``\nincluded — gets its own key, writable. Without it \"an authored value wins\nover derivation\" would be reachable only from the admin or a DB console.\n``children_as_derived`` rides along read-only so an operator can tell an\ninherited decision from their own.",
         "properties": {
           "id": {
             "type": "integer",
@@ -1877,6 +1930,19 @@
           "active": {
             "type": "boolean",
             "description": "Whether this category is active"
+          },
+          "children_as": {
+            "description": "How this category's children are presented: `tiles` (real subcategories) or `chips` (a partition of one attribute template). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
+            "nullable": true,
+            "readOnly": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChildrenAsEnum"
+              },
+              {
+                "$ref": "#/components/schemas/NullEnum"
+              }
+            ]
           },
           "features": {
             "type": "array",
@@ -1927,9 +1993,23 @@
             "type": "string",
             "description": "Source catalogue `external_id` belongs to (blank = the single/default source).",
             "maxLength": 32
+          },
+          "children_as_authored": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChildrenAsAuthoredEnum"
+              }
+            ],
+            "description": "Authoring value: `auto` leaves it to `derive_children_as`, `tiles`/`chips` pin it.\n\n* `auto` - Auto (derive)\n* `tiles` - Tiles\n* `chips` - Chips"
+          },
+          "children_as_derived": {
+            "type": "string",
+            "readOnly": true
           }
         },
         "required": [
+          "children_as",
+          "children_as_derived",
           "features",
           "id",
           "name",
@@ -1938,6 +2018,73 @@
           "tn_ancestors_pks",
           "tn_children_pks"
         ]
+      },
+      "CategoryTreeNode": {
+        "type": "object",
+        "description": "One node of ``GET /categories/api/v1/tree/`` — schema, not machinery.\n\nThe endpoint assembles plain dicts from a single flat ``values()`` read\n(a nested serializer over model instances would be one query per level),\nso this class exists to give the emitted contract a named shape rather\nthan to run.\n\n``children`` is declared as a list of objects instead of recursing into\nthis same serializer: the nesting is depth-capped at request time, and a\nself-referential component makes a generator that inlines definitions\nrecur until it gives up. The element shape is this one.\n\nProvenance (``external_id``/``external_source``) is absent here for the\nreason :class:`CategorySerializer` states — this is an anonymous read.",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "description": "Ancestor ids root->self, `/`-joined (e.g. `141/151/166`) — the form the search query's `category` parameter takes."
+          },
+          "catalog_icon": {
+            "type": "string"
+          },
+          "children_as": {
+            "nullable": true,
+            "description": "`null` when the node has no children.\n\n* `tiles` - tiles\n* `chips` - chips",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChildrenAsEnum"
+              },
+              {
+                "$ref": "#/components/schemas/NullEnum"
+              }
+            ]
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            "description": "Nodes of this same shape; empty at the requested depth."
+          }
+        },
+        "required": [
+          "catalog_icon",
+          "children",
+          "children_as",
+          "id",
+          "name",
+          "path",
+          "slug"
+        ]
+      },
+      "ChildrenAsAuthoredEnum": {
+        "enum": [
+          "auto",
+          "tiles",
+          "chips"
+        ],
+        "type": "string",
+        "description": "* `auto` - Auto (derive)\n* `tiles` - Tiles\n* `chips` - Chips"
+      },
+      "ChildrenAsEnum": {
+        "enum": [
+          "tiles",
+          "chips"
+        ],
+        "type": "string"
       },
       "CommandEnum": {
         "enum": [
@@ -3664,7 +3811,7 @@
       },
       "PatchedCategoryStaff": {
         "type": "object",
-        "description": "The public projection plus provenance — staff writes only.\n\n``create``/``update``/``partial_update`` are gated by ``ReadOnlyOrStaff``,\nand an operator hand-fixing an imported row legitimately needs to see and\nset ``external_id``/``external_source`` (re-pointing a row at its source\nnode is how a botched match is repaired). Extending the public class keeps\nthe two projections structurally one serializer: a field added to the\npublic set is automatically part of this one, and this one can never lose\na public field silently.",
+        "description": "The public projection plus provenance — staff writes only.\n\n``create``/``update``/``partial_update`` are gated by ``ReadOnlyOrStaff``,\nand an operator hand-fixing an imported row legitimately needs to see and\nset ``external_id``/``external_source`` (re-pointing a row at its source\nnode is how a botched match is repaired). Extending the public class keeps\nthe two projections structurally one serializer: a field added to the\npublic set is automatically part of this one, and this one can never lose\na public field silently.\n\n``children_as_authored`` is the same split, one field further: the\ninherited ``children_as`` stays the RESOLVED read (an operator wants to\nsee what a visitor sees), and the raw authoring column — ``auto``\nincluded — gets its own key, writable. Without it \"an authored value wins\nover derivation\" would be reachable only from the admin or a DB console.\n``children_as_derived`` rides along read-only so an operator can tell an\ninherited decision from their own.",
         "properties": {
           "id": {
             "type": "integer",
@@ -3695,6 +3842,19 @@
           "active": {
             "type": "boolean",
             "description": "Whether this category is active"
+          },
+          "children_as": {
+            "description": "How this category's children are presented: `tiles` (real subcategories) or `chips` (a partition of one attribute template). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
+            "nullable": true,
+            "readOnly": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChildrenAsEnum"
+              },
+              {
+                "$ref": "#/components/schemas/NullEnum"
+              }
+            ]
           },
           "features": {
             "type": "array",
@@ -3745,6 +3905,18 @@
             "type": "string",
             "description": "Source catalogue `external_id` belongs to (blank = the single/default source).",
             "maxLength": 32
+          },
+          "children_as_authored": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChildrenAsAuthoredEnum"
+              }
+            ],
+            "description": "Authoring value: `auto` leaves it to `derive_children_as`, `tiles`/`chips` pin it.\n\n* `auto` - Auto (derive)\n* `tiles` - Tiles\n* `chips` - Chips"
+          },
+          "children_as_derived": {
+            "type": "string",
+            "readOnly": true
           }
         }
       },

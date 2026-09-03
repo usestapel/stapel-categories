@@ -84,6 +84,54 @@
   server-side under a key fingerprinted by the tree's revision state (the
   `categories.suggest` mechanism), so an edit retires the entry immediately
   instead of waiting out a TTL.
+- **How a node's children are presented** — `children_as`, one of `tiles`
+  (the children are real subcategories: a grid of destinations) or `chips`
+  (the children partition ONE attribute template — new/used, buy/sell/rent,
+  boys/girls — and belong on a chip row over the parent's own feed). Children
+  of a `chips` parent keep their ids, paths and URLs and stay the placement
+  target of a listing; only the presentation changes.
+
+  Stored as TWO columns, because the question has two independent answers and
+  one column loses one of them: `children_as` is the AUTHORED intent (`auto`
+  by default, meaning "nobody has decided") and `children_as_derived` is the
+  derivation's cache. Written into one column, a derived value would be
+  indistinguishable from an authored one, so the next run would refuse to
+  touch its own output and the derivation would be a one-shot rather than the
+  re-runnable step a catalogue import needs. Readers never see either raw
+  value: every public serializer carries `Category.resolved_children_as` —
+  authored wins, else the cache, else `tiles`, and `null` on a childless node.
+  It is three columns already on the row, so a page of N categories costs no
+  extra query to say it.
+
+  `derive_children_as` answers the `auto` rows and prints what it decided:
+  node path, decision, the SIGNAL that carried it and the number behind it.
+  Three signals, reported apart because they are wrong about different
+  things — `structure` (a child with children of its own is a branch, and a
+  branch is never a chip), `schema` (pairwise Jaccard ≥ 0.5 over the
+  children's own feature key sets: a partition of one template is a set of
+  children asking the same questions) and `vocabulary` (the child NAMES fall
+  in one partition group — matched against the whole child set, never a
+  single name, so a shelf with one «Новые» on it stays a shelf). The
+  vocabulary is data in the command, not in the model: it is a fact about the
+  catalogues a deployment imports, and in the model every deployment would
+  inherit one market's words. Nothing in the derivation reads
+  `external_id`/`external_source` — a rule keyed on an importer's node ids
+  would silently do nothing for the next supplier. Dry run by default;
+  `--apply` writes only `children_as_derived`, only where `children_as` is
+  still `auto`, and with the guard repeated in the UPDATE so a value authored
+  mid-run still wins.
+- **The nested tree read** `GET /categories/api/v1/tree/?depth=N` (1..4,
+  default 3): the visible catalogue in one call, one query and one cached
+  response, carrying `id`, `slug`, `name`, `path`, `catalog_icon`,
+  `children_as` and `children`. `path` is the ancestor ids root→self,
+  `/`-joined — the exact form a search query's `category` parameter takes.
+  Assembled from the same `visible_categories()` the other three reads answer
+  to, ordered the same way at every level, and nested in Python off
+  django-treenode's denormalised ancestry rather than a query per level. A
+  desktop mega-menu built from `roots` + one `children` call per node is a
+  request per branch on the storefront's coldest page; this is the door for
+  that. Out-of-range `depth` is clamped, not refused — every answer it could
+  give is still a correct prefix of the tree that was asked for.
 - A **comm surface**: Functions `categories.features` (resolved schema for a
   category), `categories.path` (root->leaf ancestry for a batch of categories),
   `categories.names` (batch of ids -> display name + slug),

@@ -1,5 +1,93 @@
 # Changelog
 
+## [0.19.0] — 2026-09-04
+
+### Added
+
+- **A category says how its children should be drawn.** A storefront walking
+  this tree had one shape for every level: a grid of tiles, one tile per
+  child, whatever the children were. That is right where the children are real
+  subcategories and wrong where they are a *partition* of one attribute
+  template — `Куплю`/`Продам`/`Сдам`/`Сниму` under a real-estate node,
+  `Новые`/`С пробегом` under cars, `Для мальчиков`/`Для девочек` under
+  children's clothing. There the children ask the same questions of a listing
+  and differ by one value the child's own name spells, so a tile grid makes a
+  buyer pick a page before they can see a single item, and makes the seller's
+  composer ask for a category twice.
+
+  `children_as` is that answer, on every public read: `tiles`, `chips`, or
+  `null` on a childless node. Children of a `chips` parent are untouched —
+  same ids, same paths, same URLs, still the placement target of a listing.
+  Only the presentation changes.
+
+  Two stored columns, not one. `children_as` is the AUTHORED intent (`auto` by
+  default: "nobody has decided"); `children_as_derived` is the derivation's
+  cache. Collapsed into one column a derived value is indistinguishable from
+  an authored one, so the next run would refuse to touch its own output and
+  the derivation would be a one-shot instead of the re-runnable step a
+  catalogue import needs. `auto` never crosses the API boundary: readers get
+  `Category.resolved_children_as` — authored wins, else the cache, else
+  `tiles` (the conservative half of the pair: tiles cost a click, a wrong
+  `chips` hides a branch behind a filter nobody looks at). It reads three
+  columns already on the row, so a page of N categories costs exactly the
+  queries it cost before.
+
+- **`derive_children_as`** answers the `auto` rows and shows its work: one
+  line per parent with the node path, the decision, the SIGNAL that carried it
+  and the number behind it. The signals are reported apart because they are
+  wrong about different things — `structure` (a child with children of its own
+  is a branch, and a branch is never a chip), `schema` (pairwise Jaccard ≥ 0.5
+  over the children's own feature key sets), `empty-schema` (nothing anywhere
+  at this node models a schema, so the children are not diverging in one) and
+  `vocabulary` (the child NAMES fall in one partition group). The name signal
+  is matched against the whole child SET and never a single name: one child
+  called «Новые» beside twenty real subcategories is a subcategory that
+  happens to be called that.
+
+  Dry run by default. `--apply` writes only `children_as_derived`, only where
+  `children_as` is still `auto`, with the guard repeated in the UPDATE so a
+  value authored mid-run still wins — an authored `tiles`/`chips` is never
+  overwritten, on any run. The writes are targeted UPDATEs rather than
+  `save()`: a catalogue-wide re-derivation must not put a `category.changed`
+  fanout through the fleet to record a presentation hint.
+
+  The partition vocabulary is data in the command, not in the model — it is a
+  fact about the catalogues a deployment imports, and in the model every
+  deployment would inherit one market's words. Nothing in the derivation reads
+  `external_id`/`external_source`: a rule keyed on an importer's node ids
+  would silently do nothing for the next supplier. Where stapel-attributes is
+  not importable the run says so in its first line and stands on the
+  vocabulary signal alone.
+
+- **`GET /categories/api/v1/tree/?depth=N`** (1..4, default 3) — the visible
+  catalogue nested, in one call and one query, carrying `id`, `slug`, `name`,
+  `path`, `catalog_icon`, `children_as` and `children`. A desktop mega-menu
+  assembled from `roots` plus one `children` call per node is a request per
+  branch on the storefront's coldest page; assembled from the flat list it is
+  the whole table over the wire.
+
+  `path` is the ancestor ids root→self, `/`-joined — the exact string a search
+  query's `category` parameter takes, so a menu entry navigates without a
+  second call to work out what it points at. Same `visible_categories()` rule
+  the other three tree reads answer to, same order at every level, nested in
+  Python off django-treenode's denormalised ancestry rather than a queryset
+  per level, and cached on the tree's own revision fingerprint so a catalogue
+  edit retires the entry immediately. An out-of-range `depth` is clamped, not
+  refused: every answer this endpoint could give is still a correct prefix of
+  the tree that was asked for. Provenance stays off it, like every other
+  anonymous read — asserted on the tree, the list and the detail together.
+
+### Fixed
+
+- **The public reads no longer cost one query per category.** `features` is a
+  plain PK list on the public projection and nothing prefetched it, so
+  `roots`, `children`, `carousel`, the list and the detail each spent one
+  extra query per row served — 3441 of them on a full imported catalogue's
+  cold list. Prefetched on the viewset's queryset attribute and on the three
+  actions that build their own, so a bigger page is now the same number of
+  queries; `tests/test_children_as.py` measures a 2-root and a 12-root page
+  against each other rather than pinning a constant that would drift.
+
 ## [0.18.0] — 2026-09-03
 
 ### Fixed

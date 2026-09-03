@@ -11,6 +11,7 @@ from django.core.cache import cache
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
+    OpenApiParameter,
     extend_schema,
     extend_schema_view,
     inline_serializer,
@@ -19,6 +20,7 @@ from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from stapel_attributes import validate_configs_structured, validate_dto_structured
 from stapel_attributes.results import ValidationBatchResultSerializer
@@ -56,12 +58,13 @@ from .feature_editor import (
     apply_feature_editor_changes,
     build_editor_state,
 )
-from .models import Category, Feature
+from .models import Category, Feature, resolve_children_as
 from .serializers import (
     CategoryBulkCommandSerializer,
     CategoryBulkSerializer,
     CategorySerializer,
     CategoryStaffSerializer,
+    CategoryTreeNodeSerializer,
     FeatureBulkSerializer,
     FeatureCompactSerializer,
     FeatureConfigSchemaField,
@@ -199,7 +202,12 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     """
 
     serializer_class = CategorySerializer
-    queryset = Category.objects.all()
+    # `features` is a plain PK list on the public projection, and without the
+    # prefetch DRF asks for it once per row — so every read of this viewset
+    # cost one query per category served. Declared on the class attribute so
+    # the list, the detail and every @action that starts from
+    # `self.get_queryset()` inherit it rather than each remembering.
+    queryset = Category.objects.all().prefetch_related("features")
     permission_classes = [ReadOnlyOrStaff]
     pagination_class = RevisionPagination
 
@@ -277,7 +285,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         if cached_data is None:
             queryset = Category.objects.filter(
                 active=True, carousel_enabled=True, deleted=False
-            ).order_by("-tn_priority")
+            ).prefetch_related("features").order_by("-tn_priority")
             cached_data = CategorySerializer(queryset, many=True).data
             cache.set(cache_key, cached_data, timeout=categories_settings.CAROUSEL_CACHE_TIMEOUT)
 
@@ -476,8 +484,11 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     def children(self, request, pk=None):  # noqa: R007
         """Return non-deleted children, sorted by tn_priority descending."""
         category = self.get_object()
-        children = visible_categories().filter(tn_parent=category).order_by(
-            "-tn_priority", "id"
+        children = (
+            visible_categories()
+            .filter(tn_parent=category)
+            .prefetch_related("features")
+            .order_by("-tn_priority", "id")
         )
         response = Response(CategorySerializer(children, many=True).data)  # noqa: R001
         response["Cache-Control"] = (
@@ -516,8 +527,11 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         cache_key = _roots_cache_key()
         cached_data = cache.get(cache_key)
         if cached_data is None:
-            queryset = visible_categories().filter(tn_parent__isnull=True).order_by(
-                "-tn_priority", "id"
+            queryset = (
+                visible_categories()
+                .filter(tn_parent__isnull=True)
+                .prefetch_related("features")
+                .order_by("-tn_priority", "id")
             )
             cached_data = CategorySerializer(queryset, many=True).data
             cache.set(
@@ -879,3 +893,152 @@ class FeatureViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
                 "maxSelected": None,
             }
         return config
+
+
+#: Cache key prefix of the nested tree response, completed by the depth and
+#: the same tree fingerprint the roots cache uses.
+_TREE_CACHE_PREFIX = "stapel_categories:tree:"
+
+#: Deepest tree a single call will assemble. Four levels is the mega-menu
+#: (roots -> section headers -> links) plus one, and the cap is what keeps
+#: "?depth=" from being a way to ask for the whole catalogue nested.
+TREE_MAX_DEPTH = 4
+#: What a caller gets for saying nothing — the three levels the desktop
+#: mega-menu renders.
+TREE_DEFAULT_DEPTH = 3
+
+
+def _tree_depth_param(raw) -> int:
+    """Read ``?depth=``: clamped to 1..:data:`TREE_MAX_DEPTH`, never an error.
+
+    Clamped rather than rejected because every out-of-range answer this
+    endpoint could give is still a correct prefix of the tree the caller
+    asked for, and a 400 here would put a new code in the module's error
+    catalogue to say "I gave you less than you asked for".
+    """
+    if raw in (None, ""):
+        return TREE_DEFAULT_DEPTH
+    try:
+        depth = int(raw)
+    except (TypeError, ValueError):
+        return TREE_DEFAULT_DEPTH
+    return max(1, min(depth, TREE_MAX_DEPTH))
+
+
+def build_category_tree(depth: int) -> list[dict]:
+    """The visible catalogue, nested, down to *depth* levels.
+
+    ONE query whatever the depth: django-treenode denormalises ancestry onto
+    every row, so the whole visible set comes back as a flat ``values()`` read
+    and the nesting is done in Python. The alternative — a queryset per level,
+    or a nested serializer over model instances — is the N+1 this endpoint
+    exists to remove from the storefront.
+
+    Visibility is :func:`visible_categories`, the same rule ``roots``,
+    ``children`` and ``by-slug`` answer to, and the order is theirs as well
+    (``-tn_priority``, then id) at every level.
+
+    A node whose parent is not in the visible set is dropped rather than
+    re-parented: the tree a client walks must be the tree the other reads
+    hand back, and promoting an orphan would invent a root the catalogue
+    does not have.
+    """
+    rows = list(
+        visible_categories()
+        .filter(tn_level__lte=depth)
+        .order_by("-tn_priority", "id")
+        .values(
+            "id", "slug", "name", "catalog_icon",
+            "children_as", "children_as_derived",
+            "tn_parent_id", "tn_ancestors_pks", "tn_children_count",
+        )
+    )
+
+    nodes: dict[int, dict] = {}
+    for row in rows:
+        ancestors = [pk for pk in (row["tn_ancestors_pks"] or "").split(",") if pk]
+        nodes[row["id"]] = {
+            "id": row["id"],
+            "slug": row["slug"],
+            # The stored value, exactly as every other public read serves it
+            # — this module ships translation KEYS and the client resolves
+            # them; translating here would make one read speak differently.
+            "name": row["name"],
+            # The `category` parameter of a search query is this exact string.
+            "path": "/".join([*ancestors, str(row["id"])]),
+            "catalog_icon": row["catalog_icon"],
+            "children_as": resolve_children_as(
+                row["children_as"],
+                row["children_as_derived"],
+                bool(row["tn_children_count"]),
+            ),
+            "children": [],
+        }
+
+    roots: list[dict] = []
+    for row in rows:
+        node = nodes[row["id"]]
+        parent = nodes.get(row["tn_parent_id"])
+        if row["tn_parent_id"] is None:
+            roots.append(node)
+        elif parent is not None:
+            parent["children"].append(node)
+    return roots
+
+
+@extend_schema(tags=["Categories"])
+class CategoryTreeView(APIView):
+    """``GET /categories/api/v1/tree/?depth=N`` — the catalogue in one call.
+
+    The desktop mega-menu needs three levels at once. Assembled from
+    ``roots`` plus one ``children`` call per node it would be one request per
+    branch on the coldest page of the storefront; assembled from the flat
+    list it is the whole table over the wire. This is one query, one cached
+    response, and the four keys a menu renders (plus ``children_as``, which
+    says whether the level below is a destination or a filter).
+
+    Cached on the tree's own revision fingerprint rather than a TTL alone
+    (see :func:`_roots_cache_key`): a catalogue edit retires the entry
+    immediately, and ``TREE_CACHE_TIMEOUT`` is only the ceiling on how long
+    an UNCHANGED tree keeps one.
+    """
+
+    permission_classes = [ReadOnlyOrStaff]
+
+    @extend_schema(
+        description=(
+            "The active category tree, nested, ordered by `tn_priority` "
+            "descending at every level. One call, one query, cached."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="depth",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    f"Levels to return, 1..{TREE_MAX_DEPTH} "
+                    f"(default {TREE_DEFAULT_DEPTH}). Out-of-range values are "
+                    "clamped, not refused."
+                ),
+            )
+        ],
+        responses={200: CategoryTreeNodeSerializer(many=True)},
+    )
+    def get(self, request):
+        depth = _tree_depth_param(request.query_params.get("depth"))
+        cache_key = (
+            f"{_TREE_CACHE_PREFIX}{depth}:"
+            f"{_roots_cache_key()[len(_ROOTS_CACHE_PREFIX):]}"
+        )
+        cached_data = cache.get(cache_key)
+        if cached_data is None:
+            cached_data = build_category_tree(depth)
+            cache.set(
+                cache_key, cached_data, timeout=categories_settings.TREE_CACHE_TIMEOUT
+            )
+
+        response = Response(cached_data)
+        response["Cache-Control"] = (
+            f"public, max-age={categories_settings.TREE_CACHE_TIMEOUT}"
+        )
+        return response
