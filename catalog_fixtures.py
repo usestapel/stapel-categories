@@ -62,7 +62,19 @@ STATE_FILE = ".sync-state.json"
 # hash a 0.12.x export wrote would read as a phantom two-sided change.
 # Bumped to 4 in 0.15.0: ``active`` joined the sync view's exclusions
 # (CURATION_KEYS), for the same reason and after the same live failure.
-STATE_VERSION = 4
+# Bumped to 5 in 0.20.2: a load now records a PAIR per key (the applied
+# fixture hash + the DB hash it produced, ``catalog_load._base_pair``) instead
+# of the DB hash alone. Export still writes a bare string — after an export the
+# two sides are the same state — and a load reads either form, so a v4 sidecar
+# is still accepted (SUPPORTED_STATE_VERSIONS). The bump is for the other
+# direction: a pre-0.20.2 loader must refuse a sidecar holding pairs loudly
+# instead of reading every pair as a two-sided change.
+STATE_VERSION = 5
+
+#: Sidecar versions a load can still read. A v4 entry is a bare DB hash used
+#: for both halves of the pair — it classifies exactly as it did under 0.20.1
+#: and upgrades itself on the first load that touches the key.
+SUPPORTED_STATE_VERSIONS = (4, 5)
 
 #: Category fields the catalogue sync does NOT own. The fixture's contract is
 #: taxonomy + features; which roots sit on the home-screen carousel and under

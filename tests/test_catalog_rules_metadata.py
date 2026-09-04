@@ -280,8 +280,10 @@ class SidecarVersionTests(TestCase):
                 load_catalog(out)
             self.assertIn("incompatible .sync-state.json version", str(ctx.exception))
 
-    def test_the_current_version_is_four(self):
-        """Bumped to 4 in 0.15.0: ``active`` joined the sync view's
-        exclusions (``cf.CURATION_KEYS``), so a v3 hash covers a different
-        subset of the record and must be refused rather than compared."""
-        self.assertEqual(cf.STATE_VERSION, 4)
+    def test_the_current_version_is_five(self):
+        """Bumped to 5 in 0.20.2: an entry is now the PAIR of hashes a sync
+        established (fixture + db), not the db hash alone. A v4 sidecar is
+        still READ (a bare string is both halves) — the bump is so an older
+        loader refuses a pair instead of reading it as a two-sided change."""
+        self.assertEqual(cf.STATE_VERSION, 5)
+        self.assertEqual(cf.SUPPORTED_STATE_VERSIONS, (4, 5))

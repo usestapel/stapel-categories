@@ -1,5 +1,66 @@
 # Changelog
 
+## [0.20.2] — 2026-09-04
+
+### Fixed
+
+- **The catalogue load converges.** On a live catalogue (3444 categories,
+  3192 root features, `load_catalog --on-conflict fixture-wins --deletions
+  ignore`) a full load planned 431 category updates, the next pass planned
+  303, and every pass after that planned the same 303 — zero conflicts, zero
+  creates, converging never. The apply itself wrote nothing (the dirty guard
+  in `_apply_category_upsert` held), so nothing was corrupted; what was broken
+  was the plan an operator reads and the "a re-run is a no-op" property the
+  whole 3-way diff rests on.
+
+  Root cause: the sidecar recorded ONE hash per key — the DB hash the apply
+  produced. For a record whose applied row cannot hash equal to its fixture
+  record, that is a number the fixture side can never reach, so the next pass
+  read it as "the fixture moved" and re-planned the write. Forever.
+
+  The sidecar now records the PAIR the sync established (`{"fixture": …,
+  "db": …}`) and `_classify` asks **which side moved since that sync**, not
+  which two hashes look alike. A record whose fixture side did not change and
+  whose DB row nobody touched is `skipped` — even where the two hashes differ.
+  The 3-way diff is unblunted: a real DB-side edit moves the DB half and is
+  still `db_only` (or `conflict` when the fixture moved too), which is pinned
+  by a test. A record that lands not-equal is now REPORTED, once, as
+  `residual` — "applied, but an export would write something else" — rather
+  than absorbed silently or re-planned every pass; a base that quietly
+  swallows a difference nobody was told about is a gate that proves nothing.
+
+  `STATE_VERSION` 4 → 5. A v4 sidecar is still READ (a bare string is both
+  halves of the pair, so every key classifies exactly as it did under 0.20.1)
+  and upgrades itself key by key on the next load — no regeneration step, no
+  re-export. The bump is for the other direction: a pre-0.20.2 loader must
+  refuse a sidecar holding pairs loudly instead of reading every pair as a
+  two-sided change.
+
+- **An override's name follows its root when the fixture does not restate it.**
+  112 of those 303 rows carried one of the 12 feature slugs whose two fixture
+  directories share a namespace. The export writes an override's `name` **only
+  when it differs from its root's**, so an absent one means "the root's" — but
+  the loader read absent as "leave whatever is there". Once canon renamed the
+  root, the per-category clone kept the label the root had dropped, the export
+  wrote that stale label out, and the record's DB hash could never equal its
+  fixture hash again. Sellers saw the retired label too, which is the same
+  failure this module already fixed in the other direction (0.13.0, the
+  cookware leaf asking a clothing question).
+
+  The loader now writes the root's name for an entry that says nothing, and
+  the fixture side is hashed by the export's own rule (an entry restating its
+  root's own label is hashed as the absence it will be exported as). A clone
+  shared with other categories is copied-on-write for the relabel, as for any
+  other inline difference. A root rename lands one pass ahead of the
+  categories that inherit its label — the category plan is classified against
+  the DB as it stands before the same run's feature upserts — so such a wave
+  needs two passes, not endless ones.
+
+  Measured against a synthetic catalogue shaped like that plan (404
+  categories, 303 of them in the two classes): 0.20.1 plans 203, then 303,
+  303, 303…; 0.20.2 plans 12, then 112 (the stale labels, repaired), then 0
+  and 0.
+
 ## [0.20.1] — 2026-09-04
 
 ### Fixed

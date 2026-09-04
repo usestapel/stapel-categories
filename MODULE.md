@@ -422,7 +422,32 @@ the fixture does not change again stays classified `db_only` forever, so
 re-running the load could not repair it). All writes go through `save()`/`full_clean()`
 (never bulk/`.update()` — H-2), under a `select_for_update` catalog lock (M-5),
 and a re-run on materialized fixtures is zero saves / zero events. Engine:
-`catalog_load.py`. `--seed-if-empty` is the bootstrap idiom (full load on an
+`catalog_load.py`.
+
+**The load CONVERGES (0.20.2).** The sidecar records, per natural key, the
+PAIR of hashes the last successful sync established — the fixture hash that
+was applied and the DB hash that apply produced — and the diff asks *which
+side moved since that sync*, not *which two hashes look alike*. So a record
+whose applied row cannot hash equal to its fixture record (the DB legitimately
+holds a state the fixture shape cannot spell) is `skipped` on the next pass
+instead of being re-planned `updated` forever. Recording the DB hash alone is
+what left 303 of 3444 categories on a live catalogue re-planned on every pass,
+converging never, while the apply itself wrote nothing (the dirty guard held):
+the fixture side was compared, pass after pass, against a number it could not
+reach. The 3-way diff is unblunted — a DB-side edit moves the DB half and is
+still `db_only`/`conflict` — and a record that lands not-equal is reported
+once as `residual` (applied, but an export would write something else), never
+silently absorbed. A pre-0.20.2 sidecar (bare string per key = the DB hash) is
+read as both halves and upgrades itself on the first load that touches the
+key; `STATE_VERSION` is 5 so an older loader refuses a pair loudly.
+
+One shape that used to produce that state is now simply correct: an override's
+`name` is exported **only when it differs from its root's**, so an absent one
+means "the root's" — and the loader now writes it that way (a clone left with
+a label its root has since dropped is pulled back), while the fixture side is
+hashed by the same rule (an entry that restates the root's own label says
+nothing extra). That is 112 of the 303 above, each of them also showing a
+seller a label canon had already retired. `--seed-if-empty` is the bootstrap idiom (full load on an
 empty catalog, no-op otherwise — "empty" ignores `is_test` rows: a DB holding
 only test/scratch data still seeds the canon); `--dry-run` prints the full
 classification without writing. After a successful load the sidecar is
@@ -494,8 +519,9 @@ something other than `load_catalog` (e.g. an editor action).
   newline; no timestamps/UUIDs in bodies (provenance lives in the git commit).
   Identical DB state ⇒ byte-identical files — the same contract as
   `dump_translations` / codegen artifacts.
-- **The sidecar carries a version** (`catalog_fixtures.STATE_VERSION`, 2 since
-  0.7.0). Bump it whenever a stored content-hash stops meaning what it meant —
+- **The sidecar carries a version** (`catalog_fixtures.STATE_VERSION`, 5 since
+  0.20.2; `SUPPORTED_STATE_VERSIONS` says which ones a load still reads).
+  Bump it whenever a stored content-hash stops meaning what it meant —
   a record gaining a key invalidates every hash a previous export wrote, and a
   loader reading that base without the bump would classify the whole catalog as
   conflicted instead of saying so.

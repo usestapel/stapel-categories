@@ -37,7 +37,7 @@ from stapel_categories import catalog_load as cl
 _KIND_ORDER = (
     cl.CREATED, cl.UPDATED, cl.DELETED, cl.SKIPPED,
     cl.CONFLICT, cl.DB_ONLY, cl.DB_NEW, cl.DB_NEW_IN_CANON,
-    cl.NAME_COLLISION, cl.ERROR,
+    cl.NAME_COLLISION, cl.RESIDUAL, cl.ERROR,
 )
 _KIND_LABEL = {
     cl.CREATED: "created",
@@ -49,6 +49,7 @@ _KIND_LABEL = {
     cl.DB_NEW: "db-only (not in canon)",
     cl.DB_NEW_IN_CANON: "db-only INSIDE canon subtree",
     cl.NAME_COLLISION: "sibling name collision",
+    cl.RESIDUAL: "applied but not equal to canon",
     cl.ERROR: "ERROR",
 }
 _KIND_MARK = {
@@ -61,6 +62,7 @@ _KIND_MARK = {
     cl.DB_NEW: "?",
     cl.DB_NEW_IN_CANON: "?",
     cl.NAME_COLLISION: "?",
+    cl.RESIDUAL: "≈",
     cl.ERROR: "E",
 }
 
@@ -181,7 +183,8 @@ class Command(BaseCommand):
                 if it.kind in (cl.CONFLICT, cl.ERROR):
                     self.stdout.write(self.style.ERROR(line))
                 elif it.kind in (
-                    cl.DB_ONLY, cl.DB_NEW, cl.DB_NEW_IN_CANON, cl.NAME_COLLISION
+                    cl.DB_ONLY, cl.DB_NEW, cl.DB_NEW_IN_CANON, cl.NAME_COLLISION,
+                    cl.RESIDUAL,
                 ):
                     self.stdout.write(self.style.WARNING(line))
                 else:

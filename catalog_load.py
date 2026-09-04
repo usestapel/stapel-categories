@@ -24,10 +24,18 @@ here:
   An imported slug is derived from the source's node path, so a source-side
   rename moves it — matching on it would read the rename as a delete plus an
   unrelated create and duplicate the node. See the section further down.
-* **Idempotent.** A record whose fixture state already equals its DB state is a
-  ``skip`` — no ``.save()``, no revision bump, no event (the H-3 "don't bump on
-  a non-change" rule). A second ``load_catalog`` on materialized fixtures is a
-  no-op.
+* **Idempotent, and it CONVERGES.** A record whose fixture state already
+  equals its DB state is a ``skip`` — no ``.save()``, no revision bump, no
+  event (the H-3 "don't bump on a non-change" rule). A second ``load_catalog``
+  on materialized fixtures is a no-op. The stronger rule, since 0.20.2: a
+  second load is a no-op *even where the applied row cannot hash equal to the
+  fixture record*. The sidecar records a PAIR per key — the fixture hash that
+  was applied and the DB hash it produced — and the diff asks which SIDE MOVED
+  since that sync, not which two hashes look alike. Recording the DB hash
+  alone made every such record re-plan ``updated`` on every pass forever (303
+  of 3444 categories on one live catalogue, converging never), because the
+  fixture side was then compared against a hash it could never equal. A record
+  that lands not-equal is reported once as ``residual``, never silently.
 * **``is_test`` rows are invisible.** The DB view is built with
   ``build_catalog(include_test=False)``, so test rows never enter the diff:
   never created, updated, deleted or conflicted. If a fixture slug collides with
@@ -39,7 +47,7 @@ here:
   admin/Studio edit serializes against the load instead of interleaving.
 
 The sidecar is updated after a successful load to reflect the *applied* state:
-reconciled keys advance to their new DB hash, deleted keys drop out, and keys we
+reconciled keys advance to the pair they were synced at, deleted keys drop out, and keys we
 deliberately did **not** touch (DB-only drift, unresolved conflicts) keep their
 old base hash so they stay flagged on the next run — never a silent resolution.
 """
@@ -86,6 +94,11 @@ DB_NEW_IN_CANON = "db_new_in_canon"
 # tree after apply (and over the current tree in a dry run), not per fixture
 # record: either colliding row may be hand-seeded, imported, or years old.
 NAME_COLLISION = "name_collision"
+# Applied, and still not equal to the fixture: the row the write produced
+# hashes differently from the record that asked for it, so an export would
+# write something else. The sidecar records both sides (§4.1), so the record
+# does NOT re-plan — which is exactly why this note exists.
+RESIDUAL = "residual"
 ERROR = "error"          # bad fixture record (validation / dangling reference)
 
 # Inline (override) feature-list entries carry at least these keys; a bare
@@ -187,6 +200,10 @@ class Report:
         return self.conflicts > 0 or self.errors > 0
 
     @property
+    def residuals(self) -> int:
+        return self.count(RESIDUAL)
+
+    @property
     def renames(self) -> int:
         return sum(1 for it in self._all() if it.renamed)
 
@@ -209,24 +226,54 @@ _DB_NEW = "db_new"                 # db only, never in canon
 _GONE = "gone"                     # base only — dropped from both sides
 
 
-def _classify(base: Optional[str], fixture: Optional[str], db: Optional[str]) -> str:
+def _base_pair(entry):
+    """The ``(fixture, db)`` hashes one sidecar entry records for a key.
+
+    A sidecar entry is the pair the last successful sync produced: the FIXTURE
+    hash that was applied and the DB hash that apply left behind. They are not
+    always equal — the DB can hold a state the fixture shape cannot spell (see
+    §4.1) — and storing only the DB half is what made such a record re-plan
+    "updated" on every pass forever (0.20.1 and older: 303 of 3444 categories
+    on one live catalogue).
+
+    A LEGACY entry is a bare string — the applied DB hash, written before the
+    pair existed. Read as both halves it classifies exactly as it did then, so
+    an old sidecar keeps working and upgrades itself on the next load.
+    """
+    if entry is None:
+        return None, None
+    if isinstance(entry, str):
+        return entry, entry
+    return entry.get("fixture"), entry.get("db")
+
+
+def _classify(base, fixture: Optional[str], db: Optional[str]) -> str:
+    """Which side MOVED since the last sync — not which sides look alike.
+
+    Both halves of the base are compared to their own side, so "the fixture is
+    unchanged and nobody edited the DB" is a skip even where the two hashes
+    differ, and a real DB-side edit still moves the DB half and conflicts.
+    """
+    base_f, base_d = _base_pair(base)
     fp, dp, bp = fixture is not None, db is not None, base is not None
+    f_moved = not bp or fixture != base_f
+    d_moved = not bp or db != base_d
     if fp and dp:
-        if fixture == db:
-            return _SKIP if (bp and base == fixture) else _CONVERGED
-        if bp and db == base:
+        if not f_moved and not d_moved:
+            return _SKIP
+        if f_moved and not d_moved:
             return _FAST_FORWARD
-        if bp and fixture == base:
+        if d_moved and not f_moved:
             return _DB_ONLY
-        return _CONFLICT
+        return _CONVERGED if fixture == db else _CONFLICT
     if fp and not dp:
         if not bp:
             return _CREATE
-        return _DB_ONLY_DELETION if fixture == base else _CONFLICT
+        return _CONFLICT if f_moved else _DB_ONLY_DELETION
     if dp and not fp:
         if not bp:
             return _DB_NEW
-        return _DELETE if db == base else _DELETE_CONFLICT
+        return _DELETE_CONFLICT if d_moved else _DELETE
     return _GONE
 
 
@@ -894,9 +941,15 @@ def _materialize_override(cat, slug: str, entry: dict, used: set):
 
     desired = {
         # A slug-less row always states its identity; a slug-bearing override
-        # states a name only when it differs from the root's, and _UNSET means
-        # "this entry says nothing, leave/inherit whatever is there".
-        "name": entry.get("name", "") if (not slug or "name" in entry) else _UNSET,
+        # states a name only when it differs from the root's — so on that side
+        # ABSENT means "the root's name", the exact rule the export writes by
+        # (``_feature_list_entry``). It used to mean "leave whatever is there",
+        # which is not the same thing once the ROOT is renamed: the clone kept
+        # the old label, export then wrote it out, and the record's DB hash
+        # could never equal its fixture hash again — 112 of the 303 categories
+        # that re-planned "updated" forever on one live catalogue, each of them
+        # also showing a seller the label canon had already retired.
+        "name": entry.get("name", "") if not slug else entry.get("name", root.name),
         "icon": entry.get("icon", "") if not slug else _UNSET,
         "comment": entry.get("comment", "") if not slug else _UNSET,
         "config": entry.get("config") or {},
@@ -1248,6 +1301,9 @@ class _Planned:
     record: Optional[dict] = None   # fixture record for upserts
     note: str = ""                  # extra report detail (e.g. the rename)
     renamed: bool = False
+    #: The hash of the fixture side as this plan read it — half of the pair a
+    #: successful apply writes back to the sidecar (see _new_base).
+    fixture_hash: Optional[str] = None
 
 
 def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions,
@@ -1277,9 +1333,8 @@ def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions
             f_hash = cf.content_hash(hash_view(fix[key]) if hash_view else fix[key])
         else:
             f_hash = None
-        b_hash = base.get(key)
         d_hash = db_hashes.get(key)
-        raw = _classify(b_hash, f_hash, d_hash)
+        raw = _classify(base.get(key), f_hash, d_hash)
         decision = _decide(
             raw,
             db_present=d_hash is not None,
@@ -1290,7 +1345,8 @@ def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions
         if idents is not None and key in fix:
             note = idents.rename_detail(key, fix[key])
             renamed = idents.renamed_from(key) is not None
-        planned.append(_Planned(key, decision, fix.get(key), note=note, renamed=renamed))
+        planned.append(_Planned(key, decision, fix.get(key), note=note,
+                                renamed=renamed, fixture_hash=f_hash))
     return planned
 
 
@@ -1316,10 +1372,11 @@ def load_catalog(
     from .models import Category, Feature
 
     fix_feat, fix_cat, base = _load_inputs(directory)
-    if base is not None and base.get("version") != cf.STATE_VERSION:
+    if base is not None and base.get("version") not in cf.SUPPORTED_STATE_VERSIONS:
         raise ValueError(
             f"incompatible .sync-state.json version {base.get('version')!r} "
-            f"(expected {cf.STATE_VERSION}); regenerate via export_catalog"
+            f"(expected one of {', '.join(str(v) for v in cf.SUPPORTED_STATE_VERSIONS)}); "
+            "regenerate via export_catalog"
         )
     base_feat = (base or {}).get("features", {})
     base_cat = (base or {}).get("categories", {})
@@ -1404,9 +1461,10 @@ def _run_plan(
     feat_plan = _plan_side(
         fix_feat, base_feat, db_feat, on_conflict=on_conflict, deletions=deletions
     )
+    cat_view = _fixture_hash_view(_root_names_after(fix_feat, feat_plan))
     cat_plan = _plan_side(
         fix_cat, base_cat, db_cat, on_conflict=on_conflict, deletions=deletions,
-        idents=idents, hash_view=cf.category_sync_view,
+        idents=idents, hash_view=cat_view,
     )
     # A db_new row under a fixture-owned parent is duplicate-shaped — say so,
     # in the same plan the operator reads (dry run and apply alike).
@@ -1467,7 +1525,16 @@ def _run_plan(
         # export_catalog — including the one the db-only-drift warning tells
         # the operator to run — would see an unmoved max(revision) and silently
         # skip, stranding the drift out of canon forever.
-        _, _, db_after = cf.build_catalog(include_test=False)
+        feats_after, cats_after, db_after = cf.build_catalog(include_test=False)
+        # …and the honesty half of the convergence rule: a record whose applied
+        # row still cannot hash equal to its fixture is recorded as synced (it
+        # will not re-plan) — so it is SAID ONCE, here, with the keys that
+        # differ. A base that quietly absorbs a difference nobody was told
+        # about is a gate that proves nothing.
+        _report_residuals(report, "features", feat_plan, db_after["features"],
+                          {r["slug"]: r for r in feats_after}, None)
+        _report_residuals(report, "categories", cat_plan, db_after["categories"],
+                          {r["slug"]: r for r in cats_after}, cat_view)
         return {
             "version": cf.STATE_VERSION,
             "features": _new_base(base_feat, feat_plan, db_after["features"], report, "features"),
@@ -1488,6 +1555,56 @@ def _run_plan(
     for item in _unwritable_override_items(fix_feat, feat_plan, cat_upserts):
         report.add("categories", item)
     return None
+
+
+def _root_names_after(fix_feat, feat_plan) -> dict:
+    """``{feature slug: the root's name once this plan is applied}``.
+
+    Same shape as :func:`_root_types_after`, for the one key whose EXPORTED
+    presence depends on another record: an override's ``name`` is written only
+    when it differs from its root's (``cf._feature_list_entry``). The fixture
+    side has to hash by the same rule or a category stating the root's own
+    label for an override hashes differently from the row it just wrote —
+    forever (see :func:`_fixture_hash_view`).
+    """
+    from .models import Feature
+
+    names = dict(
+        Feature.objects.filter(
+            tn_parent__isnull=True, deleted=False, is_test=False
+        ).values_list("slug", "name")
+    )
+    for planned in feat_plan:
+        if planned.decision.op != "upsert":
+            continue
+        record = fix_feat.get(planned.key)
+        if record is not None:
+            names[planned.key] = record.get("name", "")
+    return names
+
+
+def _fixture_hash_view(root_names):
+    """The category projection the FIXTURE side is hashed through.
+
+    ``cf.category_sync_view`` (stand-owned keys stripped, as on the DB side)
+    plus the override-name rule above: an entry naming its override exactly as
+    its root names itself says nothing the root does not already say, and the
+    export writes no ``name`` there — so neither does the hash. The record the
+    apply phase reads is untouched; only the projection compared is.
+    """
+    def view(record: dict) -> dict:
+        entries = record.get("features") or ()
+        stripped, changed = [], False
+        for entry in entries:
+            slug = entry.get("slug") or ""
+            if slug and "name" in entry and entry["name"] == root_names.get(slug):
+                entry = {k: v for k, v in entry.items() if k != "name"}
+                changed = True
+            stripped.append(entry)
+        if changed:
+            record = {**record, "features": stripped}
+        return cf.category_sync_view(record)
+    return view
 
 
 def _root_types_after(fix_feat, feat_plan) -> dict:
@@ -1749,8 +1866,77 @@ def _record_passive(report, side, plan):
             report.add(side, _item(p))
 
 
+def _residual_keys(fixture_rec: dict, db_rec: dict) -> List[str]:
+    """The record keys that still differ after a successful apply."""
+    keys = []
+    for key in sorted(set(fixture_rec) | set(db_rec)):
+        f_val, d_val = fixture_rec.get(key, _UNSET), db_rec.get(key, _UNSET)
+        if f_val == d_val:
+            continue
+        if key == "features":
+            slugs = sorted({
+                e.get("slug") or "(slug-less)"
+                for e in _entry_diff(f_val if f_val is not _UNSET else [],
+                                     d_val if d_val is not _UNSET else [])
+            })
+            keys.append(f"features[{', '.join(slugs)}]" if slugs else "features")
+        else:
+            keys.append(key)
+    return keys
+
+
+def _entry_diff(fixture_entries, db_entries) -> list:
+    """Feature-list entries present on one side and not the other, verbatim."""
+    def norm(entries):
+        return [json.dumps(e, sort_keys=True, ensure_ascii=False) for e in entries]
+
+    f_blobs, d_blobs = norm(fixture_entries), norm(db_entries)
+    out = [e for e, b in zip(fixture_entries, f_blobs) if b not in d_blobs]
+    out += [e for e, b in zip(db_entries, d_blobs) if b not in f_blobs]
+    return out
+
+
+def _report_residuals(report, side, plan, db_after_hashes, db_records, hash_view):
+    """Say which reconciled records the DB still cannot spell as the fixture does.
+
+    Called only after a real apply. Not a failure and not a conflict: the write
+    the fixture asked for went in, and the sidecar now records both sides, so
+    the record converges. What it cannot do is round-trip — an export would
+    write something else — and the operator hears that once instead of reading
+    "updated" for the same rows on every pass.
+    """
+    errored = {it.key for it in (report.features if side == "features" else report.categories)
+               if it.kind == ERROR}
+    for p in plan:
+        if not p.decision.reconciled or p.fixture_hash is None or p.key in errored:
+            continue  # a record that failed to apply is already reported as one
+        db_hash = db_after_hashes.get(p.key)
+        if db_hash is None or db_hash == p.fixture_hash:
+            continue
+        db_rec = db_records.get(p.key)
+        fixture_rec = p.record or {}
+        if db_rec is None:
+            continue
+        if hash_view is not None:
+            fixture_rec, db_rec = hash_view(fixture_rec), cf.category_sync_view(db_rec)
+        keys = _residual_keys(fixture_rec, db_rec)
+        report.add(side, Item(RESIDUAL, p.key, (
+            "applied, but the live row still differs from the fixture in "
+            f"{', '.join(keys) or '(unknown keys)'} — recorded as synced; "
+            "run export_catalog to bring canon back in line"
+        )))
+
+
 def _new_base(old_base, plan, db_after_hashes, report, side):
-    """Build the new sidecar hashes for one side from the applied outcomes."""
+    """Build the new sidecar hashes for one side from the applied outcomes.
+
+    A reconciled key records BOTH halves of what the sync just established:
+    the fixture hash it applied and the DB hash that apply produced. Recording
+    only the DB half (0.20.1 and older) is what kept a record whose applied DB
+    state cannot equal its fixture hash — an override whose label export writes
+    conditionally, anything the fixture shape cannot spell — re-planned
+    "updated" on every subsequent pass, forever.
+    """
     result = dict(old_base)
     # Records that errored were re-tagged with kind ERROR; find them so their
     # base entry is left untouched.
@@ -1765,7 +1951,7 @@ def _new_base(old_base, plan, db_after_hashes, report, side):
         elif dec.reconciled:
             h = db_after_hashes.get(p.key)
             if h is not None:
-                result[p.key] = h
+                result[p.key] = {"fixture": p.fixture_hash, "db": h}
             else:
                 # e.g. a fixture that created an is_test row (excluded from the
                 # DB view) — nothing to track.

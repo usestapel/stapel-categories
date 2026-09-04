@@ -778,11 +778,15 @@ class SidecarUpdateTests(_CatalogTestCase):
             self.assertTrue(report.failed)  # phones conflicted
             state_after = _read_json(out, cf.STATE_FILE)
 
-            # fast-forwarded record: base advanced to the new applied DB hash
+            # fast-forwarded record: base advanced to the PAIR it synced at —
+            # the applied DB hash plus the fixture hash that asked for it.
             _, _, db_state = cf.build_catalog()
+            entry = state_after["categories"]["electronics"]
+            self.assertEqual(entry["db"], db_state["categories"]["electronics"])
+            fix_cat = cl._load_inputs(out)[1]
             self.assertEqual(
-                state_after["categories"]["electronics"],
-                db_state["categories"]["electronics"],
+                entry["fixture"],
+                cf.content_hash(cf.category_sync_view(fix_cat["electronics"])),
             )
             self.assertNotEqual(
                 state_after["categories"]["electronics"],
@@ -1769,3 +1773,184 @@ class SiblingNameCollisionTests(_CatalogTestCase):
             text = stdout.getvalue()
             self.assertIn("other-1", text)
             self.assertIn("other-2", text)
+
+
+# ---------------------------------------------------------------------------
+# Convergence: a second load over an unchanged fixture is a no-op, even where
+# the applied row cannot hash equal to the record that asked for it (0.20.2)
+# ---------------------------------------------------------------------------
+
+
+class ConvergenceTests(_CatalogTestCase):
+    """The 431 → 303 → 303 → … loop, and the three shapes that caused it.
+
+    Measured on a live catalogue (3444 categories, 3192 root features,
+    ``--on-conflict fixture-wins --deletions ignore``): after a full load, 303
+    categories re-planned ``updated`` on every subsequent pass and never
+    converged — zero conflicts, zero creates, and an apply that wrote nothing
+    (the dirty guard in ``_apply_category_upsert`` held). The base advanced to
+    the APPLIED DB HASH, so a record whose DB state can never equal its
+    fixture hash was compared, forever, against a number it could not reach.
+    """
+
+    def _load(self, out):
+        return cl.load_catalog(out, on_conflict=cl.ON_CONFLICT_FIXTURE,
+                               deletions=cl.DELETIONS_IGNORE)
+
+    def _catalogue(self):
+        """A root feature, a category referencing it, and a category whose
+        entry is an OVERRIDE clone of it (the shared-namespace shape)."""
+        make = Feature.objects.create(
+            name="Root Make", slug="make",
+            config={"type": "select", "options": _opts("bmw", "audi")},
+        )
+        transport = Category.objects.create(name="Transport", slug="transport")
+        cars = Category.objects.create(name="Cars", slug="cars", tn_parent=transport)
+        CategoryFeature.objects.create(category=cars, feature=make, order=0)
+        clone = Feature.objects.create(
+            tn_parent=make, slug="make", name="Root Make",
+            config={"type": "select", "options": _opts("bmw", "audi", "kia")},
+        )
+        moto = Category.objects.create(name="Moto", slug="moto", tn_parent=transport)
+        CategoryFeature.objects.create(category=moto, feature=clone, order=0)
+        return make, cars, moto
+
+    def test_an_entry_naming_itself_exactly_as_its_root_converges(self):
+        """Class 1: the fixture states a name for an override that EQUALS the
+        root's, so export writes no ``name`` there at all — the record hashes
+        differently from the row it just wrote, on every pass."""
+        self._catalogue()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            rec = next(c for c in cats if c["slug"] == "cars")
+            rec["features"] = [{
+                "slug": "make", "name": "Root Make",
+                "config": {"type": "select", "options": _opts("bmw", "audi")},
+            }]
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            first = self._load(out)
+            self.assertEqual(first.count(cl.UPDATED), 1)
+            second = self._load(out)
+            self.assertEqual(second.count(cl.UPDATED), 0)
+            self.assertEqual(second.count(cl.CREATED), 0)
+            self.assertEqual(second.count(cl.RESIDUAL), 0)
+            self.assertEqual(self._load(out).count(cl.UPDATED), 0)
+
+    def test_an_unnamed_override_follows_its_root_and_converges(self):
+        """Class 2: canon renames the root; the category's entry says nothing
+        about the override's name — which means "the root's", the rule export
+        writes by. The clone kept the OLD label (a seller saw the retired one)
+        and export wrote it out, so the record never converged."""
+        make, _cars, _moto = self._catalogue()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            feats = _read_json(out, cf.FEATURES_FILE)
+            next(f for f in feats if f["slug"] == "make")["name"] = "Make"
+            _write_json(out, cf.FEATURES_FILE, feats)
+
+            first = self._load(out)
+            self.assertEqual(first.count(cl.RESIDUAL), 0)
+            # The category plan is classified against the DB as it stands
+            # BEFORE the feature upserts of the same run, so a root rename
+            # reaches the categories that inherit its label on the NEXT pass
+            # (there, as db-side drift the fixture policy reverts). That is one
+            # extra pass, not an endless one — which is the whole point.
+            second = self._load(out)
+            self.assertEqual(second.count(cl.UPDATED), 1)
+            moto = Category.objects.get(slug="moto")
+            override = moto.category_features.get().feature
+            self.assertIsNotNone(override.tn_parent_id)
+            self.assertEqual(override.name, "Make")  # pulled back to the root
+            self.assertEqual(Feature.objects.get(pk=make.pk).name, "Make")
+
+            third = self._load(out)
+            self.assertEqual(third.count(cl.UPDATED), 0)
+            self.assertEqual(self._load(out).count(cl.UPDATED), 0)
+
+    def test_a_state_the_fixture_cannot_spell_converges_and_is_said_once(self):
+        """Class 3: a record whose applied row is legitimately unhashable as
+        the fixture — an ``is_test`` inline entry the export view excludes.
+        The write goes in, the record converges, and the difference is
+        REPORTED (residual) instead of re-planned as ``updated`` forever."""
+        self._catalogue()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            rec = next(c for c in cats if c["slug"] == "cars")
+            rec["features"] = rec["features"] + [{
+                "slug": "", "name": "Scratch", "is_test": True,
+                "config": {"type": "string"},
+            }]
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            first = self._load(out)
+            residuals = [it for it in first.categories if it.kind == cl.RESIDUAL]
+            self.assertEqual([it.key for it in residuals], ["cars"])
+            self.assertIn("features", residuals[0].detail)
+            self.assertFalse(first.failed)  # not a conflict, not an error
+
+            second = self._load(out)
+            self.assertEqual(second.count(cl.UPDATED), 0)
+            self.assertEqual(second.count(cl.RESIDUAL), 0)  # said once, not per pass
+            self.assertEqual(self._load(out).count(cl.UPDATED), 0)
+
+    def test_a_db_side_edit_after_convergence_still_conflicts(self):
+        """Convergence must not blunt the 3-way diff: once a record is synced
+        at its pair, a real DB-side edit moves the DB half and is seen."""
+        self._catalogue()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            rec = next(c for c in cats if c["slug"] == "cars")
+            rec["features"] = rec["features"] + [{
+                "slug": "", "name": "Scratch", "is_test": True,
+                "config": {"type": "string"},
+            }]
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+            self._load(out)
+            self.assertEqual(self._load(out).count(cl.UPDATED), 0)
+
+            cars = Category.objects.get(slug="cars")
+            cars.comment = "edited in the admin"
+            cars.save()
+
+            drift = cl.load_catalog(out)  # default policy: abort
+            self.assertEqual([it.kind for it in drift.categories if it.key == "cars"],
+                             [cl.DB_ONLY])
+
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            next(c for c in cats if c["slug"] == "cars")["name"] = "Fixture Cars"
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+            both = cl.load_catalog(out)
+            self.assertEqual([it.kind for it in both.categories if it.key == "cars"],
+                             [cl.CONFLICT])
+            self.assertTrue(both.failed)
+
+    def test_a_version_4_sidecar_is_read_and_upgraded_in_place(self):
+        """The bare-string entries an older loader (and every export) writes
+        are read as both halves of the pair, so an upgrade needs no
+        regeneration — and the first load that touches a key upgrades it."""
+        self._catalogue()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            state = _read_json(out, cf.STATE_FILE)
+            state["version"] = 4
+            self.assertTrue(all(isinstance(v, str) for v in state["categories"].values()))
+            _write_json(out, cf.STATE_FILE, state)
+
+            unchanged = self._load(out)
+            self.assertEqual(unchanged.count(cl.UPDATED), 0)  # classified as before
+
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            next(c for c in cats if c["slug"] == "cars")["comment"] = "canon says so"
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+            self.assertEqual(self._load(out).count(cl.UPDATED), 1)
+
+            state_after = _read_json(out, cf.STATE_FILE)
+            self.assertEqual(state_after["version"], 5)
+            self.assertEqual(set(state_after["categories"]["cars"]), {"fixture", "db"})
+            # untouched keys keep the form they had
+            self.assertIsInstance(state_after["categories"]["moto"], str)
+            self.assertEqual(self._load(out).count(cl.UPDATED), 0)
