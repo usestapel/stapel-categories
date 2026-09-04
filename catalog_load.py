@@ -36,6 +36,15 @@ here:
   of 3444 categories on one live catalogue, converging never), because the
   fixture side was then compared against a hash it could never equal. A record
   that lands not-equal is reported once as ``residual``, never silently.
+* **A fixture never erases what it does not state (0.20.3).** An optional
+  category scalar the record leaves out (``_OPTIONAL_CATEGORY_SCALARS``) keeps
+  the live value; only an explicit key — ``""`` / ``auto`` included — clears a
+  column, and an unsaid key is hashed as the value it keeps, so it produces no
+  ``updated`` row. The export writes ``children_as`` / ``children_axis_label``
+  / ``external_source`` only when set, so "absent" is a shape canon itself
+  produces: applying it as ``""`` is how one reload blanked every axis caption
+  ``derive_children_as --apply`` had just written. The load reports how many
+  values it kept.
 * **``is_test`` rows are invisible.** The DB view is built with
   ``build_catalog(include_test=False)``, so test rows never enter the diff:
   never created, updated, deleted or conflicted. If a fixture slug collides with
@@ -176,6 +185,12 @@ class Report:
     #: 0.15.0), which is exactly why it is worth reporting — after this
     #: release, one here means the resurrection came from somewhere else.
     resurrected: List[str] = field(default_factory=list)
+    #: ``{optional scalar: how many category records left it unsaid over a
+    #: live, non-default value}`` — what this load KEPT rather than blanked
+    #: (see :data:`_OPTIONAL_CATEGORY_SCALARS`). Reported because the erasure
+    #: it replaces was silent: a reload answered ``children_axis_label: ''``
+    #: for every derived chip row and said nothing about having done it.
+    kept_unsaid: Dict[str, int] = field(default_factory=dict)
 
     def add(self, side: str, item: Item) -> None:
         (self.features if side == "features" else self.categories).append(item)
@@ -435,33 +450,93 @@ def _normalize_entry(entry: dict) -> dict:
     return out
 
 
-def _normalize_category_record(rec: dict) -> dict:
-    """Coerce a fixture category record to the exact shape export writes."""
-    from .models import CHILDREN_AS_AUTO
+# Category scalars a fixture record may leave UNSAID — and the whole point of
+# the list: an absent key is not an instruction to blank the column.
+#
+# The export writes `children_as`, `children_axis_label` and
+# `external_source` only when they are set, so absence is a shape CANON
+# ITSELF produces. Reading it as "" is how a full reload
+# (`--on-conflict fixture-wins`) blanked every axis caption
+# `derive_children_as --apply` had just written: three of four chip rows came
+# back answering `children_axis_label: ''`, and the fourth kept its label only
+# because that one record happened to state it. The rest of the list are keys
+# a hand-written record may omit for exactly the same reason — a fixture must
+# not erase what it does not state.
+#
+# The rule: an ABSENT key keeps the live value; a STATED one is applied, the
+# unset value (`""` / `auto`) included — that is how a fixture CLEARS a
+# column. A row being created has nothing to keep and takes the field default.
+#
+# Not on the list, and why:
+#   * `slug` / `parent_slug` / `name` / `features` — identity, structure and
+#     content the export always states; absence there is a malformed record,
+#     not a "keep". `parent_slug` could not use this rule anyway: an absent
+#     key and an explicit `null` both mean "this is a root".
+#   * `catalog_icon` / `carousel_icon` / `carousel_enabled` / `active` —
+#     stand curation. Already write-once (`_apply_category_upsert` sets them
+#     only on create) and stripped from every hash (`cf.CURATION_KEYS`): the
+#     same cure, two releases earlier, for the same failure.
+#   * `is_test` / `deleted` / `tn_parent_id` — the loader owns these outright,
+#     and an is_test row is refused before a scalar is written at all.
+_OPTIONAL_CATEGORY_SCALARS = (
+    "children_as", "children_axis_label", "comment",
+    "external_id", "external_source", "translatable",
+)
 
+#: Of those, the ones the EXPORT writes only when set (``cf._category_record``).
+#: The fixture side has to hash by the same rule — drop an unset value — or a
+#: record spelling the default out never equals the row it describes.
+_EXPORT_WHEN_SET = ("children_as", "children_axis_label", "external_source")
+
+_OPTIONAL_DEFAULTS: Dict[str, object] = {}
+
+
+def _optional_defaults() -> Dict[str, object]:
+    """What each optional scalar holds on a row nobody has decided for.
+
+    Read from the model's own fields rather than restated here: the "unset"
+    value of a column is the column's default, and a second copy of it in this
+    module is a copy that can drift.
+    """
+    if not _OPTIONAL_DEFAULTS:
+        from .models import Category
+
+        for key in _OPTIONAL_CATEGORY_SCALARS:
+            _OPTIONAL_DEFAULTS[key] = Category._meta.get_field(key).get_default()
+    return _OPTIONAL_DEFAULTS
+
+
+def _normalize_category_record(rec: dict) -> dict:
+    """Coerce a fixture category record to the exact shape export writes.
+
+    An optional scalar (see :data:`_OPTIONAL_CATEGORY_SCALARS`) the record does
+    not state is left ABSENT here — absence is the instruction "keep the live
+    value", and normalizing it to "" is precisely the erasure this guards.
+    """
     out = {
         "slug": rec["slug"],
         "parent_slug": rec.get("parent_slug"),
         "name": rec.get("name", ""),
-        "comment": rec.get("comment", ""),
         "catalog_icon": rec.get("catalog_icon", ""),
         "carousel_icon": rec.get("carousel_icon", ""),
         "carousel_enabled": bool(rec.get("carousel_enabled", False)),
         "active": bool(rec.get("active", True)),
-        "external_id": rec.get("external_id", ""),
-        "translatable": bool(rec.get("translatable", True)),
         "features": [_normalize_entry(e) for e in rec.get("features", [])],
     }
-    # Mirrors the export: present only when set (see _category_record).
-    if rec.get("external_source"):
-        out["external_source"] = rec["external_source"]
-    # Same rule for the authored presentation: absent and `auto` are one
-    # state, so a fixture that spells the default out hashes as the default.
-    if rec.get("children_as") and rec["children_as"] != CHILDREN_AS_AUTO:
-        out["children_as"] = rec["children_as"]
-    # Same rule for the axis caption: blank and absent are one state.
-    if rec.get("children_axis_label"):
-        out["children_axis_label"] = rec["children_axis_label"]
+    defaults = _optional_defaults()
+    for key in _OPTIONAL_CATEGORY_SCALARS:
+        if key not in rec:
+            continue
+        value, default = rec[key], defaults[key]
+        if value is None:
+            value = default
+        if isinstance(default, bool):
+            value = bool(value)
+        elif isinstance(default, str) and not value:
+            # "" is the unset value of a blank-able column and stays; on one
+            # with a non-blank default (`children_as`) it means that default.
+            value = default
+        out[key] = value
     if rec.get("is_test"):
         out["is_test"] = True
     return out
@@ -685,8 +760,8 @@ def _cyclic(order_after: Dict[str, str]) -> List[str]:
     return sorted(set(order_after) - seen)
 
 
-def _remap_by_identity(hashes: Dict[str, str], idents: _Identities) -> Dict[str, str]:
-    """Re-key a slug-keyed hash map (DB view or sidecar base) onto the renames.
+def _remap_by_identity(hashes: dict, idents: _Identities) -> dict:
+    """Re-key a slug-keyed map (DB view, sidecar base, live optional values).
 
     The 3-way diff is keyed by slug; a renamed node's DB and base hashes are
     filed under its OLD slug, so without this the diff reads a rename as a
@@ -1131,7 +1206,7 @@ def _match_category(record: dict):
 
 
 def _apply_category_upsert(record: dict):
-    from .models import CHILDREN_AS_AUTO, Category
+    from .models import Category
 
     slug = record["slug"]
     existing, by_identity = _match_category(record)
@@ -1173,9 +1248,15 @@ def _apply_category_upsert(record: dict):
 
     cat.slug = slug
     cat.name = record.get("name", "")
-    cat.external_id = record.get("external_id", "")
-    cat.external_source = record.get("external_source", "")
-    cat.comment = record.get("comment", "")
+    # Optional scalars: a key the record does not state says nothing, so the
+    # live value stands (see _OPTIONAL_CATEGORY_SCALARS). A stated one is
+    # written, `""` / `auto` included — that is a fixture CLEARING a column.
+    defaults = _optional_defaults()
+    for key in _OPTIONAL_CATEGORY_SCALARS:
+        if key in record:
+            setattr(cat, key, record[key])
+        elif created:
+            setattr(cat, key, defaults[key])
     if created:
         # Curation is stand-owned (cf.CURATION_KEYS): the fixture seeds it on
         # a fresh row (an export→restore keeps its curation), but an update
@@ -1192,13 +1273,11 @@ def _apply_category_upsert(record: dict):
         cat.carousel_icon = record.get("carousel_icon", "")
         cat.carousel_enabled = bool(record.get("carousel_enabled", False))
         cat.active = bool(record.get("active", True))
-    cat.translatable = bool(record.get("translatable", True))
-    # Catalogue content, not stand curation: a partition of one template is a
-    # partition wherever the catalogue is loaded. An operator who authored a
-    # different value has changed the DB side, so the 3-way diff reports a
-    # conflict there instead of this line quietly winning.
-    cat.children_as = record.get("children_as") or CHILDREN_AS_AUTO
-    cat.children_axis_label = record.get("children_axis_label") or ""
+    # `children_as` / `children_axis_label` are catalogue content, not stand
+    # curation: a partition of one template is a partition wherever the
+    # catalogue is loaded, so a STATED value is written here like any other.
+    # An operator who authored a different one has changed the DB side, and
+    # the 3-way diff reports a conflict rather than this loop quietly winning.
     cat.is_test = bool(record.get("is_test", False))
     cat.deleted = False
     cat.tn_parent = parent
@@ -1457,11 +1536,15 @@ def _run_plan(
     idents = _resolve_identities(fix_cat)
     db_cat = _remap_by_identity(db_cat, idents)
     base_cat = _remap_by_identity(base_cat, idents)
+    # The live values an unsaid key keeps — re-keyed onto the renames with
+    # everything else, or a renamed node would read its predecessor's blanks.
+    db_optional = _remap_by_identity(_db_optional_values(), idents)
+    report.kept_unsaid = _kept_unsaid(fix_cat, db_optional)
 
     feat_plan = _plan_side(
         fix_feat, base_feat, db_feat, on_conflict=on_conflict, deletions=deletions
     )
-    cat_view = _fixture_hash_view(_root_names_after(fix_feat, feat_plan))
+    cat_view = _fixture_hash_view(_root_names_after(fix_feat, feat_plan), db_optional)
     cat_plan = _plan_side(
         fix_cat, base_cat, db_cat, on_conflict=on_conflict, deletions=deletions,
         idents=idents, hash_view=cat_view,
@@ -1583,15 +1666,89 @@ def _root_names_after(fix_feat, feat_plan) -> dict:
     return names
 
 
-def _fixture_hash_view(root_names):
+def _db_optional_values() -> Dict[str, dict]:
+    """``{slug: {optional scalar: the live value}}`` — one query for the load.
+
+    The values an unsaid fixture key keeps. Keyed by slug, the same space the
+    DB hashes and the sidecar base use, so ``_remap_by_identity`` moves them
+    onto a rename with everything else.
+    """
+    from .models import Category
+
+    keys = _OPTIONAL_CATEGORY_SCALARS
+    rows = Category.objects.filter(deleted=False, is_test=False).values_list(
+        "slug", *keys
+    )
+    return {row[0]: dict(zip(keys, row[1:])) for row in rows}
+
+
+def _optional_projection(record: dict, live, defaults: dict) -> dict:
+    """The optional scalars of one record as the DB side spells them.
+
+    Hashing only — the record the apply phase reads is untouched.
+
+    An UNSAID key is hashed as the value it will KEEP, so "the fixture does
+    not state it" classifies as unchanged instead of as an update that blanks
+    the column. A stated key is hashed as itself, dropped where the export
+    would write nothing at all (:data:`_EXPORT_WHEN_SET`) — which is both what
+    makes a fixture spelling out the default hash as the row it describes, and
+    what lets an explicit ``""`` converge in one pass: once the column is
+    cleared, the two sides agree instead of differing forever.
+    """
+    out = dict(record)
+    for key in _OPTIONAL_CATEGORY_SCALARS:
+        default = defaults[key]
+        if key in record:
+            value = record[key]
+        elif live is not None:
+            value = live.get(key, default)
+        else:
+            value = default
+        if key in _EXPORT_WHEN_SET and value == default:
+            out.pop(key, None)
+        else:
+            out[key] = value
+    return out
+
+
+def _kept_unsaid(fix_cat: Dict[str, dict], db_optional: Dict[str, dict]) -> Dict[str, int]:
+    """``{key: how many records left it unsaid over a live value}``.
+
+    Only where the live value is not the field's default: keeping a default is
+    keeping nothing, and a summary counting those would report a number the
+    size of the catalogue on a stand where nothing was ever derived.
+    """
+    defaults = _optional_defaults()
+    kept: Dict[str, int] = {}
+    for slug, record in fix_cat.items():
+        live = db_optional.get(slug)
+        if live is None:
+            continue
+        for key in _OPTIONAL_CATEGORY_SCALARS:
+            if key in record:
+                continue
+            if live.get(key, defaults[key]) != defaults[key]:
+                kept[key] = kept.get(key, 0) + 1
+    return kept
+
+
+def _fixture_hash_view(root_names, db_optional):
     """The category projection the FIXTURE side is hashed through.
 
     ``cf.category_sync_view`` (stand-owned keys stripped, as on the DB side)
-    plus the override-name rule above: an entry naming its override exactly as
-    its root names itself says nothing the root does not already say, and the
-    export writes no ``name`` there — so neither does the hash. The record the
-    apply phase reads is untouched; only the projection compared is.
+    plus two rules that both say the same thing — a fixture is hashed by what
+    it MEANS, not by which keys it happens to spell:
+
+    * the override-name rule above: an entry naming its override exactly as
+      its root names itself says nothing the root does not already say, and
+      the export writes no ``name`` there — so neither does the hash;
+    * :func:`_optional_projection`: a key the record leaves unsaid is hashed
+      as the live value it keeps, so it produces no ``updated`` row.
+
+    The record the apply phase reads is untouched; only the projection is.
     """
+    defaults = _optional_defaults()
+
     def view(record: dict) -> dict:
         entries = record.get("features") or ()
         stripped, changed = [], False
@@ -1603,6 +1760,9 @@ def _fixture_hash_view(root_names):
             stripped.append(entry)
         if changed:
             record = {**record, "features": stripped}
+        record = _optional_projection(
+            record, db_optional.get(record.get("slug")), defaults
+        )
         return cf.category_sync_view(record)
     return view
 

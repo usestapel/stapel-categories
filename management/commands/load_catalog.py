@@ -189,6 +189,19 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING(line))
                 else:
                     self.stdout.write(line)
+        if report.kept_unsaid:
+            # What the load did NOT blank. An absent key is not an instruction
+            # to empty a column, and the erasure this replaces was silent: a
+            # reload wiped every axis caption `derive_children_as` had written
+            # and reported nothing but "updated".
+            total = sum(report.kept_unsaid.values())
+            detail = ", ".join(
+                f"{key} {count}" for key, count in sorted(report.kept_unsaid.items())
+            )
+            self.stdout.write(
+                f"{prefix}kept {total} live value(s) the fixture does not "
+                f"state ({detail})"
+            )
         if report.dead_end_leaves:
             # Import-time echo of catalog_health's gate: the tree this load
             # just produced has active leaves that type nothing. The load

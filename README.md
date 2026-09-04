@@ -24,7 +24,7 @@ pip install stapel-categories
 
 | Fact | Value |
 |---|---|
-| Version | `0.20.2` |
+| Version | `0.20.3` |
 | Python | `>=3.11` (3.11, 3.12, 3.13, 3.14) |
 | HTTP operations | 34 |
 | Config axes | 1 |

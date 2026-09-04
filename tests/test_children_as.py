@@ -10,6 +10,7 @@ Three things are pinned here, and they are pinned against each other:
 * what the catalogue FIXTURE carries, since a value that does not survive the
   round trip is a decision the next image forgets.
 """
+import io
 import tempfile
 
 import pytest
@@ -1011,3 +1012,56 @@ class TestAxisLabelFixtureRoundTrip(_CatalogTestCase):
                 Category.objects.get(slug="electronics").children_axis_label
                 == "categories.axis.condition"
             )
+
+
+class TestAxisLabelSurvivesAReload(_CatalogTestCase):
+    """derive → apply → reload → derive is a no-op (0.20.3).
+
+    The step that broke on a live stand: a full ``load_catalog --on-conflict
+    fixture-wins`` after the derivation blanked every caption the derivation
+    had just written — the fixture on disk predates the derivation and says
+    nothing about the column, and an absent key was applied as ``""``. Between
+    the two commands every chip row on the stand was uncaptioned, and the next
+    ``--apply`` had all of its work to do again.
+    """
+
+    def _realty(self):
+        root = Category.objects.create(name="Flats", slug="flats")
+        buy = Category.objects.create(name="Куплю", slug="flats-buy", tn_parent=root)
+        rent = Category.objects.create(name="Сдам", slug="flats-rent", tn_parent=root)
+        link(root)
+        link(buy, "rooms", "area", "floor")
+        link(rent, "deposit", "term", "pets")
+        return root
+
+    def test_a_derived_caption_survives_the_reload_that_erased_it(self):
+        root = self._realty()
+        label = AXIS_LABEL_KEYS["transaction"]
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            call_command("derive_children_as", "--apply")
+            root.refresh_from_db()
+            assert root.children_axis_label == label
+            # Canon predates the derivation: it does not mention the column.
+            assert all(
+                "children_axis_label" not in record
+                for record in _read_json(out, cf.CATEGORIES_FILE)
+            )
+
+            report = cl.load_catalog(
+                out, on_conflict=cl.ON_CONFLICT_FIXTURE,
+                deletions=cl.DELETIONS_IGNORE,
+            )
+
+            assert not report.failed
+            assert report.kept_unsaid == {"children_axis_label": 1}
+            root.refresh_from_db()
+            assert root.children_axis_label == label
+
+            # …and the derivation has nothing left to do, which is the only
+            # form of "idempotent" that means anything after a reload.
+            buf = io.StringIO()
+            call_command("derive_children_as", "--apply", stdout=buf)
+            assert "Nothing to write." in buf.getvalue()
+            root.refresh_from_db()
+            assert root.children_axis_label == label

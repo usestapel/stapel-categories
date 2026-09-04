@@ -4286,6 +4286,14 @@
           },
           "uiStyle": {
             "$ref": "#/components/schemas/RefSelectConfigUiStyleEnum"
+          },
+          "prefix": {
+            "type": "string",
+            "nullable": true
+          },
+          "postfix": {
+            "type": "string",
+            "nullable": true
           }
         }
       },

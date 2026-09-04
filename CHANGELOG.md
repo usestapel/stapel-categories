@@ -1,5 +1,56 @@
 # Changelog
 
+## [0.20.3] — 2026-09-04
+
+### Fixed
+
+- **A fixture no longer erases what it does not state.** After a full
+  `load_catalog --on-conflict fixture-wins` reload on a live stand, three of
+  the four chip rows answered `children_axis_label: ""` — every caption
+  `derive_children_as --apply` had written the same afternoon was gone, and
+  the fourth kept its own only because that one record happened to spell it
+  out. A storefront then drew every partition uncaptioned, and the next
+  derivation run had all of its work to do again.
+
+  Root cause: 0.20.0 put `children_axis_label` in `_CATEGORY_SCALARS`, and
+  `_apply_category_upsert` read it as `record.get("children_axis_label") or ""`
+  — but the EXPORT writes that key only when it is set, so an absent key is a
+  shape canon itself produces on every category that has no caption. Absence
+  was applied as an instruction to blank the column. The same line stood over
+  `children_as`, and the same `.get(key, "")` reading over `comment`,
+  `external_id`, `external_source` and `translatable`.
+
+  The rule now, for every optional category scalar
+  (`catalog_load._OPTIONAL_CATEGORY_SCALARS`): an **absent** key keeps the
+  live value; an **explicit** key is applied, `""` and `auto` included — that
+  is how a fixture clears a column, and it converges in one pass rather than
+  reporting a residual forever. The curation keys (`catalog_icon`,
+  `carousel_icon`, `carousel_enabled`, `active`) already had this cure in a
+  stronger form — write-once, hash-stripped, since 0.15.0 — and keep it;
+  `slug`, `parent_slug`, `name` and `features` are deliberately outside the
+  rule, being identity, structure and content the export always states (and
+  for `parent_slug`, an absent key and an explicit `null` are the same "this
+  is a root").
+
+  The plan half matters as much as the write: an unsaid key is HASHED as the
+  value it keeps (`_optional_projection`, the same trick the override-name
+  rule uses), so such a record classifies as unchanged. Without that, a
+  catalogue whose captions live only in the DB would read `updated` for every
+  derived row on every pass — the churn 0.20.2 was released to end — and a
+  db-side value the fixture never mentions would report as drift the operator
+  is told to export.
+
+  Because the erasure was silent, the load now SAYS what it kept: `kept N live
+  value(s) the fixture does not state (children_axis_label 3)`, per key, in
+  both the dry run and the real load (`Report.kept_unsaid`). A count of
+  defaults kept is not reported — keeping a default is keeping nothing.
+
+  `derive_children_as --apply` is therefore idempotent across a reload again,
+  which is pinned end to end: derive → apply → load a fixture that does not
+  mention the column → the caption survives → derive again prints "Nothing to
+  write." No migration, no sidecar bump: `STATE_VERSION` stays 5 and every
+  hash on disk keeps its meaning.
+
 ## [0.20.2] — 2026-09-04
 
 ### Fixed

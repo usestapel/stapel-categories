@@ -441,6 +441,19 @@ silently absorbed. A pre-0.20.2 sidecar (bare string per key = the DB hash) is
 read as both halves and upgrades itself on the first load that touches the
 key; `STATE_VERSION` is 5 so an older loader refuses a pair loudly.
 
+**A fixture does not erase what it does not state (0.20.3).** An optional
+category scalar a record leaves out — `children_as`, `children_axis_label`,
+`comment`, `external_id`, `external_source`, `translatable` — keeps the live
+value; only an explicit key clears a column, `""` and `auto` included. The
+export writes the first three **only when set**, so "absent" is a shape canon
+itself produces, and applying it as `""` is how a full `fixture-wins` reload
+blanked every axis caption `derive_children_as --apply` had just written (the
+one chip row that kept its caption kept it because that record happened to
+spell it out). An unsaid key is also hashed as the value it keeps, so it
+produces no `updated` row and no db-only drift — the same standing the
+curation keys have had since 0.15.0, granted for the same reason and only
+while the fixture stays silent. The load prints how many live values it kept.
+
 One shape that used to produce that state is now simply correct: an override's
 `name` is exported **only when it differs from its root's**, so an absent one
 means "the root's" — and the loader now writes it that way (a clone left with

@@ -10,6 +10,7 @@ Covers docs/catalog-fixtures-sync.md §3-§4 and §6:
 - subtree lock is taken; save()-path emits category.changed (outbox atomicity)
 - sidecar reflects the applied state after a load
 """
+import io
 import json
 import os
 import tempfile
@@ -1954,3 +1955,215 @@ class ConvergenceTests(_CatalogTestCase):
             # untouched keys keep the form they had
             self.assertIsInstance(state_after["categories"]["moto"], str)
             self.assertEqual(self._load(out).count(cl.UPDATED), 0)
+
+
+class UnsaidKeyTests(_CatalogTestCase):
+    """A fixture must not erase what it does not state (0.20.3).
+
+    The live failure: a full ``--on-conflict fixture-wins`` reload blanked
+    every ``children_axis_label`` ``derive_children_as --apply`` had written —
+    three chip rows came back answering ``''`` and the fourth kept its caption
+    only because that one record happened to spell it out. 0.20.0 put the
+    column in ``_CATEGORY_SCALARS``; the export writes it only when set, so an
+    absent key reached ``_apply_category_upsert`` as ``""``.
+
+    The rule pinned here: an ABSENT optional key keeps the live value, an
+    EXPLICIT one is applied, ``""`` included — and an unsaid key produces no
+    ``updated`` row, because nothing on the fixture side moved.
+    """
+
+    def _load(self, out, **kwargs):
+        kwargs.setdefault("on_conflict", cl.ON_CONFLICT_FIXTURE)
+        return cl.load_catalog(out, **kwargs)
+
+    def test_an_absent_axis_label_survives_a_fixture_wins_reload(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            # Written after the export, exactly as `derive_children_as
+            # --apply` writes it: a targeted UPDATE the fixture never learns of.
+            Category.objects.filter(slug="electronics").update(
+                children_as_derived="chips",
+                children_axis_label="categories.axis.condition",
+            )
+            self.assertNotIn(
+                "children_axis_label",
+                next(c for c in _read_json(out, cf.CATEGORIES_FILE)
+                     if c["slug"] == "electronics"),
+            )
+
+            report = self._load(out)
+
+            self.assertFalse(report.failed)
+            self.assertEqual(
+                Category.objects.get(slug="electronics").children_axis_label,
+                "categories.axis.condition",
+            )
+
+    def test_an_unsaid_key_is_not_an_update(self):
+        """The plan half of the rule: nothing moved on the fixture side, so
+        the operator does not read `updated` for a row the load leaves alone
+        (and a policy that reverts db drift has nothing to revert)."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            Category.objects.filter(slug="electronics").update(
+                children_axis_label="categories.axis.condition"
+            )
+
+            plan = cl.load_catalog(out, dry_run=True)
+
+            kinds = {it.key: it.kind for it in plan.categories}
+            self.assertEqual(kinds["electronics"], cl.SKIPPED)
+            self.assertEqual(plan.count(cl.UPDATED), 0)
+            self.assertEqual(plan.count(cl.DB_ONLY), 0)
+
+    def test_an_explicit_empty_string_clears_the_column_and_converges(self):
+        """The escape hatch: absence says nothing, `""` says "clear it". And
+        it says it ONCE — the next pass is a no-op, not a residual forever."""
+        self.seed_catalog()
+        Category.objects.filter(slug="electronics").update(
+            children_axis_label="categories.axis.condition"
+        )
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            next(c for c in cats if c["slug"] == "electronics")["children_axis_label"] = ""
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            first = self._load(out)
+            self.assertEqual(first.count(cl.UPDATED), 1)
+            self.assertEqual(
+                Category.objects.get(slug="electronics").children_axis_label, ""
+            )
+
+            second = self._load(out)
+            self.assertEqual(second.count(cl.UPDATED), 0)
+            self.assertEqual(second.count(cl.RESIDUAL), 0)
+            self.assertEqual(self._load(out).count(cl.UPDATED), 0)
+
+    def test_every_optional_scalar_is_kept_not_blanked(self):
+        """The audit, not just the one column that was reported: every scalar
+        the loader owns and a record may leave out."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            live = {
+                "children_as": "chips",
+                "children_axis_label": "categories.axis.condition",
+                "comment": "for translators",
+                "external_id": "42",
+                "external_source": "partner-feed",
+                "translatable": False,
+            }
+            Category.objects.filter(slug="electronics").update(**live)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            record = next(c for c in cats if c["slug"] == "electronics")
+            for key in live:
+                record.pop(key, None)
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = self._load(out)
+
+            self.assertFalse(report.failed)
+            row = Category.objects.get(slug="electronics")
+            for key, value in live.items():
+                self.assertEqual(getattr(row, key), value, key)
+            self.assertEqual(report.kept_unsaid, {key: 1 for key in live})
+
+    def test_curation_keys_are_still_write_once(self):
+        """The keys that got this cure two releases earlier keep it: an
+        UPDATE never writes them, whether the record states them or not."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            Category.objects.filter(slug="electronics").update(
+                carousel_enabled=True, catalog_icon="catalog/x", active=False
+            )
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            record = next(c for c in cats if c["slug"] == "electronics")
+            record["carousel_enabled"] = False
+            record["catalog_icon"] = ""
+            record["active"] = True
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            self._load(out)
+
+            row = Category.objects.get(slug="electronics")
+            self.assertTrue(row.carousel_enabled)
+            self.assertEqual(row.catalog_icon, "catalog/x")
+            self.assertFalse(row.active)
+
+    def test_a_created_row_takes_the_field_defaults(self):
+        """There is nothing to keep on a row that does not exist yet."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            cats.append({"slug": "toys", "parent_slug": None, "name": "Toys"})
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            self._load(out)
+
+            toys = Category.objects.get(slug="toys")
+            self.assertEqual(toys.children_as, "auto")
+            self.assertEqual(toys.children_axis_label, "")
+            self.assertEqual(toys.comment, "")
+            self.assertEqual(toys.external_id, "")
+            self.assertTrue(toys.translatable)
+
+    def test_the_report_counts_only_values_worth_keeping(self):
+        """A default kept is nothing kept — a count including those would read
+        as the size of the catalogue and mean nothing."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            self.assertEqual(cl.load_catalog(out, dry_run=True).kept_unsaid, {})
+
+            Category.objects.filter(slug="electronics").update(
+                children_axis_label="categories.axis.condition"
+            )
+            self.assertEqual(
+                cl.load_catalog(out, dry_run=True).kept_unsaid,
+                {"children_axis_label": 1},
+            )
+
+    def test_the_command_says_how_many_values_it_kept(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            Category.objects.filter(slug="electronics").update(
+                children_axis_label="categories.axis.condition"
+            )
+            buf = io.StringIO()
+
+            _load_cmd(out, stdout=buf)
+
+            self.assertIn(
+                "kept 1 live value(s) the fixture does not state "
+                "(children_axis_label 1)",
+                buf.getvalue(),
+            )
+
+    def test_a_renamed_node_keeps_its_own_values_not_its_predecessors(self):
+        """The kept values are re-keyed onto a source rename like every other
+        slug-keyed map, or a renamed row would read another row's blanks."""
+        self.seed_catalog()
+        Category.objects.filter(slug="apparel").update(
+            external_source="partner-feed", external_id="7",
+            children_axis_label="categories.axis.audience",
+        )
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            record = next(c for c in cats if c["slug"] == "apparel")
+            record["slug"] = "clothing"
+            record.pop("children_axis_label")
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = self._load(out)
+
+            self.assertFalse(report.failed)
+            moved = Category.objects.get(slug="clothing")
+            self.assertEqual(moved.children_axis_label, "categories.axis.audience")
+            self.assertFalse(Category.objects.filter(slug="apparel").exists())
