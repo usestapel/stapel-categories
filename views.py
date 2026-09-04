@@ -40,6 +40,7 @@ from stapel_core.django.openapi.schemas import BulkUpdateResponseSerializer
 
 from .conf import categories_settings
 from .dto import FeatureEditorDraftResponse, UndeleteResponse
+from .effective import EFFECTIVE_FROM_CHILDREN, effective_features
 from .errors import (
     ERR_400_CATEGORY_NOT_DELETED,
     ERR_400_CONFIG_REQUIRED,
@@ -73,6 +74,7 @@ from .serializers import (
     FeatureEditorDraftResponseSerializer,
     FeatureEditorDraftSerializer,
     FeatureEditorStateSerializer,
+    FeatureEffectiveSerializer,
     FeatureSerializer,
     UndeleteResponseSerializer,
     ValidateDtoRequestSerializer,
@@ -347,16 +349,51 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         return Response({"updated_ids": updated}, status=status.HTTP_200_OK)  # noqa: R001
 
     @extend_schema(
-        description="Get all features for this category, sorted by order. Includes inherited features.",
-        responses={200: FeatureCompactSerializer(many=True)},
-        parameters=[],
+        description=(
+            "Get all features for this category, sorted by order. Includes "
+            "inherited features. For a `chips` parent that declares no "
+            "features of its own the answer is the EFFECTIVE schema — the "
+            "intersection of its children's, since the parent renders the "
+            "feed and the chip row for all of them; a feature only some "
+            "children carry appears once its chip is picked, and one whose "
+            "children disagree carries `divergent: true` beside the widest "
+            "config of theirs. The `X-Effective-From: children` response "
+            "header says the list was intersected rather than read off this "
+            "node (`own` otherwise)."
+        ),
+        responses={200: FeatureEffectiveSerializer(many=True)},
+        parameters=[
+            OpenApiParameter(
+                name="X-Effective-From",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.HEADER,
+                response=[200],
+                enum=["own", "children"],
+                description=(
+                    "`own` — the schema is this node's own (own + "
+                    "inherited). `children` — this node is a `chips` parent "
+                    "declaring nothing itself, so the list is the "
+                    "intersection of its children's schemas."
+                ),
+            )
+        ],
     )
     @action(detail=True, methods=["get"], url_path="features", pagination_class=None)
     def category_features(self, request, pk=None):  # noqa: R007
         """Return full feature objects for this category, sorted by order."""
         category = self.get_object()
-        features = category.get_all_features()
-        return Response(FeatureCompactSerializer(features, many=True).data)  # noqa: R001
+        features, source = effective_features(category)
+        # The body stays a bare ARRAY — every client of this endpoint reads
+        # one — so the one piece of meta rides as a header rather than
+        # wrapping the list in an envelope nobody could read yet.
+        serializer = (
+            FeatureEffectiveSerializer
+            if source == EFFECTIVE_FROM_CHILDREN
+            else FeatureCompactSerializer
+        )
+        response = Response(serializer(features, many=True).data)  # noqa: R001
+        response["X-Effective-From"] = source
+        return response
 
     @extend_schema(
         tags=["Feature Editor"],

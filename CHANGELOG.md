@@ -1,5 +1,71 @@
 # Changelog
 
+## [0.20.1] — 2026-09-04
+
+### Fixed
+
+- **A `chips` parent answers the schema its own page needs.** A partition
+  parent (`Автомобили` over `Новые`/`С пробегом`, a real-estate node over
+  `Куплю`/`Продам`/`Сдам`/`Сниму`) renders the feed and the chip row for the
+  whole partition since 0.19.0 — but asked for its features it still answered
+  with its OWN links, which on such a node are none. The cars page offered no
+  filters, the "popular values" block had no group to draw and the composer
+  opened no fields until a chip was picked, which is the click the chip row
+  exists to remove.
+
+  It now answers the EFFECTIVE schema: the INTERSECTION of its children's,
+  keyed by `slug` — the same key `get_all_features` already means by "the same
+  feature". A feature only SOME children carry is deliberately not in it; it
+  appears when its chip is chosen, because a control that half the feed cannot
+  answer is a filter that hides listings. Where the children disagree about a
+  feature the bounds WIDEN rather than one child's being picked — the lowest
+  `min`/`minLength`/`minSelected`/`minDate`/`minDepth`, the highest `max`/…,
+  the union of `options`, a bound unbounded in any child unbounded here,
+  permissive booleans (`allowCustom`, `allowFuture`, `allowPast`) true if any
+  child allows it and restrictive ones (`lockInput`, `lockUserInput`) false if
+  any child lets go — and the feature carries `divergent: true`. So a client
+  that renders it refuses nothing a child would accept, and a client that
+  would rather not show a control meaning something different per chip can
+  hide it until a chip is picked. `mandatory` follows the same rule: required
+  here only where every child requires it.
+
+  Comparison and merge run on the DEFAULTS-RESOLVED config, not the stored
+  one: two children spelling one shape differently (one omitting a key, one
+  writing its default) are not a divergence, and the merged config carries the
+  keys a client already gets from a leaf.
+
+  The order is the one the module already applies — the reference child's
+  `get_all_features()` (own order first, then ancestors'), restricted to the
+  intersection. There is no second ordering to disagree with the first: the
+  composer that puts required-bearing blocks first, and required first inside
+  a block, reads the same list for the parent as for the leaf under it.
+
+  Three cases deliberately do NOT move, and are pinned: a leaf, a `tiles`
+  parent, and a `chips` parent that declares features of its OWN. The last is
+  **own only** — never own plus the intersection, which would be a third
+  schema nobody authored; a parent carrying its own links has already had the
+  decision made by hand, and an authored answer wins here as it does for
+  `children_as`. A `chips` parent whose children are all retired has nothing
+  to intersect and falls back to its own.
+
+  Both readers answer it, since the composer reads one and the search plan the
+  other. `GET /categories/api/v1/categories/<id>/features/` keeps its bare
+  ARRAY body — every client of it reads one — so the one piece of meta rides
+  as the `X-Effective-From: children` response header (`own` otherwise),
+  declared in the contract; `divergent` rides on the feature it describes and
+  is ABSENT rather than `false` where the children agree, so a leaf and a
+  `tiles` parent answer byte-for-byte what they answered before. The
+  `categories.features` Function gained `effective_from` beside `revision`,
+  and `divergent` on the same features.
+
+  Cache invalidation follows the existing revision fingerprint, widened to the
+  rows the read actually touched: on the children path the `revision` the
+  Function reports is the max over the parent and the children it intersected.
+  A child's edit bumps the CHILD's revision and not the parent's, so a
+  consumer caching by the parent's number alone would have held a stale
+  intersection until its TTL — which is the whole class of bug the (revision,
+  features) snapshot retry already exists to prevent, one edge out.
+
 ## [0.20.0] — 2026-09-04
 
 ### Added

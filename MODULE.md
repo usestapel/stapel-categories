@@ -91,6 +91,13 @@
   of a `chips` parent keep their ids, paths and URLs and stay the placement
   target of a listing; only the presentation changes.
 
+  A `chips` parent that declares nothing itself answers the INTERSECTION of
+  its children's schemas on every features read — it draws the feed for the
+  whole partition, so its filters are the ones every chip can answer.
+  Divergent configs widen (lowest lower bound, highest upper bound, union of
+  options) and carry `divergent: true`; `X-Effective-From` / `effective_from`
+  says the list was intersected. Own features win outright: own only.
+
   The axis a chip row splits on has a name of its own — `children_axis_label`
   on the PARENT, because no chip can name the axis without the others. One
   optional column holding a translation key (like `name`), empty by default:

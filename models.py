@@ -647,26 +647,33 @@ class Category(RevisionMixin, TreeNodeModel):
         write time, and a definition that arrives without it stamps ``public``,
         which publishes the VIN this axis exists to keep off a public page.
         """
-        return [
-            {
-                "id": feature.pk,
-                "slug": feature.slug,
-                "name": feature.name,
-                "mandatory": feature.mandatory,
-                "show_at_title": feature.show_at_title,
-                "show_as_badge": feature.show_as_badge,
-                "visibility": feature.visibility,
-                "translate": feature.translate,
-                "rules": feature.rules or [],
-                "description": feature.description,
-                "example": feature.example,
-                "default": feature.default,
-                "hints": feature.hints or [],
-                "group": feature.group,
-                "config": feature.get_config_with_defaults(),
-            }
-            for feature in self.get_all_features()
-        ]
+        return [feature_def_dict(feature) for feature in self.get_all_features()]
+
+
+def feature_def_dict(feature) -> dict:
+    """One resolved feature definition — the shape ``feature_defs`` ships.
+
+    Extracted so the effective (intersected) schema of a `chips` parent
+    serializes through the SAME builder: a key added here reaches both
+    readers or neither.
+    """
+    return {
+        "id": feature.pk,
+        "slug": feature.slug,
+        "name": feature.name,
+        "mandatory": feature.mandatory,
+        "show_at_title": feature.show_at_title,
+        "show_as_badge": feature.show_as_badge,
+        "visibility": feature.visibility,
+        "translate": feature.translate,
+        "rules": feature.rules or [],
+        "description": feature.description,
+        "example": feature.example,
+        "default": feature.default,
+        "hints": feature.hints or [],
+        "group": feature.group,
+        "config": feature.get_config_with_defaults(),
+    }
 
 
 class CategoryFeature(models.Model):

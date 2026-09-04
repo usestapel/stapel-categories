@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "categories.features",
-  "description": "Request the resolved feature definitions (own + inherited) for a category. The result is cacheable by the returned revision; a category.changed event invalidates it. This object validates the request payload; the response shape ({category_id, revision, features:[ResolvedFeature]}) is documented in $defs for consumers.",
+  "description": "Request the resolved feature definitions (own + inherited) for a category. The result is cacheable by the returned revision; a category.changed event invalidates it. This object validates the request payload; the response shape ({category_id, revision, effective_from, features:[ResolvedFeature]}) is documented in $defs for consumers. 'effective_from' is 'own' for a node whose schema is its own (own + inherited) and 'children' for a `chips` parent that declares no features itself: there the schema is the INTERSECTION of its children's, because the parent renders the feed and the chip row for all of them. A feature only some children carry is absent until its chip is picked; one whose children disagree carries 'divergent': true beside the widest config of theirs. On that path 'revision' is the max over the parent and the children it intersected, so a consumer caching by it is not left holding a stale intersection when a child changes.",
   "type": "object",
   "required": ["category_id"],
   "properties": {
@@ -69,6 +69,7 @@
           "description": "Form section this feature belongs to; sections order by first appearance. Default: \"\" (the unnamed leading section).",
           "default": ""
         },
+        "divergent": { "type": "boolean", "description": "Present and true ONLY in an effective schema (effective_from = 'children') and ONLY on a feature the children of the `chips` parent do not agree on \u2014 their configs, their 'mandatory' or their 'rules' differ. The 'config' beside it is the widest of theirs (lowest lower bound, highest upper bound, union of options, a bound unbounded in any child unbounded here), so a client that renders it anyway refuses nothing a child would accept; a client that would rather not show a control meaning something different per chip hides it until a chip is picked. Absent means the children agree." },
         "config": { "type": "object", "description": "Type-specific config (merged with type defaults), with a 'type' discriminator. Also carries the ENGINE-LEVEL keys no type's config declares and stapel-attributes' unknown-key warning allowlists (validation.ENGINE_CONFIG_KEYS): 'facet' — false when this category does NOT offer the feature as a buyer filter axis. ABSENT means true, so a definition that says nothing keeps behaving as it did before the axis existed. It is what a category author says about a field no library can classify from its type: the parcel's weight/length/height/width and the wholesale block are metadata about the SALE, while the very same 'int' one category over is a real filter." }
       }
     }

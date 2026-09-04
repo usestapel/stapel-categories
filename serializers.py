@@ -104,6 +104,43 @@ class FeatureCompactSerializer(serializers.ModelSerializer):
         ]
 
 
+class FeatureEffectiveSerializer(FeatureCompactSerializer):
+    """A compact feature as it reads in an EFFECTIVE (intersected) schema.
+
+    One key more than the compact form, and only where it is true: a
+    `chips` parent's schema is the intersection of its children's, and a
+    feature whose children disagree about its config, its requiredness or
+    its rules carries ``divergent: true`` so a client can hide the control
+    until a chip is picked instead of showing one that means something
+    different per chip. The config beside it is already the widest the
+    children accept, so a client that shows it anyway refuses nothing a
+    child would take.
+
+    Absent means false — the key is dropped rather than sent as ``false``,
+    so a leaf and a `tiles` parent answer byte-for-byte what they answered
+    before this existed.
+    """
+
+    divergent = serializers.BooleanField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "Present and true when the children of this `chips` parent do "
+            "not agree on the feature; the config shown is the widest of "
+            "theirs. Absent means the children agree."
+        ),
+    )
+
+    class Meta(FeatureCompactSerializer.Meta):
+        fields = FeatureCompactSerializer.Meta.fields + ["divergent"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not data.get("divergent"):
+            data.pop("divergent", None)
+        return data
+
+
 class FeatureBulkSerializer(serializers.ModelSerializer):
     """Serializer for bulk add/update operations — id is required."""
 

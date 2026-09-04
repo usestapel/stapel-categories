@@ -24,7 +24,7 @@ pip install stapel-categories
 
 | Fact | Value |
 |---|---|
-| Version | `0.20.0` |
+| Version | `0.20.1` |
 | Python | `>=3.11` (3.11, 3.12, 3.13, 3.14) |
 | HTTP operations | 34 |
 | Config axes | 1 |
@@ -75,6 +75,19 @@ every public read:
 | `tiles` | the children are real subcategories — a tile grid of destinations |
 | `chips` | the children partition ONE attribute template (new/used, buy/sell/rent, boys/girls) — a chip row over the parent's own feed |
 | `null` | the node has no children |
+
+A `chips` parent that declares no features of its own answers the **effective
+schema** — the intersection of its children's — wherever features are read
+(`GET /categories/<id>/features/`, the `categories.features` Function). It
+renders the feed and the chip row for the whole partition, so "what can be
+filtered here" is a question about the children. A feature only SOME children
+carry is not in it (it appears when its chip is picked); a feature the children
+disagree on carries `divergent: true` beside the WIDEST config of theirs, so a
+client may render it (it refuses nothing a child accepts) or hide it until a
+chip is picked. The HTTP read says which it did in the `X-Effective-From`
+header (`own` / `children`), the Function in `effective_from`. A parent with
+features of its own keeps them ALONE — own only, never own plus the
+intersection.
 
 A chip row also needs a NAME for the axis it splits on — «Все | С пробегом |
 Новые» is a set of values, and only the parent can say what they are values

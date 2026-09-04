@@ -536,7 +536,7 @@
     "/categories/api/v1/categories/{id}/features/": {
       "get": {
         "operationId": "categories_api_v1_categories_features_list",
-        "description": "Get all features for this category, sorted by order. Includes inherited features.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "description": "Get all features for this category, sorted by order. Includes inherited features. For a `chips` parent that declares no features of its own the answer is the EFFECTIVE schema — the intersection of its children's, since the parent renders the feed and the chip row for all of them; a feature only some children carry appears once its chip is picked, and one whose children disagree carries `divergent: true` beside the widest config of theirs. The `X-Effective-From: children` response header says the list was intersected rather than read off this node (`own` otherwise).\n\n**Permissions:** `ReadOnlyOrStaff`",
         "parameters": [
           {
             "in": "path",
@@ -558,12 +558,24 @@
         ],
         "responses": {
           "200": {
+            "headers": {
+              "X-Effective-From": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "children",
+                    "own"
+                  ]
+                },
+                "description": "`own` — the schema is this node's own (own + inherited). `children` — this node is a `chips` parent declaring nothing itself, so the list is the intersection of its children's schemas."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/FeatureCompact"
+                    "$ref": "#/components/schemas/FeatureEffective"
                   }
                 }
               }
@@ -3215,6 +3227,105 @@
           "available_actions",
           "feature",
           "order"
+        ]
+      },
+      "FeatureEffective": {
+        "type": "object",
+        "description": "A compact feature as it reads in an EFFECTIVE (intersected) schema.\n\nOne key more than the compact form, and only where it is true: a\n`chips` parent's schema is the intersection of its children's, and a\nfeature whose children disagree about its config, its requiredness or\nits rules carries ``divergent: true`` so a client can hide the control\nuntil a chip is picked instead of showing one that means something\ndifferent per chip. The config beside it is already the widest the\nchildren accept, so a client that shows it anyway refuses nothing a\nchild would take.\n\nAbsent means false — the key is dropped rather than sent as ``false``,\nso a leaf and a `tiles` parent answer byte-for-byte what they answered\nbefore this existed.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "icon": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "config": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FeatureConfig"
+              }
+            ],
+            "readOnly": true
+          },
+          "mandatory": {
+            "type": "boolean"
+          },
+          "show_as_badge": {
+            "type": "boolean"
+          },
+          "show_at_title": {
+            "type": "boolean"
+          },
+          "visibility": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VisibilityD99Enum"
+              }
+            ],
+            "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
+          },
+          "translate": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Translate2c2Enum"
+              }
+            ],
+            "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
+          },
+          "rules": {
+            "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
+          },
+          "description": {
+            "type": "string",
+            "description": "Help text under the field; translation key or literal."
+          },
+          "example": {
+            "type": "string",
+            "description": "Placeholder text; translation key or literal.",
+            "maxLength": 255
+          },
+          "default": {
+            "nullable": true,
+            "description": "Initial form value in DTO 'value' shape (for a select, a list of option codes)."
+          },
+          "hints": {
+            "description": "Notices rendered with the field: [{\"title\": ..., \"content\": ...}]."
+          },
+          "group": {
+            "type": "string",
+            "description": "Form section; sections order by first appearance.",
+            "maxLength": 100
+          },
+          "divergent": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Present and true when the children of this `chips` parent do not agree on the feature; the config shown is the widest of theirs. Absent means the children agree."
+          }
+        },
+        "required": [
+          "config",
+          "divergent",
+          "id",
+          "name"
         ]
       },
       "FeatureValidationResult": {

@@ -8,7 +8,8 @@ are no-ops. Other modules call by name, no import of this package needed:
     from stapel_core.comm import call
 
     call("categories.features", {"category_id": 42})
-    # -> {"category_id": 42, "revision": 7, "features": [ {slug, config, ...} ]}
+    # -> {"category_id": 42, "revision": 7, "effective_from": "own",
+    #     "features": [ {slug, config, ...} ]}
 
     call("categories.path", {"category_ids": [42]})
     # -> {"42": ["7", "19", "42"]}
@@ -30,6 +31,10 @@ category (own + inherited, config merged with type defaults). stapel-listings
 calls it to validate listing attribute values against the category schema
 WITHOUT importing this module; the payload is cacheable by ``revision``.
 Mutations emit ``category.changed`` (see events.py) for cache invalidation.
+``effective_from`` says which node the schema is a fact about: ``own``, or
+``children`` for a ``chips`` parent that declares nothing itself and whose
+schema is therefore the intersection of its children's
+(:mod:`stapel_categories.effective`).
 
 ``categories.path`` answers root->leaf ancestry for a batch of categories.
 This module owns the tree, so it is the only place that can answer it
@@ -192,12 +197,28 @@ def features_function(payload: dict) -> dict:
     """Resolve the feature schema for a category.
 
     Payload: ``{"category_id": <int>}``. Returns
-    ``{"category_id": int, "revision": int, "features": [FeatureDef]}`` where
-    each FeatureDef is ``{id, slug, name, mandatory, config}`` — ``config``
-    is merged with its type's defaults. Raises ``LookupError`` (missing
-    category) so callers can distinguish "no such category" from "no
-    features".
+    ``{"category_id": int, "revision": int, "effective_from": str,
+    "features": [FeatureDef]}`` where each FeatureDef is
+    ``{id, slug, name, mandatory, config}`` — ``config`` is merged with its
+    type's defaults. Raises ``LookupError`` (missing category) so callers can
+    distinguish "no such category" from "no features".
+
+    ``effective_from`` is ``own`` for every node whose schema is its own
+    (own + inherited), and ``children`` for a ``chips`` parent that declares
+    nothing itself: there the answer is the INTERSECTION of the children's
+    schemas, because the parent renders the feed and the chip row for all of
+    them. A feature only some children carry is absent until its chip is
+    picked; one whose children disagree carries ``divergent: true`` beside
+    the widest config of theirs (see :mod:`stapel_categories.effective`).
+    The ``revision`` on that path is the max over the parent and the children
+    it intersected — a child's edit bumps the child's number, and a consumer
+    caching on the parent's alone would hold a stale intersection forever.
     """
+    from .effective import (
+        effective_feature_defs,
+        effective_revision,
+        effective_source,
+    )
     from .models import Category
 
     category_id = payload["category_id"]
@@ -210,14 +231,14 @@ def features_function(payload: dict) -> dict:
     # consumer would then cache forever under the stale revision. Read the
     # revision on both sides of feature_defs() and retry until it is stable,
     # so the returned (revision, features) pair is internally consistent.
+    # Which rows the revision must cover is itself a read (own vs children);
+    # a flip between the two reads makes the pair torn like any other, and the
+    # retry below is what settles it.
+    source = effective_source(category)
     for _ in range(_FEATURES_SNAPSHOT_RETRIES):
-        revision_before = (
-            Category.objects.values_list("revision", flat=True).get(pk=category.pk)
-        )
-        features = category.feature_defs()
-        revision_after = (
-            Category.objects.values_list("revision", flat=True).get(pk=category.pk)
-        )
+        revision_before = effective_revision(category, source)
+        features, source = effective_feature_defs(category)
+        revision_after = effective_revision(category, source)
         if revision_before == revision_after:
             break
         category.refresh_from_db()
@@ -225,13 +246,12 @@ def features_function(payload: dict) -> dict:
         # Never converged (constant churn) — return the last consistent read of
         # the revision paired with those features; refresh once more so at least
         # revision_after describes the same read.
-        revision_after = (
-            Category.objects.values_list("revision", flat=True).get(pk=category.pk)
-        )
+        revision_after = effective_revision(category, source)
 
     return {
         "category_id": category.pk,
         "revision": revision_after,
+        "effective_from": source,
         "features": features,
     }
 
