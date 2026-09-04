@@ -262,6 +262,60 @@ class TestNothingElseMoved:
         assert [f.slug for f in features] == ["own-key"]
 
 
+class TestTransparentParent:
+    """A `transparent` node takes the chips rule — for the SCHEMA only (0.20.4).
+
+    Browsing skips such a node, so it renders no page of its own; but a
+    composer walking through it and every caller of `categories.features`
+    still ask it what it types, and a wrapper's own links are empty by
+    construction. Answering with that emptiness is the same hole 0.20.1
+    closed for a chips parent.
+    """
+
+    def test_it_answers_its_children_intersection(self):
+        wrapper = Category.objects.create(
+            name="Offer", slug="offer", children_as="transparent"
+        )
+        first = Category.objects.create(name="A", slug="offer-a", tn_parent=wrapper)
+        second = Category.objects.create(name="B", slug="offer-b", tn_parent=wrapper)
+        shared = make_feature("area")
+        link(first, shared, make_feature("a-only"))
+        link(second, shared, make_feature("b-only"))
+
+        features, source = effective_features(reload(wrapper))
+
+        assert source == EFFECTIVE_FROM_CHILDREN
+        assert [f.slug for f in features] == ["area"]
+
+    def test_a_single_child_wrapper_answers_that_child(self):
+        """The census shape: one child, whose own children are the real level."""
+        wrapper = Category.objects.create(
+            name="Offer", slug="offer-2", children_as="transparent"
+        )
+        only = Category.objects.create(name="Only", slug="offer-only", tn_parent=wrapper)
+        Category.objects.create(name="Group", slug="offer-group", tn_parent=only)
+        link(only, make_feature("price"), make_feature("region"))
+
+        features, source = effective_features(reload(wrapper))
+
+        assert source == EFFECTIVE_FROM_CHILDREN
+        assert [f.slug for f in features] == ["price", "region"]
+
+    def test_own_features_win_outright(self):
+        """"Only if it has no own features" — the same limit as a chips parent."""
+        wrapper = Category.objects.create(
+            name="Offer", slug="offer-3", children_as="transparent"
+        )
+        child = Category.objects.create(name="A", slug="offer-3a", tn_parent=wrapper)
+        link(child, make_feature("area-3"))
+        link(wrapper, make_feature("own-3"))
+
+        features, source = effective_features(reload(wrapper))
+
+        assert source == EFFECTIVE_FROM_OWN
+        assert [f.slug for f in features] == ["own-3"]
+
+
 class TestHttpRead:
     def test_the_effective_schema_comes_back_with_its_source(self, api_client, cars):
         parent, _used, _new = cars

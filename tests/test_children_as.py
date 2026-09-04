@@ -1065,3 +1065,324 @@ class TestAxisLabelSurvivesAReload(_CatalogTestCase):
             assert "Nothing to write." in buf.getvalue()
             root.refresh_from_db()
             assert root.children_axis_label == label
+
+
+def transparent_wrapper(slug="uslugi", children=2, **kwargs) -> Category:
+    """A node authored `transparent`, with *children* children under it."""
+    node = Category.objects.create(
+        name="Услуги", slug=slug, children_as="transparent", **kwargs
+    )
+    for index in range(children):
+        Category.objects.create(
+            name=f"Group {index}", slug=f"{slug}-kid-{index}", tn_parent=node
+        )
+    return Category.objects.get(pk=node.pk)
+
+
+class TestTransparentValue:
+    """`transparent` — browsing SKIPS this node (0.20.4).
+
+    Its children appear where it would, and its own page is its parent's. The
+    tree is unchanged: the node keeps its id, its path and its place as the
+    target of a listing. Authored only — the collapse is a judgement read off
+    a census, and no signal on a tree can make it.
+    """
+
+    def test_it_resolves_verbatim(self):
+        assert transparent_wrapper().resolved_children_as == "transparent"
+
+    def test_it_beats_the_derivation_cache(self):
+        node = transparent_wrapper(slug="uslugi-2")
+        Category.objects.filter(pk=node.pk).update(children_as_derived="chips")
+
+        assert Category.objects.get(pk=node.pk).resolved_children_as == "transparent"
+
+    def test_a_childless_node_is_still_null(self):
+        """Nothing to show in its place, so the honest answer is the leaf's."""
+        leaf = Category.objects.create(
+            name="Leaf", slug="leaf-transparent", children_as="transparent"
+        )
+
+        assert leaf.resolved_children_as is None
+
+    def test_the_public_read_carries_it(self, api_client):
+        transparent_wrapper(slug="uslugi-3")
+
+        rows = api_client.get(f"{BASE}/categories/roots/").json()
+
+        assert [row["children_as"] for row in rows] == ["transparent"]
+
+    def test_the_staff_serializer_can_author_it(self):
+        from stapel_categories.serializers import CategoryStaffSerializer
+
+        node = transparent_wrapper(slug="uslugi-4")
+        serializer = CategoryStaffSerializer(
+            node, data={"children_as_authored": "transparent"}, partial=True
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        serializer.save()
+        assert Category.objects.get(pk=node.pk).children_as == "transparent"
+
+    def test_the_tree_carries_it(self, api_client):
+        root = Category.objects.create(name="Root", slug="tr-root")
+        wrapper = Category.objects.create(
+            name="Offer", slug="tr-offer", tn_parent=root, children_as="transparent"
+        )
+        Category.objects.create(name="Group", slug="tr-group", tn_parent=wrapper)
+
+        rows = api_client.get(f"{BASE}/tree/").json()
+
+        offer = rows[0]["children"][0]
+        assert offer["children_as"] == "transparent"
+        # The tree is UNCHANGED: the skipped node is still a node, with its
+        # own path — only the presentation of it is a client's business.
+        assert offer["slug"] == "tr-offer"
+        assert offer["path"] == f"{root.pk}/{wrapper.pk}"
+        assert [kid["slug"] for kid in offer["children"]] == ["tr-group"]
+
+
+class TestTransparentIsNeverDerived:
+    def test_the_derivation_leaves_it_alone(self, capsys):
+        root = Category.objects.create(name="Услуги", slug="uslugi-d")
+        wrapper = Category.objects.create(
+            name="Предложение услуг", slug="uslugi-offer",
+            tn_parent=root, children_as="transparent",
+        )
+        first = Category.objects.create(
+            name="Ремонт", slug="uslugi-repair", tn_parent=wrapper
+        )
+        second = Category.objects.create(
+            name="Уборка", slug="uslugi-clean", tn_parent=wrapper
+        )
+        link(wrapper)
+        link(first, "price", "area")
+        link(second, "price", "area")
+
+        call_command("derive_children_as", "--apply")
+
+        row = Category.objects.get(pk=wrapper.pk)
+        assert row.children_as == "transparent"
+        assert row.children_as_derived == ""
+        assert row.resolved_children_as == "transparent"
+
+    def test_the_report_names_the_authored_value(self, capsys):
+        transparent_wrapper(slug="uslugi-r")
+
+        call_command("derive_children_as")
+
+        line = next(
+            line
+            for line in capsys.readouterr().out.splitlines()
+            if " uslugi-r" in f"{line} "
+        )
+        assert "authored transparent" in line
+
+    def test_no_axis_caption_is_written_for_it(self):
+        """A skipped node draws no chip row, so it has no axis to name."""
+        root = Category.objects.create(name="Квартиры", slug="flats-t")
+        Category.objects.create(name="Куплю", slug="flats-t-buy", tn_parent=root)
+        Category.objects.create(name="Продам", slug="flats-t-sell", tn_parent=root)
+        Category.objects.filter(pk=root.pk).update(children_as="transparent")
+
+        call_command("derive_children_as", "--apply")
+
+        assert Category.objects.get(pk=root.pk).children_axis_label == ""
+
+
+class TestTransparentFixtureRoundTrip(_CatalogTestCase):
+    """It travels like any other authored value — see TestCatalogFixtureRoundTrip.
+
+    A collapse applied from the census and lost at the next image build is a
+    census the engineer gets to walk twice.
+    """
+
+    def test_it_survives_a_round_trip_through_a_clean_db(self):
+        self.seed_catalog()
+        Category.objects.filter(slug="electronics").update(children_as="transparent")
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            _export(first)
+            before = _read(first, cf.CATEGORIES_FILE)
+            records = {c["slug"]: c for c in _read_json(first, cf.CATEGORIES_FILE)}
+            assert records["electronics"]["children_as"] == "transparent"
+            _wipe_db()
+
+            report = cl.load_catalog(first, seed_if_empty=True)
+
+            assert not report.failed
+            loaded = Category.objects.get(slug="electronics")
+            assert loaded.children_as == "transparent"
+            assert loaded.resolved_children_as == "transparent"
+            _export(second)
+            assert _read(second, cf.CATEGORIES_FILE) == before
+
+    def test_a_reload_over_the_live_tree_is_a_no_op(self):
+        self.seed_catalog()
+        Category.objects.filter(slug="electronics").update(children_as="transparent")
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+
+            report = cl.load_catalog(out)
+
+            assert not report.failed
+            assert report.count(cl.UPDATED) == 0
+            assert report.count(cl.CREATED) == 0
+
+    def test_a_fixture_side_change_is_applied_on_update(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for record in records:
+                if record["slug"] == "electronics":
+                    record["children_as"] = "transparent"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out)
+
+            assert not report.failed
+            assert (
+                Category.objects.get(slug="electronics").children_as == "transparent"
+            )
+
+
+class TestSetChildrenAsCommand:
+    """`set_children_as` — apply a census list without the admin (0.20.4)."""
+
+    @pytest.fixture
+    def catalogue(self):
+        root = Category.objects.create(name="Услуги", slug="uslugi")
+        wrapper = Category.objects.create(
+            name="Предложение услуг", slug="predlozhenie", tn_parent=root
+        )
+        Category.objects.create(name="Ремонт", slug="remont", tn_parent=wrapper)
+        other = Category.objects.create(name="Авто", slug="avto")
+        Category.objects.create(name="Новые", slug="avto-new", tn_parent=other)
+        return {"root": root, "wrapper": wrapper, "other": other}
+
+    def test_it_sets_the_authored_value(self, catalogue, capsys):
+        call_command(
+            "set_children_as", "--path", "uslugi/predlozhenie",
+            "--value", "transparent",
+        )
+
+        row = Category.objects.get(slug="predlozhenie")
+        assert row.children_as == "transparent"
+        assert row.resolved_children_as == "transparent"
+        assert "set" in capsys.readouterr().out
+
+    def test_it_prints_what_changed(self, catalogue, capsys):
+        call_command(
+            "set_children_as", "--path", "uslugi/predlozhenie",
+            "--value", "transparent",
+        )
+
+        out = capsys.readouterr().out
+        assert "uslugi/predlozhenie" in out
+        assert "auto -> transparent" in out
+        assert "Wrote 1 of 1" in out
+
+    def test_a_second_run_writes_nothing(self, catalogue, capsys):
+        args = ("--path", "uslugi/predlozhenie", "--value", "transparent")
+        call_command("set_children_as", *args)
+        before = Category.objects.get(slug="predlozhenie").revision
+        capsys.readouterr()
+
+        call_command("set_children_as", *args)
+
+        out = capsys.readouterr().out
+        assert "unchanged" in out
+        assert "Nothing to write" in out
+        # Idempotent all the way down: no revision bump, so no downstream
+        # cache in the fleet is invalidated by a re-run of the same list.
+        assert Category.objects.get(slug="predlozhenie").revision == before
+
+    def test_several_paths_in_one_run(self, catalogue, capsys):
+        call_command(
+            "set_children_as",
+            "--path", "uslugi/predlozhenie", "--path", "avto",
+            "--value", "chips",
+        )
+
+        assert Category.objects.get(slug="predlozhenie").children_as == "chips"
+        assert Category.objects.get(slug="avto").children_as == "chips"
+
+    def test_a_list_from_a_file(self, catalogue, tmp_path, capsys):
+        listing = tmp_path / "census.txt"
+        listing.write_text(
+            "# the services wrapper\nuslugi/predlozhenie\n\navto\n", encoding="utf-8"
+        )
+
+        call_command(
+            "set_children_as", "--paths-from", str(listing), "--value", "transparent"
+        )
+
+        assert Category.objects.get(slug="predlozhenie").children_as == "transparent"
+        assert Category.objects.get(slug="avto").children_as == "transparent"
+
+    def test_every_authored_value_is_settable(self, catalogue):
+        for value in ("tiles", "chips", "auto", "transparent"):
+            call_command(
+                "set_children_as", "--path", "uslugi/predlozhenie", "--value", value
+            )
+            assert Category.objects.get(slug="predlozhenie").children_as == value
+
+    def test_a_bad_value_is_refused(self, catalogue):
+        from django.core.management.base import CommandError
+
+        with pytest.raises(CommandError):
+            call_command(
+                "set_children_as", "--path", "uslugi/predlozhenie", "--value", "nope"
+            )
+
+    def test_a_typo_writes_nothing_at_all(self, catalogue, capsys):
+        """Every path resolves before any of them is written: a list with one
+        bad line must not leave half the census applied."""
+        from django.core.management.base import CommandError
+
+        with pytest.raises(CommandError):
+            call_command(
+                "set_children_as",
+                "--path", "uslugi/predlozhenie", "--path", "uslugi/nosuch",
+                "--value", "transparent",
+            )
+
+        assert Category.objects.get(slug="predlozhenie").children_as == "auto"
+
+    def test_a_bare_slug_resolves(self, catalogue):
+        """`Category.slug` is unique, so the last segment already names it."""
+        call_command("set_children_as", "--path", "predlozhenie", "--value", "tiles")
+
+        assert Category.objects.get(slug="predlozhenie").children_as == "tiles"
+
+    def test_a_path_that_no_longer_matches_the_tree_is_refused(self, catalogue):
+        """A census pasted from a stale report must not apply itself to a node
+        that has been re-parented since."""
+        from django.core.management.base import CommandError
+
+        with pytest.raises(CommandError, match="does not match the tree"):
+            call_command(
+                "set_children_as", "--path", "avto/predlozhenie", "--value", "tiles"
+            )
+
+        assert Category.objects.get(slug="predlozhenie").children_as == "auto"
+
+    def test_a_dry_run_writes_nothing(self, catalogue, capsys):
+        call_command(
+            "set_children_as", "--path", "uslugi/predlozhenie",
+            "--value", "transparent", "--dry-run",
+        )
+
+        assert "Dry run" in capsys.readouterr().out
+        assert Category.objects.get(slug="predlozhenie").children_as == "auto"
+
+    def test_the_write_invalidates_downstream_caches(self, catalogue):
+        """A full save, not a targeted UPDATE: a reader's answer changed."""
+        before = Category.objects.get(slug="predlozhenie").revision
+
+        call_command(
+            "set_children_as", "--path", "uslugi/predlozhenie",
+            "--value", "transparent",
+        )
+
+        assert Category.objects.get(slug="predlozhenie").revision != before

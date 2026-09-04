@@ -24,7 +24,7 @@ pip install stapel-categories
 
 | Fact | Value |
 |---|---|
-| Version | `0.20.3` |
+| Version | `0.20.4` |
 | Python | `>=3.11` (3.11, 3.12, 3.13, 3.14) |
 | HTTP operations | 34 |
 | Config axes | 1 |
@@ -74,9 +74,19 @@ every public read:
 |---|---|
 | `tiles` | the children are real subcategories — a tile grid of destinations |
 | `chips` | the children partition ONE attribute template (new/used, buy/sell/rent, boys/girls) — a chip row over the parent's own feed |
+| `transparent` | browsing SKIPS this node: its children appear where it would, and its own page is its parent's |
 | `null` | the node has no children |
 
-A `chips` parent that declares no features of its own answers the **effective
+`transparent` is the import wrapper — a level a catalogue keeps for placement
+that nobody should have to browse through («Предложение услуг» between a root
+and the 34 groups that are the real level). The TREE is unchanged: the node
+keeps its id, its path and its place as the target of a listing; only the
+presentation of it is. It is AUTHORED only — the collapse is an editorial call
+read off a census, and no signal on a tree can make it, so `derive_children_as`
+never emits it and never overwrites it.
+
+A `chips` **or `transparent`** parent that declares no features of its own
+answers the **effective
 schema** — the intersection of its children's — wherever features are read
 (`GET /categories/<id>/features/`, the `categories.features` Function). It
 renders the feed and the chip row for the whole partition, so "what can be
@@ -87,7 +97,11 @@ client may render it (it refuses nothing a child accepts) or hide it until a
 chip is picked. The HTTP read says which it did in the `X-Effective-From`
 header (`own` / `children`), the Function in `effective_from`. A parent with
 features of its own keeps them ALONE — own only, never own plus the
-intersection.
+intersection. A `transparent` node has no page of its own, but a composer
+walking through it and every caller of `categories.features` still ask what it
+types, and a wrapper's own links are empty by construction — so it takes the
+same rule. That is the whole of the overlap: it draws no chip row and gets no
+axis caption.
 
 A chip row also needs a NAME for the axis it splits on — «Все | С пробегом |
 Новые» is a set of values, and only the parent can say what they are values
@@ -117,7 +131,23 @@ The command prints one line per parent with the decision, the signal that
 carried it (`schema`, `vocabulary`, `empty-schema`, `structure`,
 `vocabulary>structure`) and the Jaccard overlap of the children's own feature
 keys, so a wrong call can be pinned by hand — set `children_as` to `tiles` or
-`chips` in the admin and no future run touches it.
+`chips` in the admin and no future run touches it. A node already authored
+(including `transparent`) is printed with its value and skipped.
+
+A census is applied without the admin, in one command, idempotently:
+
+```bash
+django-admin set_children_as --path uslugi/predlozhenie-uslug --value transparent
+django-admin set_children_as --paths-from census.txt --value transparent
+django-admin set_children_as --path a/b --value tiles --dry-run
+```
+
+The path is the slug path root→self — the exact form the derivation report
+prints, so a census read off that report pastes straight back. A bare slug
+works too (the column is unique); a longer path is checked against the tree and
+refused if it no longer matches. Every path resolves before any is written, so
+one bad line leaves nothing half-applied, and a node that already carries the
+value is reported `unchanged` and not re-saved.
 
 A child set that spells a partition is a chip row even where some of those
 children have children of their own: `Квартиры` → `Продам`/`Сдам`/`Куплю`/

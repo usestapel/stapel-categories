@@ -27,18 +27,37 @@ Two deliberate limits:
 * a parent that declares features of its OWN keeps them, alone — "own only",
   never own + intersection. The two would be a third schema nobody authored,
   and a parent with own links has already had the decision made by hand.
+
+A ``transparent`` node (0.20.4) takes the same rule for the same reason. It
+has no page of its own — browsing skips it — but it is still ASKED for a
+schema, by a composer walking through it and by any caller of
+``categories.features``, and a wrapper's own links are empty by construction.
+So a transparent node with no own features answers with its children's
+intersection too. That is the whole of the overlap: it draws no chip row, gets
+no axis caption, and one authored feature on it makes it "own only" like any
+other node.
 """
 from .models import (
     CHILDREN_AS_CHIPS,
+    CHILDREN_AS_TRANSPARENT,
     Category,
     feature_def_dict,
 )
 
-#: The schema is the parent's own (own + inherited) — every node but a chips
-#: parent that declares nothing itself.
+#: The schema is the parent's own (own + inherited) — every node but one of
+#: :data:`SCHEMA_FROM_CHILDREN` that declares nothing itself.
 EFFECTIVE_FROM_OWN = "own"
-#: The schema was intersected from the children of a chips parent.
+#: The schema was intersected from the children.
 EFFECTIVE_FROM_CHILDREN = "children"
+
+#: Resolved ``children_as`` values whose node answers with its children's
+#: schema rather than its own emptiness. ``chips`` because the parent renders
+#: the whole partition's feed (0.20.1); ``transparent`` because the node has
+#: no page of its own at all — a composer or a facet plan that walks THROUGH
+#: it must not be handed the empty schema of a wrapper nobody browses. For
+#: schema purposes ONLY: nothing else about a transparent node behaves like a
+#: chip row (no axis caption is written for it, and it draws no chip row).
+SCHEMA_FROM_CHILDREN = (CHILDREN_AS_CHIPS, CHILDREN_AS_TRANSPARENT)
 
 #: Config keys whose widest value is the LOWEST one. A key absent from any
 #: child's config is unbounded there, and unbounded is wider than any number,
@@ -152,10 +171,11 @@ def _partition_children(category):
 def effective_source(category) -> str:
     """Where this category's schema comes from — one row read plus one count.
 
-    ``EFFECTIVE_FROM_CHILDREN`` only for a chips parent with no own links: an
-    authored own schema wins outright ("own only", see the module docstring).
+    ``EFFECTIVE_FROM_CHILDREN`` only for a node in
+    :data:`SCHEMA_FROM_CHILDREN` with no own links: an authored own schema
+    wins outright ("own only", see the module docstring).
     """
-    if category.resolved_children_as != CHILDREN_AS_CHIPS:
+    if category.resolved_children_as not in SCHEMA_FROM_CHILDREN:
         return EFFECTIVE_FROM_OWN
     if category.category_features.exists():
         return EFFECTIVE_FROM_OWN
@@ -182,7 +202,7 @@ def effective_features(category) -> tuple[list, str]:
 
     children = _partition_children(category)
     if not children:
-        # A chips parent whose children are all retired presents nothing to
+        # A node whose children are all retired presents nothing to
         # intersect; its own (inherited) schema is the honest answer.
         return list(category.get_all_features()), EFFECTIVE_FROM_OWN
 

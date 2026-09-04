@@ -1,5 +1,70 @@
 # Changelog
 
+## [0.20.4] — 2026-09-05
+
+### Added
+
+- **`children_as` gains `transparent`: browsing skips this node.** Its
+  children appear where it would, and its own page is its parent's. The
+  services root of a live catalogue has exactly one child, «Предложение
+  услуг», whose own children are the 34 groups a visitor is actually looking
+  for — an import wrapper standing between the root's tile page and the real
+  level, costing a click that shows one tile. The reference catalogue
+  collapses levels like that deliberately, in more places than the one-child
+  case, which is why this is a value an operator AUTHORS from a census rather
+  than a shape the derivation guesses.
+
+  Semantics, all of it:
+
+  * **Authored only.** `derive_children_as` never emits `transparent`, never
+    overwrites it, and never captions it — a skipped node draws no chip row,
+    so an axis label on it would name something nobody sees. Such a node is
+    reported as authored, and the report line now carries the VALUE
+    (`[authored transparent — not written]`) rather than the bare fact: a run
+    that says only "authored" reads as if the node were still up for grabs.
+    "This level is not worth a page" is a judgement about a whole catalogue,
+    and no signal on the tree can stand in for it.
+  * **Served verbatim.** `resolved_children_as` answers `transparent`, and
+    the public serializer, the staff serializer's `children_as_authored` and
+    `GET /tree/` all carry it. A childless node authored `transparent` still
+    answers `null`, like every other childless node: with no children there is
+    nothing to show in its place.
+  * **The tree is unchanged.** The node keeps its id, its path, its URL and
+    its place as the target of a listing — `/tree/` still returns it, still
+    nested where it is. Only the presentation of it is a client's business.
+  * **It travels.** `export_catalog` writes it and `load_catalog` applies it
+    like any other authored value, so a census applied once survives the next
+    image build. Round-trip through a clean DB, a reload over the live tree
+    (zero updates) and a fixture-side change are all pinned.
+  * **The effective-schema rule (0.20.1) extends to it**, for SCHEMA purposes
+    only: a transparent node with no own features answers the intersection of
+    its children's. It has no page, but a composer walking through it and
+    every caller of `categories.features` still ask what it types, and a
+    wrapper's own links are empty by construction — the same hole 0.20.1
+    closed for a chips parent. One own feature makes it "own only", exactly as
+    for a chips parent. Nothing else about it behaves like a chip row.
+  * `categories.features` is otherwise unchanged.
+
+- **`set_children_as` — apply a census without the admin.**
+  `--path <slug/path> --value transparent|tiles|chips|auto`, `--path` repeatable
+  and `--paths-from <file>` for a list (`#` comments ignored). The path is the
+  slug path root→self, the exact form `derive_children_as` prints, so a census
+  read off that report pastes straight back; a bare slug works too (the column
+  is unique) and a longer path is CHECKED against the tree — a path that no
+  longer matches is refused rather than applied to a node re-parented since the
+  census was taken. Every path resolves before any is written, so one typo
+  leaves nothing half-applied. Idempotent: a node already carrying the value is
+  printed `unchanged` and not re-saved, so a re-run of the same list bumps no
+  revision and invalidates no downstream cache. Writes go through
+  `Category.save()`, not a targeted UPDATE — this is authored content a reader
+  sees, so the revision bump and the `category.changed` fanout are the point
+  (the opposite of `derive_children_as`, whose cache column must never fan
+  out). `--dry-run` reports and writes nothing.
+
+  Migration `0008` is additive only: one more choice and the width to hold it
+  (`children_as` 8 → 16). Widening a varchar keeps every stored value valid —
+  an expand step with no contract half, nothing to backfill.
+
 ## [0.20.3] — 2026-09-04
 
 ### Fixed

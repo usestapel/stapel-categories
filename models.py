@@ -43,11 +43,27 @@ CHILDREN_AS_TILES = "tiles"
 #: The children partition ONE attribute template (new/used, buy/sell/rent,
 #: boys/girls): render a chip row on the parent's own feed page.
 CHILDREN_AS_CHIPS = "chips"
+#: Browsing SKIPS this node: its children appear where it would, and its own
+#: page is its parent's. An import wrapper («Предложение услуг» between a root
+#: and the 34 groups that are the real level) and any level a catalogue keeps
+#: for placement but nobody browses. AUTHORED only — derivation never emits it,
+#: because "this level is not worth a page" is an editorial judgement about a
+#: particular catalogue and no signal on the tree can stand in for it.
+CHILDREN_AS_TRANSPARENT = "transparent"
 
-#: What a READER can be told. ``auto`` never crosses the API boundary.
-CHILDREN_AS_RESOLVED_CHOICES = (
+#: What DERIVATION may cache — the two answers ``derive_children_as`` computes.
+CHILDREN_AS_DERIVED_CHOICES = (
     (CHILDREN_AS_TILES, "Tiles"),
     (CHILDREN_AS_CHIPS, "Chips"),
+)
+#: What a READER can be told. ``auto`` never crosses the API boundary.
+CHILDREN_AS_RESOLVED_CHOICES = CHILDREN_AS_DERIVED_CHOICES + (
+    (CHILDREN_AS_TRANSPARENT, "Transparent (browsing skips this level)"),
+)
+#: The same set as plain values — what :func:`resolve_children_as` may answer,
+#: and therefore what an authored value has to be to win outright.
+CHILDREN_AS_RESOLVED_VALUES = tuple(
+    value for value, _ in CHILDREN_AS_RESOLVED_CHOICES
 )
 #: What an OPERATOR may author, ``auto`` included.
 CHILDREN_AS_AUTHORED_CHOICES = (
@@ -67,7 +83,8 @@ def resolve_children_as(
       key is still emitted, as ``null``, rather than omitted: a client that
       switches on it reads one shape for every node, and an absent key and a
       null one are the same branch anyway;
-    * an authored ``tiles``/``chips`` wins outright;
+    * an authored ``tiles``/``chips``/``transparent`` wins outright and is
+      served verbatim (:data:`CHILDREN_AS_RESOLVED_VALUES`);
     * ``auto`` falls through to the derivation cache;
     * an ``auto`` row nobody has derived yet answers ``tiles``. That is the
       conservative half of the pair: tiles show every child as its own
@@ -77,11 +94,13 @@ def resolve_children_as(
     "Childless" is a STRUCTURAL fact (``tn_children_count``), not "how many
     children this particular read is allowed to show" — a node whose children
     are all retired still says how its children would be presented, and a
-    depth-capped tree read says it about the level it did not send.
+    depth-capped tree read says it about the level it did not send. A childless
+    node authored ``transparent`` still answers ``None``: with no children
+    there is nothing to show in its place, so the honest answer is the leaf's.
     """
     if not has_children:
         return None
-    if authored in (CHILDREN_AS_TILES, CHILDREN_AS_CHIPS):
+    if authored in CHILDREN_AS_RESOLVED_VALUES:
         return authored
     return derived or CHILDREN_AS_TILES
 
@@ -417,8 +436,10 @@ class Category(RevisionMixin, TreeNodeModel):
     # the question has two independent answers and collapsing them loses one:
     #
     # * ``children_as`` is the AUTHORED intent. ``auto`` (the default) means
-    #   "nobody has decided"; ``tiles``/``chips`` mean an operator has, and
-    #   derivation must never overwrite that.
+    #   "nobody has decided"; ``tiles``/``chips``/``transparent`` mean an
+    #   operator has, and derivation must never overwrite that.
+    #   ``transparent`` is authorable ONLY — it is a judgement about a level
+    #   nobody should have to browse, which no signal on the tree can make.
     # * ``children_as_derived`` is the derivation's CACHE, written only by
     #   ``derive_children_as --apply``. Blank means "not derived yet".
     #
@@ -431,21 +452,22 @@ class Category(RevisionMixin, TreeNodeModel):
     # :attr:`resolved_children_as`, which is a plain column read (no query,
     # no per-row work, so a list of N rows costs what it cost before).
     children_as = models.CharField(
-        max_length=8,
+        max_length=16,
         choices=CHILDREN_AS_AUTHORED_CHOICES,
         default=CHILDREN_AS_AUTO,
         help_text=(
             "Authored presentation of this category's children: `auto` "
-            "(derive), `tiles` (real subcategories) or `chips` (a partition "
-            "of one attribute template). An authored value wins over "
-            "derivation."
+            "(derive), `tiles` (real subcategories), `chips` (a partition "
+            "of one attribute template) or `transparent` (browsing skips "
+            "this node — its children appear where it would). An authored "
+            "value wins over derivation."
         ),
     )
     children_as_derived = models.CharField(
         max_length=8,
         blank=True,
         default="",
-        choices=CHILDREN_AS_RESOLVED_CHOICES,
+        choices=CHILDREN_AS_DERIVED_CHOICES,
         editable=False,
         help_text=(
             "Cache of `derive_children_as --apply`. Read only when "

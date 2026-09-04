@@ -9,6 +9,12 @@ number behind it, writes nothing without ``--apply``, and writes only into
 ``children_as_derived`` — the authored ``children_as`` column is never
 touched, on any run, for any node.
 
+``transparent`` is outside this command entirely: it is never derived (no
+signal on a tree can say "nobody should have to browse this level" — that is
+an editorial call, made from a census and applied with ``set_children_as``),
+and a node carrying it is reported as authored and left alone, caption
+included.
+
 The two signals are independent on purpose, and are reported apart:
 
 ``schema``
@@ -60,6 +66,7 @@ from ...models import (
     CHILDREN_AS_AUTO,
     CHILDREN_AS_CHIPS,
     CHILDREN_AS_TILES,
+    CHILDREN_AS_TRANSPARENT,
     Category,
 )
 
@@ -321,14 +328,20 @@ class Command(BaseCommand):
             decision, signal, overlap, group = derive(
                 row, children, links, branch_pks, schema_signal
             )
-            authored = row.children_as != CHILDREN_AS_AUTO
+            # The authored value itself, "" when the row is on `auto`.
+            authored = (
+                "" if row.children_as == CHILDREN_AS_AUTO else row.children_as
+            )
             changed = not authored and row.children_as_derived != decision
             # The caption follows the DECISION, not the write: a parent
             # pinned to `chips` by hand still gets its axis named, and a
             # `tiles` parent never does — there is no chip row to caption.
+            # A node authored `transparent` draws no row either: browsing
+            # skips it, so a caption for it would name an axis nobody sees.
             label = (
                 axis_label_for(group, row.children_axis_label)
                 if decision == CHILDREN_AS_CHIPS
+                and row.children_as != CHILDREN_AS_TRANSPARENT
                 else None
             )
             if only_changed and not changed and label is None:
@@ -439,7 +452,12 @@ class Command(BaseCommand):
         self.stdout.write("-" * len(header))
         for path, decision, signal, overlap, group, authored, label in report:
             overlap_text = "-" if overlap is None else f"{overlap:.2f}"
-            suffix = "  [authored — not written]" if authored else ""
+            # The authored VALUE, not just the fact: `transparent` is a
+            # decision this command can never make, so a run that stays
+            # silent about it reads as if the node were still up for grabs.
+            suffix = (
+                f"  [authored {authored} — not written]" if authored else ""
+            )
             if label:
                 suffix += f"  [axis: {label}]"
             line = (

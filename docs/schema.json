@@ -1724,7 +1724,7 @@
             "description": "Whether this category is active"
           },
           "children_as": {
-            "description": "How this category's children are presented: `tiles` (real subcategories) or `chips` (a partition of one attribute template). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
+            "description": "How this category's children are presented: `tiles` (real subcategories), `chips` (a partition of one attribute template) or `transparent` (browsing skips this node — its children appear where it would, and its own page is its parent's). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
             "nullable": true,
             "readOnly": true,
             "oneOf": [
@@ -1950,7 +1950,7 @@
             "description": "Whether this category is active"
           },
           "children_as": {
-            "description": "How this category's children are presented: `tiles` (real subcategories) or `chips` (a partition of one attribute template). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
+            "description": "How this category's children are presented: `tiles` (real subcategories), `chips` (a partition of one attribute template) or `transparent` (browsing skips this node — its children appear where it would, and its own page is its parent's). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
             "nullable": true,
             "readOnly": true,
             "oneOf": [
@@ -2022,7 +2022,7 @@
                 "$ref": "#/components/schemas/ChildrenAsAuthoredEnum"
               }
             ],
-            "description": "Authoring value: `auto` leaves it to `derive_children_as`, `tiles`/`chips` pin it.\n\n* `auto` - Auto (derive)\n* `tiles` - Tiles\n* `chips` - Chips"
+            "description": "Authoring value: `auto` leaves it to `derive_children_as`, `tiles`/`chips`/`transparent` pin it. `transparent` is authored only — derivation never produces it.\n\n* `auto` - Auto (derive)\n* `tiles` - Tiles\n* `chips` - Chips\n* `transparent` - Transparent (browsing skips this level)"
           },
           "children_as_derived": {
             "type": "string",
@@ -2063,7 +2063,7 @@
           },
           "children_as": {
             "nullable": true,
-            "description": "`null` when the node has no children.\n\n* `tiles` - tiles\n* `chips` - chips",
+            "description": "`null` when the node has no children. `transparent` means a menu draws this node's children in its place.\n\n* `tiles` - tiles\n* `chips` - chips\n* `transparent` - transparent",
             "oneOf": [
               {
                 "$ref": "#/components/schemas/ChildrenAsEnum"
@@ -2101,15 +2101,17 @@
         "enum": [
           "auto",
           "tiles",
-          "chips"
+          "chips",
+          "transparent"
         ],
         "type": "string",
-        "description": "* `auto` - Auto (derive)\n* `tiles` - Tiles\n* `chips` - Chips"
+        "description": "* `auto` - Auto (derive)\n* `tiles` - Tiles\n* `chips` - Chips\n* `transparent` - Transparent (browsing skips this level)"
       },
       "ChildrenAsEnum": {
         "enum": [
           "tiles",
-          "chips"
+          "chips",
+          "transparent"
         ],
         "type": "string"
       },
@@ -3970,7 +3972,7 @@
             "description": "Whether this category is active"
           },
           "children_as": {
-            "description": "How this category's children are presented: `tiles` (real subcategories) or `chips` (a partition of one attribute template). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
+            "description": "How this category's children are presented: `tiles` (real subcategories), `chips` (a partition of one attribute template) or `transparent` (browsing skips this node — its children appear where it would, and its own page is its parent's). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
             "nullable": true,
             "readOnly": true,
             "oneOf": [
@@ -4042,7 +4044,7 @@
                 "$ref": "#/components/schemas/ChildrenAsAuthoredEnum"
               }
             ],
-            "description": "Authoring value: `auto` leaves it to `derive_children_as`, `tiles`/`chips` pin it.\n\n* `auto` - Auto (derive)\n* `tiles` - Tiles\n* `chips` - Chips"
+            "description": "Authoring value: `auto` leaves it to `derive_children_as`, `tiles`/`chips`/`transparent` pin it. `transparent` is authored only — derivation never produces it.\n\n* `auto` - Auto (derive)\n* `tiles` - Tiles\n* `chips` - Chips\n* `transparent` - Transparent (browsing skips this level)"
           },
           "children_as_derived": {
             "type": "string",

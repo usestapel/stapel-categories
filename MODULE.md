@@ -85,15 +85,33 @@
   `categories.suggest` mechanism), so an edit retires the entry immediately
   instead of waiting out a TTL.
 - **How a node's children are presented** — `children_as`, one of `tiles`
-  (the children are real subcategories: a grid of destinations) or `chips`
+  (the children are real subcategories: a grid of destinations), `chips`
   (the children partition ONE attribute template — new/used, buy/sell/rent,
-  boys/girls — and belong on a chip row over the parent's own feed). Children
+  boys/girls — and belong on a chip row over the parent's own feed) or
+  `transparent` (browsing SKIPS this node: its children appear where it
+  would, and its own page is its parent's). Children
   of a `chips` parent keep their ids, paths and URLs and stay the placement
-  target of a listing; only the presentation changes.
+  target of a listing; only the presentation changes — and the same holds for
+  a `transparent` node itself.
 
-  A `chips` parent that declares nothing itself answers the INTERSECTION of
+  `transparent` is the import wrapper: a level a catalogue keeps for
+  placement that nobody should have to browse through («Предложение услуг»
+  standing between a root and the 34 groups that are the real level). It is
+  AUTHORED only, and that is the point — "this level is not worth a page" is
+  an editorial judgement made by reading a whole catalogue, and no signal on
+  the tree can stand in for it. `derive_children_as` never emits it, never
+  overwrites it and never captions it (a skipped node draws no chip row).
+  `set_children_as --path <slug/path> --value transparent` applies a census
+  list without the admin: idempotent, every path resolved before any is
+  written, and it prints what changed.
+
+  A `chips` or `transparent` parent that declares nothing itself answers the
+  INTERSECTION of
   its children's schemas on every features read — it draws the feed for the
-  whole partition, so its filters are the ones every chip can answer.
+  whole partition, so its filters are the ones every chip can answer. A
+  transparent node draws no page at all, but a composer walking through it
+  still asks it what it types, and a wrapper's own links are empty by
+  construction; for SCHEMA purposes only, it takes the chips rule.
   Divergent configs widen (lowest lower bound, highest upper bound, union of
   options) and carry `divergent: true`; `X-Effective-From` / `effective_from`
   says the list was intersected. Own features win outright: own only.
@@ -115,7 +133,10 @@
   touch its own output and the derivation would be a one-shot rather than the
   re-runnable step a catalogue import needs. Readers never see either raw
   value: every public serializer carries `Category.resolved_children_as` —
-  authored wins, else the cache, else `tiles`, and `null` on a childless node.
+  authored wins (served verbatim, `transparent` included), else the cache,
+  else `tiles`, and `null` on a childless node — a childless one authored
+  `transparent` included, since with no children there is nothing to show in
+  its place.
   It is three columns already on the row, so a page of N categories costs no
   extra query to say it.
 

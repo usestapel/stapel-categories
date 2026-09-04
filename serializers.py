@@ -16,7 +16,12 @@ from stapel_attributes import (
 from stapel_core.django.api.serializers import StapelDataclassSerializer
 
 from .dto import FeatureEditorDraftResponse, UndeleteResponse
-from .models import CHILDREN_AS_AUTHORED_CHOICES, Category, Feature
+from .models import (
+    CHILDREN_AS_AUTHORED_CHOICES,
+    CHILDREN_AS_RESOLVED_VALUES,
+    Category,
+    Feature,
+)
 
 
 class FeatureConfigSchemaField(serializers.JSONField):
@@ -189,8 +194,10 @@ class CategorySerializer(serializers.ModelSerializer):
     children_as = serializers.SerializerMethodField(
         help_text=(
             "How this category's children are presented: `tiles` (real "
-            "subcategories) or `chips` (a partition of one attribute "
-            "template). `null` when the category has no children. The "
+            "subcategories), `chips` (a partition of one attribute "
+            "template) or `transparent` (browsing skips this node — its "
+            "children appear where it would, and its own page is its "
+            "parent's). `null` when the category has no children. The "
             "authoring value `auto` is resolved server-side and never "
             "appears here."
         )
@@ -219,7 +226,9 @@ class CategorySerializer(serializers.ModelSerializer):
     )
 
     @extend_schema_field(
-        serializers.ChoiceField(choices=["tiles", "chips"], allow_null=True)
+        serializers.ChoiceField(
+            choices=list(CHILDREN_AS_RESOLVED_VALUES), allow_null=True
+        )
     )
     def get_children_as(self, obj) -> str | None:
         # Three columns already on the row (see Category.resolved_children_as)
@@ -254,7 +263,8 @@ class CategoryStaffSerializer(CategorySerializer):
         required=False,
         help_text=(
             "Authoring value: `auto` leaves it to `derive_children_as`, "
-            "`tiles`/`chips` pin it."
+            "`tiles`/`chips`/`transparent` pin it. `transparent` is "
+            "authored only — derivation never produces it."
         ),
     )
     children_as_derived = serializers.CharField(read_only=True)
@@ -299,9 +309,12 @@ class CategoryTreeNodeSerializer(serializers.Serializer):
     )
     catalog_icon = serializers.CharField(allow_blank=True)
     children_as = serializers.ChoiceField(
-        choices=["tiles", "chips"],
+        choices=list(CHILDREN_AS_RESOLVED_VALUES),
         allow_null=True,
-        help_text="`null` when the node has no children.",
+        help_text=(
+            "`null` when the node has no children. `transparent` means a "
+            "menu draws this node's children in its place."
+        ),
     )
     children_axis_label = serializers.CharField(
         allow_blank=True,
