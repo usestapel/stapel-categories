@@ -37,6 +37,14 @@ are decided by these same rules — nested chip rows are a legitimate shape.
 Structure survives as a VETO where the vocabulary says nothing: with schema
 overlap the sole signal, a shelf of branches stays ``tiles``.
 
+A chip row also needs a NAME for the axis it splits on («Тип автомобиля»
+over Все | С пробегом | Новые), and the vocabulary group already says what
+that axis is. So an ``--apply`` run also fills ``children_axis_label`` from
+:data:`AXIS_LABEL_KEYS` — a translation KEY per group, never a rendered
+word — for the parents it decided are ``chips``. Authored text always wins;
+the command only ever overwrites a label it emitted itself, which is what
+keeps this step re-runnable without a cache column.
+
 The vocabulary is data in this file, deliberately: it is a fact about the
 catalogues this fleet imports, not about the model, and putting it in the
 model would make every deployment inherit one market's words.
@@ -69,6 +77,27 @@ PARTITION_VOCABULARY: dict[str, tuple[str, ...]] = {
     "childrens-gender": ("для мальчиков", "для девочек"),
     "adult-gender": ("мужская", "женская", "мужские", "женские", "мужской", "женский"),
 }
+
+#: The axis caption a chip row gets when nobody named it — one translation
+#: KEY per vocabulary group, never a rendered word: this fleet ships one
+#: catalogue into several languages, and a hard-coded caption would make the
+#: derivation a statement about one market's alphabet. A host resolves these
+#: through the ``DISPLAY_TRANSLATOR`` seam like every other name here.
+#:
+#: Only the groups whose axis has a name: the two gender groups split on the
+#: same question ("for whom") and share one key, because the axis is the
+#: question, not the values under it.
+AXIS_LABEL_KEYS: dict[str, str] = {
+    "transaction": "categories.axis.deal_type",
+    "condition": "categories.axis.condition",
+    "childrens-gender": "categories.axis.audience",
+    "adult-gender": "categories.axis.audience",
+}
+
+#: Every key the table above can emit — what makes a stored label
+#: recognizable as this command's OWN output, and therefore re-derivable.
+#: Anything else in the column is authored text and is never touched.
+DERIVED_AXIS_LABELS = frozenset(AXIS_LABEL_KEYS.values())
 
 #: How a decision was reached, printed in the report's SIGNAL column.
 SIGNAL_STRUCTURE = "structure"
@@ -195,6 +224,33 @@ def derive(
     return CHILDREN_AS_TILES, SIGNAL_NONE, overlap, None
 
 
+def axis_label_for(group: str | None, stored: str) -> str | None:
+    """The label to WRITE for a chip row, or ``None`` to leave the column be.
+
+    Three states, and the middle one is why this is not "write when empty":
+
+    * a column holding text nobody in this table could have written is
+      AUTHORED — an operator named the axis, and the derivation is not
+      entitled to an opinion about it;
+    * a column holding one of :data:`DERIVED_AXIS_LABELS` is this command's
+      own previous answer, so a re-run may improve it (a node that changed
+      groups gets the new key) — the same re-runnability ``children_as``
+      needed a second column for, had here for free because the derived
+      values are a closed set;
+    * an empty column takes the group's key, if the group has one.
+
+    ``None`` where the group is unknown or the value would not change: a
+    parent carried to ``chips`` by the schema signal alone has no named axis,
+    and inventing one would caption a chip row with a guess.
+    """
+    key = AXIS_LABEL_KEYS.get(group or "")
+    if key is None:
+        return None
+    if stored and stored not in DERIVED_AXIS_LABELS:
+        return None
+    return key if key != stored else None
+
+
 class Command(BaseCommand):
     help = (
         "Derive `children_as` for categories left on `auto`. Dry run by "
@@ -257,6 +313,7 @@ class Command(BaseCommand):
 
         report: list[tuple] = []
         writes: list[tuple[int, str]] = []
+        label_writes: list[tuple[int, str]] = []
         for row in rows:
             children = children_by_parent.get(row.pk)
             if not children:
@@ -266,24 +323,38 @@ class Command(BaseCommand):
             )
             authored = row.children_as != CHILDREN_AS_AUTO
             changed = not authored and row.children_as_derived != decision
-            if only_changed and not changed:
+            # The caption follows the DECISION, not the write: a parent
+            # pinned to `chips` by hand still gets its axis named, and a
+            # `tiles` parent never does — there is no chip row to caption.
+            label = (
+                axis_label_for(group, row.children_axis_label)
+                if decision == CHILDREN_AS_CHIPS
+                else None
+            )
+            if only_changed and not changed and label is None:
                 continue
             report.append(
-                (self._path(row, by_pk), decision, signal, overlap, group, authored)
+                (
+                    self._path(row, by_pk), decision, signal, overlap, group,
+                    authored, label,
+                )
             )
             if changed:
                 writes.append((row.pk, decision))
+            if label is not None:
+                label_writes.append((row.pk, label))
 
         self._print_report(report)
 
-        if not writes:
+        if not writes and not label_writes:
             self.stdout.write("Nothing to write.")
             return
 
         if not apply_changes:
             self.stdout.write(
                 self.style.WARNING(
-                    f"Dry run — {len(writes)} row(s) would change. "
+                    f"Dry run — {len(writes)} row(s) would change, "
+                    f"{len(label_writes)} axis label(s) would be named. "
                     "Re-run with --apply to write them."
                 )
             )
@@ -301,7 +372,20 @@ class Command(BaseCommand):
                 Category.objects.filter(
                     pk=pk, children_as=CHILDREN_AS_AUTO
                 ).update(children_as_derived=decision)
-        self.stdout.write(self.style.SUCCESS(f"Wrote {len(writes)} row(s)."))
+            for pk, label in label_writes:
+                # Same targeted UPDATE, same reason. The guard repeats the
+                # authored-wins rule in SQL: a label written between the read
+                # and this line is text this command did not emit, so it
+                # stays.
+                Category.objects.filter(
+                    pk=pk, children_axis_label__in=["", *DERIVED_AXIS_LABELS]
+                ).update(children_axis_label=label)
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Wrote {len(writes)} row(s), named "
+                f"{len(label_writes)} axis label(s)."
+            )
+        )
 
     @staticmethod
     def _schema_signal_available() -> bool:
@@ -348,12 +432,16 @@ class Command(BaseCommand):
         if not report:
             self.stdout.write("No parents matched.")
             return
-        header = f"{'DECISION':<9} {'SIGNAL':<20} {'OVERLAP':>7}  {'GROUP':<16} PATH"
+        header = (
+            f"{'DECISION':<9} {'SIGNAL':<20} {'OVERLAP':>7}  {'GROUP':<16} PATH"
+        )
         self.stdout.write(header)
         self.stdout.write("-" * len(header))
-        for path, decision, signal, overlap, group, authored in report:
+        for path, decision, signal, overlap, group, authored, label in report:
             overlap_text = "-" if overlap is None else f"{overlap:.2f}"
             suffix = "  [authored — not written]" if authored else ""
+            if label:
+                suffix += f"  [axis: {label}]"
             line = (
                 f"{decision:<9} {signal:<20} {overlap_text:>7}  "
                 f"{(group or '-'):<16} {path}{suffix}"

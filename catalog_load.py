@@ -412,6 +412,9 @@ def _normalize_category_record(rec: dict) -> dict:
     # state, so a fixture that spells the default out hashes as the default.
     if rec.get("children_as") and rec["children_as"] != CHILDREN_AS_AUTO:
         out["children_as"] = rec["children_as"]
+    # Same rule for the axis caption: blank and absent are one state.
+    if rec.get("children_axis_label"):
+        out["children_axis_label"] = rec["children_axis_label"]
     if rec.get("is_test"):
         out["is_test"] = True
     return out
@@ -789,7 +792,7 @@ _FEATURE_SCALARS = (
 _CATEGORY_SCALARS = (
     "slug", "name", "external_id", "external_source", "comment", "catalog_icon",
     "carousel_icon", "carousel_enabled", "active", "translatable", "is_test",
-    "deleted", "tn_parent_id", "children_as",
+    "deleted", "tn_parent_id", "children_as", "children_axis_label",
 )
 
 
@@ -1142,6 +1145,7 @@ def _apply_category_upsert(record: dict):
     # different value has changed the DB side, so the 3-way diff reports a
     # conflict there instead of this line quietly winning.
     cat.children_as = record.get("children_as") or CHILDREN_AS_AUTO
+    cat.children_axis_label = record.get("children_axis_label") or ""
     cat.is_test = bool(record.get("is_test", False))
     cat.deleted = False
     cat.tn_parent = parent

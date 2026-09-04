@@ -164,13 +164,22 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "slug",
             "catalog_icon", "carousel_icon", "carousel_enabled", "active",
-            "children_as",
+            "children_as", "children_axis_label",
             "features", "translatable",
             "tn_parent", "tn_priority",
             "tn_ancestors_pks", "tn_children_pks",
             "revision", "deleted",
         ]
         read_only_fields = ["revision"]
+
+    children_axis_label = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Name of the axis the children split on, for a `chips` row "
+            "(e.g. a key rendering as 'Condition' over New | Used). A "
+            "translation key, like `name` — empty when nobody named it."
+        ),
+    )
 
     @extend_schema_field(
         serializers.ChoiceField(choices=["tiles", "chips"], allow_null=True)
@@ -212,6 +221,11 @@ class CategoryStaffSerializer(CategorySerializer):
         ),
     )
     children_as_derived = serializers.CharField(read_only=True)
+    # Read-only on the public projection, authorable here: naming the axis is
+    # an operator's decision and `derive_children_as` only fills a blank one.
+    children_axis_label = serializers.CharField(
+        required=False, allow_blank=True, max_length=200
+    )
 
     class Meta(CategorySerializer.Meta):
         fields = CategorySerializer.Meta.fields + [
@@ -251,6 +265,13 @@ class CategoryTreeNodeSerializer(serializers.Serializer):
         choices=["tiles", "chips"],
         allow_null=True,
         help_text="`null` when the node has no children.",
+    )
+    children_axis_label = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Name of the axis the children split on, for a `chips` row. A "
+            "translation key, like `name`; empty when nobody named it."
+        ),
     )
     children = serializers.ListField(
         child=serializers.DictField(),

@@ -21,6 +21,8 @@ from stapel_categories import catalog_fixtures as cf
 from stapel_categories import catalog_load as cl
 
 from stapel_categories.management.commands.derive_children_as import (
+    AXIS_LABEL_KEYS,
+    axis_label_for,
     derive,
     jaccard,
     vocabulary_group,
@@ -487,12 +489,12 @@ class TestDeriveCommand:
         call_command("derive_children_as", "--apply")
 
         lines = capsys.readouterr().out.splitlines()
-        parent_line = next(line for line in lines if line.endswith(" kvartiry"))
+        parent_line = next(line for line in lines if " kvartiry " in f"{line} ")
         assert "chips" in parent_line
         assert "vocabulary>structure" in parent_line
         assert "transaction" in parent_line
         branch_line = next(
-            line for line in lines if line.endswith("kvartiry/kvartiry-sell")
+            line for line in lines if "kvartiry/kvartiry-sell" in line
         )
         assert "tiles" in branch_line
         assert Category.objects.get(slug="kvartiry").resolved_children_as == "chips"
@@ -627,7 +629,8 @@ class TestTreeEndpoint:
         rows = api_client.get(f"{BASE}/tree/").json()
 
         assert sorted(rows[0]) == [
-            "catalog_icon", "children", "children_as", "id", "name", "path", "slug",
+            "catalog_icon", "children", "children_as", "children_axis_label",
+            "id", "name", "path", "slug",
         ]
 
 
@@ -766,3 +769,245 @@ class TestCatalogFixtureRoundTrip(_CatalogTestCase):
 
             assert not report.failed
             assert Category.objects.get(slug="electronics").children_as == "chips"
+
+
+class TestAxisLabel:
+    """`children_axis_label` — the NAME of the axis a chip row splits on.
+
+    A chip row is unreadable without it: «Все | С пробегом | Новые» is a
+    set of values, and only the parent can say they are values OF
+    something. The column is authored text (a translation key, like
+    `name`), the derivation may fill a blank one from the vocabulary group
+    it already matched, and what an operator wrote is never overwritten.
+    """
+
+    @pytest.fixture
+    def realty(self):
+        """A partition the NAME vocabulary sees: Куплю | Сдам."""
+        root = Category.objects.create(name="Flats", slug="flats")
+        buy = Category.objects.create(name="Куплю", slug="flats-buy", tn_parent=root)
+        rent = Category.objects.create(name="Сдам", slug="flats-rent", tn_parent=root)
+        link(root)
+        link(buy, "rooms", "area", "floor")
+        link(rent, "deposit", "term", "furnished", "pets")
+        return root
+
+    def test_the_default_is_empty(self, db):
+        root = Category.objects.create(name="Flats", slug="flats")
+        assert root.children_axis_label == ""
+
+    # --- what a reader is told --------------------------------------------
+
+    def test_the_public_read_carries_it_as_stored(self, api_client, db):
+        root = Category.objects.create(
+            name="Flats", slug="flats", children_axis_label="categories.axis.deal_type"
+        )
+        Category.objects.create(name="Куплю", slug="flats-buy", tn_parent=root)
+
+        rows = api_client.get(f"{BASE}/categories/").json()["results"]
+        row = next(r for r in rows if r["slug"] == "flats")
+
+        # The stored KEY, exactly as `name` travels — the client resolves it.
+        assert row["children_axis_label"] == "categories.axis.deal_type"
+
+    def test_the_tree_carries_it(self, api_client, db):
+        root = Category.objects.create(
+            name="Flats", slug="flats", children_axis_label="categories.axis.deal_type"
+        )
+        Category.objects.create(name="Куплю", slug="flats-buy", tn_parent=root)
+
+        rows = api_client.get(f"{BASE}/tree/").json()
+        node = next(r for r in rows if r["slug"] == "flats")
+
+        assert node["children_axis_label"] == "categories.axis.deal_type"
+        assert node["children_as"] == "tiles"  # nobody derived yet — unrelated
+
+    def test_an_unnamed_axis_is_an_empty_string_not_a_missing_key(
+        self, api_client, db
+    ):
+        Category.objects.create(name="Flats", slug="flats")
+
+        rows = api_client.get(f"{BASE}/tree/").json()
+
+        assert rows[0]["children_axis_label"] == ""
+
+    def test_staff_can_author_it(self, db):
+        from stapel_categories.serializers import CategoryStaffSerializer
+
+        root = Category.objects.create(name="Flats", slug="flats")
+        serializer = CategoryStaffSerializer(
+            root, data={"children_axis_label": "catalogue.flats.deal"}, partial=True
+        )
+        assert serializer.is_valid(), serializer.errors
+        serializer.save()
+
+        root.refresh_from_db()
+        assert root.children_axis_label == "catalogue.flats.deal"
+
+    def test_the_admin_offers_it(self, db):
+        from django.contrib.admin.sites import AdminSite
+
+        from stapel_categories.admin import CategoryAdmin
+
+        fields = set()
+        for _, spec in CategoryAdmin(Category, AdminSite()).fieldsets:
+            fields.update(spec["fields"])
+        assert "children_axis_label" in fields
+
+    # --- what the derivation may fill -------------------------------------
+
+    def test_a_blank_label_takes_the_group_key(self):
+        assert axis_label_for("transaction", "") == AXIS_LABEL_KEYS["transaction"]
+
+    def test_authored_text_wins(self):
+        assert axis_label_for("transaction", "catalogue.flats.deal") is None
+
+    def test_its_own_previous_key_is_re_derivable(self):
+        # The derived values are a closed set, so the command can recognise
+        # its own answer and improve it — no cache column needed.
+        assert (
+            axis_label_for("condition", AXIS_LABEL_KEYS["transaction"])
+            == AXIS_LABEL_KEYS["condition"]
+        )
+
+    def test_an_unchanged_key_is_not_rewritten(self):
+        assert axis_label_for("condition", AXIS_LABEL_KEYS["condition"]) is None
+
+    def test_a_group_with_no_named_axis_names_nothing(self):
+        assert axis_label_for(None, "") is None
+
+    def test_both_gender_groups_ask_the_same_question(self):
+        assert AXIS_LABEL_KEYS["childrens-gender"] == AXIS_LABEL_KEYS["adult-gender"]
+
+    def test_every_key_is_a_key_not_a_word(self):
+        # Hard-coded Russian here would make one market's alphabet the
+        # catalogue's; the fleet translates these.
+        assert all(
+            key.isascii() and "." in key for key in AXIS_LABEL_KEYS.values()
+        )
+
+
+@pytest.mark.django_db
+class TestAxisLabelDerivation:
+    """`derive_children_as` names the axis of the rows it makes chips."""
+
+    @pytest.fixture
+    def realty(self):
+        root = Category.objects.create(name="Flats", slug="flats")
+        Category.objects.create(name="Куплю", slug="flats-buy", tn_parent=root)
+        Category.objects.create(name="Сдам", slug="flats-rent", tn_parent=root)
+        link(root)
+        link(Category.objects.get(slug="flats-buy"), "rooms", "area", "floor")
+        link(Category.objects.get(slug="flats-rent"), "deposit", "term", "pets")
+        return root
+
+    def test_a_dry_run_names_nothing(self, realty, capsys):
+        call_command("derive_children_as")
+
+        assert "axis:" in capsys.readouterr().out
+        realty.refresh_from_db()
+        assert realty.children_axis_label == ""
+
+    def test_apply_names_the_axis_of_a_chip_row(self, realty):
+        call_command("derive_children_as", "--apply")
+
+        realty.refresh_from_db()
+        assert realty.children_as_derived == "chips"
+        assert realty.children_axis_label == AXIS_LABEL_KEYS["transaction"]
+
+    def test_it_never_overwrites_authored_text(self, realty):
+        Category.objects.filter(pk=realty.pk).update(
+            children_axis_label="catalogue.flats.deal"
+        )
+
+        call_command("derive_children_as", "--apply")
+
+        realty.refresh_from_db()
+        assert realty.children_axis_label == "catalogue.flats.deal"
+
+    def test_a_pinned_chips_parent_still_gets_its_axis_named(self, realty):
+        Category.objects.filter(pk=realty.pk).update(children_as="chips")
+
+        call_command("derive_children_as", "--apply")
+
+        realty.refresh_from_db()
+        # The authored decision is untouched, and the row it draws is captioned.
+        assert realty.children_as == "chips"
+        assert realty.children_axis_label == AXIS_LABEL_KEYS["transaction"]
+
+    def test_a_tiles_parent_is_never_captioned(self):
+        root = Category.objects.create(name="Electronics", slug="electronics")
+        phones = Category.objects.create(name="Phones", slug="phones", tn_parent=root)
+        fridges = Category.objects.create(name="Fridges", slug="fridges", tn_parent=root)
+        link(root)
+        link(phones, "make", "memory", "screen")
+        link(fridges, "volume", "no_frost", "colour")
+
+        call_command("derive_children_as", "--apply")
+
+        root.refresh_from_db()
+        assert root.children_as_derived == "tiles"
+        assert root.children_axis_label == ""
+
+    def test_a_second_run_is_a_no_op(self, realty, capsys):
+        call_command("derive_children_as", "--apply")
+        capsys.readouterr()
+
+        call_command("derive_children_as", "--apply")
+
+        assert "Nothing to write." in capsys.readouterr().out
+
+
+class TestAxisLabelFixtureRoundTrip(_CatalogTestCase):
+    """The caption travels with the catalogue, like `children_as`.
+
+    A label that does not survive DB -> fixture -> DB is a decision the next
+    container start forgets, and an uncaptioned chip row is what the reader
+    then gets.
+    """
+
+    def test_a_blank_label_is_absent_from_the_record(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+
+            # Absent, not `""` — a fixture written before this key existed
+            # keeps its content hash.
+            assert all("children_axis_label" not in r for r in records)
+
+    def test_a_named_axis_survives_a_round_trip_through_a_clean_db(self):
+        self.seed_catalog()
+        Category.objects.filter(slug="electronics").update(
+            children_as="chips", children_axis_label="categories.axis.condition"
+        )
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            _export(first)
+            before = _read(first, cf.CATEGORIES_FILE)
+            _wipe_db()
+
+            report = cl.load_catalog(first, seed_if_empty=True)
+            assert not report.failed
+
+            loaded = Category.objects.get(slug="electronics")
+            assert loaded.children_axis_label == "categories.axis.condition"
+            _export(second)
+            assert _read(second, cf.CATEGORIES_FILE) == before
+
+    def test_a_fixture_side_change_is_applied_on_update(self):
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for record in records:
+                if record["slug"] == "electronics":
+                    record["children_axis_label"] = "categories.axis.condition"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out)
+
+            assert not report.failed
+            assert (
+                Category.objects.get(slug="electronics").children_axis_label
+                == "categories.axis.condition"
+            )

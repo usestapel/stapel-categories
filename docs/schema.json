@@ -1724,6 +1724,11 @@
               }
             ]
           },
+          "children_axis_label": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Name of the axis the children split on, for a `chips` row (e.g. a key rendering as 'Condition' over New | Used). A translation key, like `name` — empty when nobody named it."
+          },
           "features": {
             "type": "array",
             "items": {
@@ -1767,6 +1772,7 @@
         },
         "required": [
           "children_as",
+          "children_axis_label",
           "features",
           "id",
           "name",
@@ -1944,6 +1950,10 @@
               }
             ]
           },
+          "children_axis_label": {
+            "type": "string",
+            "maxLength": 200
+          },
           "features": {
             "type": "array",
             "items": {
@@ -2051,6 +2061,10 @@
               }
             ]
           },
+          "children_axis_label": {
+            "type": "string",
+            "description": "Name of the axis the children split on, for a `chips` row. A translation key, like `name`; empty when nobody named it."
+          },
           "children": {
             "type": "array",
             "items": {
@@ -2064,6 +2078,7 @@
           "catalog_icon",
           "children",
           "children_as",
+          "children_axis_label",
           "id",
           "name",
           "path",
@@ -3855,6 +3870,10 @@
                 "$ref": "#/components/schemas/NullEnum"
               }
             ]
+          },
+          "children_axis_label": {
+            "type": "string",
+            "maxLength": 200
           },
           "features": {
             "type": "array",

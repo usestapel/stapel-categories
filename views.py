@@ -949,7 +949,7 @@ def build_category_tree(depth: int) -> list[dict]:
         .order_by("-tn_priority", "id")
         .values(
             "id", "slug", "name", "catalog_icon",
-            "children_as", "children_as_derived",
+            "children_as", "children_as_derived", "children_axis_label",
             "tn_parent_id", "tn_ancestors_pks", "tn_children_count",
         )
     )
@@ -972,6 +972,9 @@ def build_category_tree(depth: int) -> list[dict]:
                 row["children_as_derived"],
                 bool(row["tn_children_count"]),
             ),
+            # The stored key, like `name` above — a caption for the chip row
+            # the level below is drawn as, "" when nobody named the axis.
+            "children_axis_label": row["children_axis_label"],
             "children": [],
         }
 

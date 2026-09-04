@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "categories.by_slug",
+  "description": "Resolve slugs to root->leaf ancestry. This object validates the request payload; the response is a flat mapping {\"<slug>\": [\"<root_id>\", ..., \"<leaf_id>\"]} — see $defs.Path. It is categories.path keyed by slug: the segments are category IDS (as strings) on the way out, so a consumer feeds the last one straight back into categories.features, whose payload is typed as an integer id. A slug with no row is simply absent from the mapping, mirroring the projections read() convention — absence is what a consumer turns into its own refusal, and it is never an error, an empty list or a null. An inactive category still answers (a listing can sit in a category retired after publication); a soft-deleted one does not.",
+  "type": "object",
+  "required": ["slugs"],
+  "properties": {
+    "slugs": {
+      "type": "array",
+      "description": "Slugs to resolve. Category.slug is unique across the whole tree, so one slug is a complete address.",
+      "items": { "type": "string" },
+      "maxItems": 1000
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Path": {
+      "type": "array",
+      "description": "One response value: the named category's own ancestry, root first and the category itself last. A root category answers a single-element path.",
+      "items": { "type": "string" },
+      "minItems": 1
+    }
+  }
+}

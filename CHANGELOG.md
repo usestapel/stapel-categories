@@ -1,5 +1,75 @@
 # Changelog
 
+## [0.20.0] — 2026-09-04
+
+### Added
+
+- **`categories.by_slug` — the tree answers to slugs too.** stapel-search
+  0.14.3 lets a `category=` segment be a slug, so a page whose address reads
+  `/c/avtomobili` can ask for its own feed; the resolution needs a node, and
+  nothing in the fleet could turn a slug into one. The Function is
+  `categories.path` keyed by the other unique column: `{"slugs": ["transport",
+  "avtomobili"]}` -> `{"transport": ["141"], "avtomobili": ["141", "151"]}`,
+  ids as strings on both sides so a JSON round trip cannot change a value
+  type, `maxItems: 1000` in the schema like `categories.path`.
+
+  It is answered here for the reason `categories.path` is: this module owns
+  the tree, and any other answer re-derives the hierarchy from the outside.
+  The consumer declared the name (`CATEGORY_SLUG_FUNCTION`) before a provider
+  existed, and until now every slug segment of a search query degraded.
+
+  The conventions are the ones the consumer's contract fixes, and each of
+  them is load-bearing: a slug with no row is simply ABSENT (the
+  `projections.read()` convention) — absence is what stapel-search turns into
+  its `error.400.search_unknown_category`, so it must not be an error, an
+  empty list or a null; there are no errors of this Function's own, because a
+  provider that cannot answer degrades at the caller and an outage may never
+  be printed as a bad request; an INACTIVE row still answers, as
+  `categories.names` does, since a listing can sit in a category retired
+  after publication and its feed still has an address; a soft-deleted row
+  does not answer at all. A RENAME stays invisible to the consumer's cache —
+  `category.changed` carries an id and no slug — so its slug→path entries
+  expire on `CATEGORY_CACHE_TIMEOUT` rather than being dropped; closing that
+  would mean putting a slug in the event, and this release does not.
+
+  Proven across the seam, not asserted: with stapel-search 0.14.3 and this
+  build co-installed in one process, `category=avtomobili` over a two-node
+  tree resolves to the id path `1/2` and echoes `category_resolved:
+  {"path": "1/2", "slugs": ["transport", "avtomobili"]}` with an empty
+  `degraded[]`; with `CATEGORY_SLUG_FUNCTION` pointed at a name nobody
+  registers, the same query leaves the segment standing and degrades — which
+  is what makes the first result an answer FROM this provider rather than a
+  coincidence.
+
+- **`children_axis_label` — a chip row says what it splits on.** «Все | С
+  пробегом | Новые» is a set of values, and only the parent can say they are
+  values OF something («Тип автомобиля»). The name of that axis is a fact
+  about the set, not about any one child, so it is an optional column on the
+  PARENT: a translation key like `name` (this module stores keys and the
+  reader resolves them, so one catalogue captions its rows in every language
+  the fleet ships), empty by default — a storefront then draws the row
+  uncaptioned, exactly as every catalogue does today.
+
+  It rides on every public read next to `children_as` (the frozen
+  `PUBLIC_CATEGORY_KEYS` set grew by one, deliberately), on `GET /tree/`, on
+  the staff serializer as a writable key, in the admin's Presentation
+  fieldset, and in the catalogue fixture — written only when named, so no
+  content hash on disk moves and `STATE_VERSION` stays 4, and applied by
+  `load_catalog` on update: an axis caption is the same wherever the
+  catalogue is loaded.
+
+  ONE column, where `children_as` needed two. `derive_children_as --apply`
+  now also names the axis of the parents it makes `chips`, from the
+  vocabulary group it had already matched — deal type, condition, for whom —
+  and what it can emit is a CLOSED set of translation keys, never a rendered
+  word (a hard-coded Russian caption would make one market's alphabet the
+  catalogue's). That closed set is what lets the command recognise its own
+  previous answer and improve it on a re-run, so this field needs no
+  derivation cache to stay re-runnable. Authored text always wins, in the
+  read and again in the SQL guard of the write; a parent pinned to `chips` by
+  hand still gets its axis named, and a `tiles` parent never does — there is
+  no chip row to caption.
+
 ## [0.19.1] — 2026-09-04
 
 ### Fixed

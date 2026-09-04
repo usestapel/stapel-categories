@@ -91,6 +91,15 @@
   of a `chips` parent keep their ids, paths and URLs and stay the placement
   target of a listing; only the presentation changes.
 
+  The axis a chip row splits on has a name of its own — `children_axis_label`
+  on the PARENT, because no chip can name the axis without the others. One
+  optional column holding a translation key (like `name`), empty by default:
+  a storefront then draws the row uncaptioned, which is what every catalogue
+  did before the key existed. It needs no derivation cache the way
+  `children_as` does — the values `derive_children_as` can emit are a closed
+  set of keys, so the command recognises its own previous answer and never
+  touches authored text.
+
   Stored as TWO columns, because the question has two independent answers and
   one column loses one of them: `children_as` is the AUTHORED intent (`auto`
   by default, meaning "nobody has decided") and `children_as_derived` is the
@@ -141,7 +150,9 @@
   give is still a correct prefix of the tree that was asked for.
 - A **comm surface**: Functions `categories.features` (resolved schema for a
   category), `categories.path` (root->leaf ancestry for a batch of categories),
-  `categories.names` (batch of ids -> display name + slug),
+  `categories.by_slug` (the same ancestry keyed by slug, so a page addressed
+  by slug can ask for its own feed), `categories.names` (batch of ids ->
+  display name + slug),
   `categories.children` (one rung of the cascade — a node's active children
   in storefront order, null for the roots) and
   `categories.suggest` (category NAMES matched for a type-ahead, answered
@@ -271,6 +282,7 @@ through `StapelModelAdmin`.
 |---|---|---|---|
 | Function (provides) | `categories.features` | `{category_id}` -> `{category_id, revision, features:[ResolvedFeature]}` | `schemas/functions/categories.features.json` |
 | Function (provides) | `categories.path` | `{category_ids:[id,...]}` -> `{"<id>": ["<root_id>",…,"<id>"]}` | `schemas/functions/categories.path.json` |
+| Function (provides) | `categories.by_slug` | `{slugs:[str,...]}` -> `{"<slug>": ["<root_id>",…,"<id>"]}` | `schemas/functions/categories.by_slug.json` |
 | Function (provides) | `categories.names` | `{ids:[id,...]}` -> `{names: {"<id>": {name, slug}}}` | `schemas/functions/categories.names.json` |
 | Function (provides) | `categories.children` | `{parent_id: <int\|null>}` -> `{parent_id, children:[{id, slug, name, children_count}]}` | `schemas/functions/categories.children.json` |
 | Function (provides) | `categories.suggest` | `{terms:[folded,...], limit}` -> `{categories:[{id, slug, name, path, path_ids, depth, match}]}` | `schemas/functions/categories.suggest.json` |
@@ -296,6 +308,17 @@ into `categories.features`, whose payload is typed as an integer id. An id
 with no row is absent from the answer rather than mapped to an empty path, so
 "no such category" stays distinguishable from "a root category" (whose path is
 one element long).
+
+`categories.by_slug` is that same ancestry over the other unique key.
+`Category.slug` is unique across the whole tree, so one leaf slug is a
+complete address, and a storefront page at `/c/avtomobili` can ask
+stapel-search for its own feed without holding an id. The consumer
+(`CATEGORY_SLUG_FUNCTION`) declared the name before any provider answered it,
+and until one did every slug segment degraded. The conventions are
+`categories.path`'s: ids as strings, an unknown slug simply absent — that
+absence is what the consumer turns into a 400, so it is never an error, an
+empty list or a null — and an inactive row still answers (a listing can sit
+in a category retired after publication) while a soft-deleted one does not.
 
 `categories.names` is the caption counterpart: a batch of bare category ids
 in, `{"<id>": {name, slug}}` out — keys as strings on both sides of the wire

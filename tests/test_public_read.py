@@ -224,6 +224,10 @@ PUBLIC_CATEGORY_KEYS = sorted([
     # from. The RESOLVED value only; the authoring column, `auto` included,
     # stays on the staff serializer.
     "children_as",
+    # The caption of the axis that chip row splits on — the same disclosure
+    # answer as the hint above: it describes the public tree's own shape and
+    # a reader cannot draw the row without it.
+    "children_axis_label",
     "features",
     "tn_parent", "tn_priority", "tn_ancestors_pks", "tn_children_pks",
     "revision", "deleted",

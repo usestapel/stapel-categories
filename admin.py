@@ -70,13 +70,17 @@ class CategoryAdmin(RevisionAdmin, TreeNodeModelAdmin):
             "description": "CDN asset references as opaque strings (e.g. catalog/electronics).",
         }),
         ("Presentation", {
-            "fields": ("children_as",),
+            "fields": ("children_as", "children_axis_label"),
             "description": (
                 "How a storefront presents this category's CHILDREN. `auto` "
                 "leaves the answer to the `derive_children_as` command; "
                 "`tiles` (the children are real subcategories) and `chips` "
                 "(the children partition one attribute template) are your "
-                "decision and are never overwritten by a re-run."
+                "decision and are never overwritten by a re-run. "
+                "`children_axis_label` names the axis a chip row splits on "
+                "— a translation key, like the name; your text is never "
+                "overwritten, and a blank one may be filled by that same "
+                "command."
             ),
         }),
         ("Feature Editor", {"fields": ("draft",), "description": "Manage features for this category"}),

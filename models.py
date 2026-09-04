@@ -453,6 +453,32 @@ class Category(RevisionMixin, TreeNodeModel):
         ),
     )
 
+    # The NAME of the axis a chip row splits on — «Тип автомобиля» over
+    # Все | С пробегом | Новые. It belongs to the PARENT because that is
+    # where the row is drawn and because the axis is a fact about the set,
+    # not about any one child: no chip can name it without the others.
+    #
+    # One column, not the two `children_as` needs: this is free text, and a
+    # derived default is recognizable as one (it is a key from
+    # `derive_children_as`'s own table), so the command can improve its own
+    # answer on a re-run without a cache column to tell them apart. Empty
+    # means nobody has named the axis — a storefront draws the chips with no
+    # caption, which is what every catalogue does today.
+    #
+    # Translatable exactly like `name`: this module stores a KEY and the
+    # reader resolves it (the `DISPLAY_TRANSLATOR` seam), so a fleet that
+    # ships one catalogue in several languages captions the row in each.
+    children_axis_label = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text=(
+            "Name of the axis this category's children split on (e.g. a key "
+            "rendering as 'Condition' over New | Used). Translation key, "
+            "like `name`. Empty means the chip row is drawn uncaptioned."
+        ),
+    )
+
     carousel_enabled = models.BooleanField(
         default=False, help_text="Whether this category appears in the carousel"
     )

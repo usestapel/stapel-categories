@@ -13,6 +13,9 @@ are no-ops. Other modules call by name, no import of this package needed:
     call("categories.path", {"category_ids": [42]})
     # -> {"42": ["7", "19", "42"]}
 
+    call("categories.by_slug", {"slugs": ["avtomobili"]})
+    # -> {"avtomobili": ["141", "151"]}
+
     call("categories.suggest", {"terms": ["шорты", "shorty"], "limit": 50})
     # -> {"categories": [{id, slug, name, path, path_ids, depth, match}]}
 
@@ -35,6 +38,13 @@ declared by stapel-search before a provider existed
 (``STAPEL_SEARCH["CATEGORY_PATH_FUNCTION"]``), and without an answer a
 search index degrades to a single path segment — a filter on a parent
 category finds none of its descendants.
+
+``categories.by_slug`` is ``categories.path`` keyed by slug — the same
+ancestry, addressed the way a readable URL is. A storefront page at
+``/c/avtomobili`` asks stapel-search for its own feed by slug, and the
+resolution needs a node the search module cannot derive; the canonical name
+was declared there (``STAPEL_SEARCH["CATEGORY_SLUG_FUNCTION"]``) before any
+provider answered it, and without one every slug segment degrades.
 
 ``categories.names`` resolves a batch of ids to display names + slugs — the
 question the other two skirt (``path`` answers id-paths, ``suggest`` answers
@@ -259,6 +269,50 @@ def path_function(payload: dict) -> dict:
     )
     return {
         str(pk): [*split_pks(ancestors), str(pk)] for pk, ancestors in rows
+    }
+
+
+@function("categories.by_slug", schema=_schema("categories.by_slug"))
+def by_slug_function(payload: dict) -> dict:
+    """Root->leaf ancestry for a batch of SLUGS.
+
+    Payload: ``{"slugs": ["transport", "avtomobili"]}``. Returns
+    ``{"transport": ["141"], "avtomobili": ["141", "151"]}`` — one flat
+    mapping, ids as strings on both sides so a JSON round trip cannot change
+    a value type. It is :func:`path_function` keyed by the other namespace:
+    ``Category.slug`` is unique across the whole tree, so a single leaf slug
+    is a complete address.
+
+    Exists because a page whose URL reads ``/c/avtomobili`` had no fleet way
+    to ask for its own feed — stapel-search resolves a ``category=`` segment
+    through this name (``CATEGORY_SLUG_FUNCTION``) and declared it before a
+    provider existed, the way ``categories.path`` was declared. It has to be
+    answered here: this module owns the tree, and any other answer re-derives
+    the hierarchy from the outside.
+
+    A slug with no row is simply ABSENT (the ``projections.read()``
+    convention ``categories.path`` and ``categories.names`` both follow) —
+    absence is what the consumer turns into its 400, so it must not be an
+    error, an empty list or a null. There are no errors of its own: a
+    provider that cannot answer degrades at the caller, and an unknown slug
+    is never an outage.
+
+    An INACTIVE row still answers, exactly as ``categories.names`` does — a
+    listing can sit in a category retired after publication and its feed
+    still has an address. A soft-deleted row does not answer at all.
+    """
+    from treenode.utils import split_pks
+
+    from .models import Category
+
+    wanted = {str(value) for value in (payload.get("slugs") or [])}
+    if not wanted:
+        return {}
+    rows = Category.objects.filter(slug__in=wanted, deleted=False).values_list(
+        "slug", "pk", "tn_ancestors_pks"
+    )
+    return {
+        slug: [*split_pks(ancestors), str(pk)] for slug, pk, ancestors in rows
     }
 
 

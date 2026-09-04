@@ -177,6 +177,74 @@ class TestPathFunction:
 
 
 @pytest.mark.django_db
+class TestBySlugFunction:
+    """``categories.by_slug`` — ``categories.path`` in the other namespace.
+
+    The contract is stapel-search 0.14.3's (``CATEGORY_SLUG_FUNCTION``): a
+    flat mapping of slug -> id ancestry, absence for an unknown slug, an
+    inactive row answering and a soft-deleted one not, and no error of its
+    own — the consumer turns absence into its 400, so anything else here
+    would turn a typo into an outage or an outage into a 400.
+    """
+
+    def test_root_answers_a_single_segment(self, db):
+        root = Category.objects.create(name="Transport", slug="transport")
+        assert call("categories.by_slug", {"slugs": ["transport"]}) == {
+            "transport": [str(root.pk)]
+        }
+
+    def test_descendant_answers_root_first_and_itself_last(self, db):
+        root = Category.objects.create(name="Transport", slug="transport")
+        leaf = Category.objects.create(
+            name="Cars", slug="avtomobili", tn_parent=root
+        )
+        result = call("categories.by_slug", {"slugs": ["avtomobili"]})
+        assert result["avtomobili"] == [str(root.pk), str(leaf.pk)]
+
+    def test_several_slugs_at_once_in_one_query(self, db):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        root = Category.objects.create(name="Transport", slug="transport")
+        leaf = Category.objects.create(
+            name="Cars", slug="avtomobili", tn_parent=root
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            result = call(
+                "categories.by_slug", {"slugs": ["transport", "avtomobili"]}
+            )
+        assert len(captured) == 1, [q["sql"] for q in captured]
+        assert result == {
+            "transport": [str(root.pk)],
+            "avtomobili": [str(root.pk), str(leaf.pk)],
+        }
+
+    def test_unknown_slug_is_absent_not_an_error(self, db):
+        Category.objects.create(name="Transport", slug="transport")
+        result = call(
+            "categories.by_slug", {"slugs": ["transport", "no-such-slug"]}
+        )
+        assert set(result) == {"transport"}
+
+    def test_inactive_answers_and_deleted_does_not(self, db):
+        retired = Category.objects.create(
+            name="Pagers", slug="pagers", active=False
+        )
+        Category.objects.create(name="Fax", slug="fax", deleted=True)
+
+        result = call("categories.by_slug", {"slugs": ["pagers", "fax"]})
+        assert result == {"pagers": [str(retired.pk)]}
+
+    def test_empty_batch_answers_empty(self, db):
+        assert call("categories.by_slug", {"slugs": []}) == {}
+
+    def test_schema_rejects_a_bare_slug(self, db):
+        with pytest.raises(Exception):
+            call("categories.by_slug", {"slug": "transport"})
+
+
+@pytest.mark.django_db
 class TestCategoryChangedAction:
     def test_emitted_on_category_save(self):
         received = []

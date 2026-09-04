@@ -24,7 +24,7 @@ pip install stapel-categories
 
 | Fact | Value |
 |---|---|
-| Version | `0.19.1` |
+| Version | `0.20.0` |
 | Python | `>=3.11` (3.11, 3.12, 3.13, 3.14) |
 | HTTP operations | 34 |
 | Config axes | 1 |
@@ -76,6 +76,13 @@ every public read:
 | `chips` | the children partition ONE attribute template (new/used, buy/sell/rent, boys/girls) — a chip row over the parent's own feed |
 | `null` | the node has no children |
 
+A chip row also needs a NAME for the axis it splits on — «Все | С пробегом |
+Новые» is a set of values, and only the parent can say what they are values
+of. That name is `children_axis_label`, an optional translation key on the
+parent (empty means the row is drawn uncaptioned), authored in the admin or
+over the staff serializer and carried on every public read next to
+`children_as`.
+
 The stored column takes a third value, `auto`, which a reader never sees:
 `auto` means "nobody has decided", and it is resolved server-side. Two
 columns hold the two answers — `children_as` is the authored intent,
@@ -86,6 +93,12 @@ own output without ever overwriting an operator's.
 django-admin derive_children_as              # report only
 django-admin derive_children_as --apply      # write the derived column
 ```
+
+An `--apply` run also NAMES the axis of the rows it makes chips, from the
+vocabulary group it already matched (deal type, condition, for whom) — a
+translation key per group, never a rendered word. Authored text always wins,
+and the command only ever replaces a label it emitted itself, which is what
+keeps the step re-runnable.
 
 The command prints one line per parent with the decision, the signal that
 carried it (`schema`, `vocabulary`, `empty-schema`, `structure`,
@@ -111,7 +124,8 @@ GET /categories/api/v1/tree/?depth=3     # 1..4, default 3
 
 Active nodes, ordered by `tn_priority` descending at every level, carrying
 `id`, `slug`, `name`, `path` (the `/`-joined id path a search query takes),
-`catalog_icon`, `children_as` and `children`. One query whatever the depth.
+`catalog_icon`, `children_as`, `children_axis_label` and `children`. One query
+whatever the depth.
 
 ## Settings
 
@@ -130,13 +144,17 @@ flat setting, or env var — resolved lazily):
 |---|---|---|
 | Function | `categories.features` | `{"category_id": int}` -> `{"category_id", "revision", "features":[{id,slug,name,mandatory,config}]}` — resolved schema (own + inherited), cacheable by `revision` |
 | Function | `categories.path` | `{"category_ids": [int, ...]}` -> `{"<id>": ["<root_id>", ..., "<id>"]}` — root->leaf ancestry, one query for the batch; segments are ids, an unknown id is absent |
+| Function | `categories.by_slug` | `{"slugs": ["transport", ...]}` -> `{"<slug>": ["<root_id>", ..., "<id>"]}` — the same ancestry keyed by slug (`Category.slug` is globally unique); an unknown slug is absent, an inactive node still answers |
 | Action (emit) | `category.changed` | `{"category_id": int, "revision": int}` on any category/feature mutation — for downstream cache invalidation |
 
 `categories.features` lets stapel-listings validate attribute values against a
 category's schema without importing this module. `categories.path` is the
 provider stapel-search declares by canonical name for category rollup — without
 it a search index degrades to a single path segment and a filter on a parent
-category finds none of its descendants.
+category finds none of its descendants. `categories.by_slug` is the same
+answer in the other namespace: it is what lets a page addressed
+`/c/avtomobili` ask for its own feed, and without it every slug segment of a
+search query degrades instead of filtering.
 
 ## Contract
 

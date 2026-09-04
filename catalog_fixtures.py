@@ -23,8 +23,9 @@ Design: ``docs/catalog-fixtures-sync.md``. Key decisions realized here:
   does so ONLY when that label differs from the root's. Absent means "inherit
   the root's name", which is what every fixture written before 0.17.0 says, so
   no content hash on disk moves and no sidecar regeneration is forced.
-* **Presentation of a node's children.** ``children_as`` travels with the
-  category — it is a fact about the shape of the children (a partition of one
+* **Presentation of a node's children.** ``children_as`` (and, when named,
+  ``children_axis_label`` — the caption of the axis a chip row splits on)
+  travels with the category — it is a fact about the shape of the children (a partition of one
   template vs real subcategories), the same in every deployment of the
   catalogue, not stand-local curation like the carousel keys. Written only
   when it is not ``auto``; the derivation CACHE never travels.
@@ -260,6 +261,12 @@ def _category_record(category, include_test: bool, parent_slug) -> dict:
     # said, so no content hash on disk moves and no sidecar is regenerated.
     if category.children_as != CHILDREN_AS_AUTO:
         rec["children_as"] = category.children_as
+    # Same rule for the axis caption: a fact about the children's split, the
+    # same in every deployment of this catalogue, so it travels — and only
+    # when somebody (or the derivation) named it, so a fixture written before
+    # this key existed keeps its content hash.
+    if category.children_axis_label:
+        rec["children_axis_label"] = category.children_axis_label
     # Written only when set. A blank source is the overwhelmingly common case
     # (one import source per deployment) and omitting the key keeps every
     # content-hash a 0.7.0 export wrote valid — no STATE_VERSION bump, no
