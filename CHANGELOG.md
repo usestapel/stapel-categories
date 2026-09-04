@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.19.1] — 2026-09-04
+
+### Fixed
+
+- **A partition is a chip row even when some of its members have children.**
+  On the first live derivation `Квартиры` and `Дома, дачи, коттеджи` came out
+  `tiles` although their children are exactly `Продам`/`Сдам`/`Куплю`/`Сниму`:
+  two of the four are split further, the `structure` signal ("a branch is
+  never a chip") ran before the names, and it took the decision. That reading
+  of structure was wrong about what a chip row holds. `Продам` having
+  `Вторичка`/`Новостройка` under it does not stop the four transactions from
+  being one partition of one template — it makes `Продам` a parent as well, and
+  its own children are decided by these same rules. Nested chip rows are a
+  legitimate shape, and the alternative on this catalogue was the exact cost
+  the feature exists to remove: a buyer picking a page before seeing an item,
+  on the two biggest branches of the tree.
+
+  So the child NAMES are read first: a set that falls in one partition group
+  is `chips` whatever the children's own shape. `structure` survives as a
+  VETO where the names say nothing — schema overlap alone must not turn a
+  shelf of branches into a chip row, since the overlap between two shelves
+  says nothing about what is under them. Where the names overrode the veto the
+  report's SIGNAL column says `vocabulary>structure`, because an operator
+  reading a `chips` line on a node with grandchildren needs to see which
+  evidence carried it.
+
+### Added
+
+- **`children_as` travels in the catalogue fixture.** `export_catalog` writes
+  the AUTHORED column on a category record and `load_catalog` applies it, so a
+  presentation decision survives DB → fixture → DB — the fleet bakes fixtures
+  into images, and a value that does not round-trip is a decision the next
+  container start forgets. It is catalogue content, not stand curation like
+  the carousel keys: a partition of one template is a partition wherever the
+  catalogue is loaded, so the fixture owns it on updates too, and an operator
+  who authored something else has changed the DB side, which the 3-way diff
+  reports as a conflict rather than silently losing.
+
+  Written only when it is not `auto`, following the `external_source`
+  precedent: `auto` is what every row says by default and the only thing any
+  fixture written before this could say, so no content hash on disk moves and
+  no sidecar regeneration is forced (`STATE_VERSION` stays 4).
+  `children_as_derived` deliberately does NOT travel — it is a cache
+  `derive_children_as` rebuilds from the loaded tree, and shipping it would
+  freeze one run's guess into canon.
+
 ## [0.19.0] — 2026-09-04
 
 ### Added

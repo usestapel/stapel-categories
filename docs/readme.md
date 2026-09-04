@@ -49,10 +49,20 @@ django-admin derive_children_as --apply      # write the derived column
 ```
 
 The command prints one line per parent with the decision, the signal that
-carried it (`schema`, `vocabulary`, `empty-schema`, `structure`) and the
-Jaccard overlap of the children's own feature keys, so a wrong call can be
-pinned by hand — set `children_as` to `tiles` or `chips` in the admin and no
-future run touches it.
+carried it (`schema`, `vocabulary`, `empty-schema`, `structure`,
+`vocabulary>structure`) and the Jaccard overlap of the children's own feature
+keys, so a wrong call can be pinned by hand — set `children_as` to `tiles` or
+`chips` in the admin and no future run touches it.
+
+A child set that spells a partition is a chip row even where some of those
+children have children of their own: `Квартиры` → `Продам`/`Сдам`/`Куплю`/
+`Сниму` is a partition whether or not `Продам` splits further, and each such
+child is then a parent whose own children are decided by the same rules.
+`structure` stays a veto only where the names say nothing.
+
+`children_as` travels in the catalogue fixture (`export_catalog` /
+`load_catalog`), so an authored decision survives an image rebuild; the
+derived cache does not — a load leaves it to be re-derived.
 
 The whole visible tree comes back nested in one cached call:
 

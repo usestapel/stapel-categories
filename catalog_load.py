@@ -390,6 +390,8 @@ def _normalize_entry(entry: dict) -> dict:
 
 def _normalize_category_record(rec: dict) -> dict:
     """Coerce a fixture category record to the exact shape export writes."""
+    from .models import CHILDREN_AS_AUTO
+
     out = {
         "slug": rec["slug"],
         "parent_slug": rec.get("parent_slug"),
@@ -406,6 +408,10 @@ def _normalize_category_record(rec: dict) -> dict:
     # Mirrors the export: present only when set (see _category_record).
     if rec.get("external_source"):
         out["external_source"] = rec["external_source"]
+    # Same rule for the authored presentation: absent and `auto` are one
+    # state, so a fixture that spells the default out hashes as the default.
+    if rec.get("children_as") and rec["children_as"] != CHILDREN_AS_AUTO:
+        out["children_as"] = rec["children_as"]
     if rec.get("is_test"):
         out["is_test"] = True
     return out
@@ -783,7 +789,7 @@ _FEATURE_SCALARS = (
 _CATEGORY_SCALARS = (
     "slug", "name", "external_id", "external_source", "comment", "catalog_icon",
     "carousel_icon", "carousel_enabled", "active", "translatable", "is_test",
-    "deleted", "tn_parent_id",
+    "deleted", "tn_parent_id", "children_as",
 )
 
 
@@ -1069,7 +1075,7 @@ def _match_category(record: dict):
 
 
 def _apply_category_upsert(record: dict):
-    from .models import Category
+    from .models import CHILDREN_AS_AUTO, Category
 
     slug = record["slug"]
     existing, by_identity = _match_category(record)
@@ -1131,6 +1137,11 @@ def _apply_category_upsert(record: dict):
         cat.carousel_enabled = bool(record.get("carousel_enabled", False))
         cat.active = bool(record.get("active", True))
     cat.translatable = bool(record.get("translatable", True))
+    # Catalogue content, not stand curation: a partition of one template is a
+    # partition wherever the catalogue is loaded. An operator who authored a
+    # different value has changed the DB side, so the 3-way diff reports a
+    # conflict there instead of this line quietly winning.
+    cat.children_as = record.get("children_as") or CHILDREN_AS_AUTO
     cat.is_test = bool(record.get("is_test", False))
     cat.deleted = False
     cat.tn_parent = parent

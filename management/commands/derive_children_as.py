@@ -26,6 +26,17 @@ The two signals are independent on purpose, and are reported apart:
     one child called "Новые" beside twenty real subcategories is a
     subcategory that happens to be called that.
 
+A child that has children of its own is a branch, and a branch cannot be
+reduced to a chip *by the schema signal alone* — schema overlap between two
+shelves says nothing about what is under them. It says nothing about a
+vocabulary match either: Куплю/Продам/Сдам/Сниму is a partition whether
+or not Продам happens to be split further into Вторичка/Новостройка. So a
+child set that matches the vocabulary is ``chips`` regardless of structure,
+and each branch child is then a parent in its own right whose own children
+are decided by these same rules — nested chip rows are a legitimate shape.
+Structure survives as a VETO where the vocabulary says nothing: with schema
+overlap the sole signal, a shelf of branches stays ``tiles``.
+
 The vocabulary is data in this file, deliberately: it is a fact about the
 catalogues this fleet imports, not about the model, and putting it in the
 model would make every deployment inherit one market's words.
@@ -64,6 +75,8 @@ SIGNAL_STRUCTURE = "structure"
 SIGNAL_SCHEMA = "schema"
 SIGNAL_EMPTY_SCHEMA = "empty-schema"
 SIGNAL_VOCABULARY = "vocabulary"
+#: The names carried a set the structure veto would have refused.
+SIGNAL_VOCABULARY_OVER_STRUCTURE = "vocabulary>structure"
 SIGNAL_NONE = "none"
 
 
@@ -117,10 +130,12 @@ def derive(
 ) -> tuple[str, str, float | None, str | None]:
     """``(decision, signal, overlap, group)`` for one parent.
 
-    Order matters and is the spec's: structure first (a child with children
-    of its own is a branch, and a branch is never a chip), then the schema
-    signal, then names. A parent that satisfies neither signal is ``tiles``
-    — the answer that costs a click rather than hiding a branch.
+    The names are read first: a child set that falls in one partition group is
+    ``chips`` whatever its shape, and the report says ``vocabulary>structure``
+    where that overrode a branch. Structure is a veto only where the names say
+    nothing — schema overlap alone must not turn a shelf of branches into a
+    chip row. A parent no signal reaches is ``tiles``, the answer that costs a
+    click rather than hiding a branch.
 
     *branch_pks* is the set of category ids that have children WITHIN THE RUN
     (deleted rows excluded), which is not the same as ``tn_children_count``:
@@ -132,13 +147,21 @@ def derive(
     the run stands on names alone — see :meth:`Command.handle`.
     """
     branch_pks = branch_pks or set()
-    if any(child.pk in branch_pks for child in children):
+    group = vocabulary_group([child.name for child in children])
+    has_branch = any(child.pk in branch_pks for child in children)
+    # A branch child of a chip row is a parent like any other: its own
+    # presentation is derived by these same rules, on its own line of the
+    # report.
+    vocabulary_signal = (
+        SIGNAL_VOCABULARY_OVER_STRUCTURE if has_branch else SIGNAL_VOCABULARY
+    )
+
+    if has_branch and group is None:
         return CHILDREN_AS_TILES, SIGNAL_STRUCTURE, None, None
 
     if not schema_signal:
-        group = vocabulary_group([child.name for child in children])
         if group is not None:
-            return CHILDREN_AS_CHIPS, SIGNAL_VOCABULARY, None, group
+            return CHILDREN_AS_CHIPS, vocabulary_signal, None, group
         return CHILDREN_AS_TILES, SIGNAL_NONE, None, None
 
     sets = [own_feature_slugs(child.pk, links) for child in children]
@@ -147,8 +170,8 @@ def derive(
         # Nothing anywhere to tell these children apart by: the catalogue has
         # not modelled a schema at this node at all, so the children are not
         # DIVERGING in one — they are a bare split of the parent's page.
-        group = vocabulary_group([child.name for child in children])
-        return CHILDREN_AS_CHIPS, SIGNAL_EMPTY_SCHEMA, None, group
+        signal = vocabulary_signal if has_branch else SIGNAL_EMPTY_SCHEMA
+        return CHILDREN_AS_CHIPS, signal, None, group
 
     overlap = min(
         (
@@ -158,8 +181,9 @@ def derive(
         ),
         default=1.0,
     )
-    group = vocabulary_group([child.name for child in children])
 
+    if group is not None and has_branch:
+        return CHILDREN_AS_CHIPS, vocabulary_signal, overlap, group
     if overlap >= JACCARD_THRESHOLD:
         return CHILDREN_AS_CHIPS, SIGNAL_SCHEMA, overlap, group
     if group is not None:
@@ -324,14 +348,14 @@ class Command(BaseCommand):
         if not report:
             self.stdout.write("No parents matched.")
             return
-        header = f"{'DECISION':<9} {'SIGNAL':<13} {'OVERLAP':>7}  {'GROUP':<16} PATH"
+        header = f"{'DECISION':<9} {'SIGNAL':<20} {'OVERLAP':>7}  {'GROUP':<16} PATH"
         self.stdout.write(header)
         self.stdout.write("-" * len(header))
         for path, decision, signal, overlap, group, authored in report:
             overlap_text = "-" if overlap is None else f"{overlap:.2f}"
             suffix = "  [authored — not written]" if authored else ""
             line = (
-                f"{decision:<9} {signal:<13} {overlap_text:>7}  "
+                f"{decision:<9} {signal:<20} {overlap_text:>7}  "
                 f"{(group or '-'):<16} {path}{suffix}"
             )
             self.stdout.write(line)

@@ -6,12 +6,19 @@ Three things are pinned here, and they are pinned against each other:
   row to say it;
 * what the DERIVATION decides, per signal, and that it never touches a value
   somebody authored;
-* what `GET /tree/` returns, including the keys it must never carry.
+* what `GET /tree/` returns, including the keys it must never carry;
+* what the catalogue FIXTURE carries, since a value that does not survive the
+  round trip is a decision the next image forgets.
 """
+import tempfile
+
 import pytest
 from django.core.management import call_command
 from django.test.utils import CaptureQueriesContext
 from django.db import connection
+
+from stapel_categories import catalog_fixtures as cf
+from stapel_categories import catalog_load as cl
 
 from stapel_categories.management.commands.derive_children_as import (
     derive,
@@ -19,6 +26,15 @@ from stapel_categories.management.commands.derive_children_as import (
     vocabulary_group,
 )
 from stapel_categories.models import Category, CategoryFeature, Feature
+
+from .test_catalog_load import (
+    _CatalogTestCase,
+    _export,
+    _read,
+    _read_json,
+    _wipe_db,
+    _write_json,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -232,7 +248,8 @@ class TestDerivation:
         assert overlap < 0.5
 
     def test_a_child_with_children_of_its_own_is_a_branch(self, cars):
-        """Structure outranks both signals: a chip row cannot hold a subtree."""
+        """The veto: with the names silent, schema overlap alone cannot make
+        a chip row of a shelf whose children have children."""
         root, children = cars
         grandchild = Category.objects.create(
             name="Sedans", slug="sedans", tn_parent=children[0]
@@ -247,6 +264,78 @@ class TestDerivation:
 
         assert (decision, signal) == ("tiles", "structure")
         assert grandchild.tn_parent_id == children[0].pk
+
+    @pytest.fixture
+    def real_estate(self):
+        """The live shape the first rule got wrong.
+
+        Four children that spell one transaction partition, two of which are
+        branches of their own. The names carry the set; the branches are
+        parents in their own right.
+        """
+        root = Category.objects.create(name="Квартиры", slug="kvartiry")
+        sell = Category.objects.create(
+            name="Продам", slug="kvartiry-sell", tn_parent=root
+        )
+        rent_out = Category.objects.create(
+            name="Сдам", slug="kvartiry-rent-out", tn_parent=root
+        )
+        buy = Category.objects.create(
+            name="Куплю", slug="kvartiry-buy", tn_parent=root
+        )
+        rent = Category.objects.create(
+            name="Сниму", slug="kvartiry-rent", tn_parent=root
+        )
+        Category.objects.create(
+            name="Вторичка", slug="kvartiry-sell-resale", tn_parent=sell
+        )
+        Category.objects.create(
+            name="Новостройка", slug="kvartiry-sell-new", tn_parent=sell
+        )
+        Category.objects.create(
+            name="Длительно", slug="kvartiry-rent-out-long", tn_parent=rent_out
+        )
+        link(root)
+        link(sell, "rooms", "area", "floor", "price")
+        link(rent_out, "rooms", "area", "deposit", "term")
+        link(buy, "rooms", "budget")
+        link(rent, "rooms", "term", "pets", "furnished")
+        return root, [sell, rent_out, buy, rent]
+
+    def test_the_vocabulary_beats_the_structure_veto(self, real_estate):
+        """Продам/Сдам having children of their own does not stop the four
+        from being one partition — it makes each of them a parent too."""
+        root, children = real_estate
+
+        decision, signal, _, group = derive(
+            root,
+            children,
+            self.links_for(root, *children),
+            branch_pks={children[0].pk, children[1].pk},
+        )
+
+        assert (decision, signal, group) == (
+            "chips", "vocabulary>structure", "transaction",
+        )
+
+    def test_a_vocabulary_child_with_children_is_decided_on_its_own(
+        self, real_estate
+    ):
+        """The branch under a chip row is derived by the same rules, not
+        inherited from the parent's decision."""
+        root, children = real_estate
+        sell = children[0]
+        grandchildren = list(
+            Category.objects.filter(tn_parent=sell).order_by("slug")
+        )
+        link(grandchildren[0], "floor", "area")
+        link(grandchildren[1], "deadline", "developer")
+
+        decision, signal, _, _ = derive(
+            sell, grandchildren, self.links_for(sell, *grandchildren), branch_pks=set()
+        )
+
+        assert (decision, signal) == ("tiles", "none")
 
     def test_an_unmodelled_split_is_chips(self):
         """Nothing anywhere carries a schema — the children are not diverging
@@ -373,6 +462,43 @@ class TestDeriveCommand:
 
         out = capsys.readouterr().out
         assert "cars/cars-new" not in out
+
+    def test_the_report_names_the_override_and_the_branch_gets_its_own_line(
+        self, capsys
+    ):
+        """A partition whose children have children: the parent is chips with
+        the override named, and each branch child is derived on its own."""
+        root = Category.objects.create(name="Квартиры", slug="kvartiry")
+        sell = Category.objects.create(
+            name="Продам", slug="kvartiry-sell", tn_parent=root
+        )
+        Category.objects.create(name="Сдам", slug="kvartiry-rent", tn_parent=root)
+        resale = Category.objects.create(
+            name="Вторичка", slug="kvartiry-resale", tn_parent=sell
+        )
+        new_build = Category.objects.create(
+            name="Новостройка", slug="kvartiry-new", tn_parent=sell
+        )
+        link(root)
+        link(sell, "rooms", "area", "price")
+        link(resale, "floor", "area")
+        link(new_build, "deadline", "developer")
+
+        call_command("derive_children_as", "--apply")
+
+        lines = capsys.readouterr().out.splitlines()
+        parent_line = next(line for line in lines if line.endswith(" kvartiry"))
+        assert "chips" in parent_line
+        assert "vocabulary>structure" in parent_line
+        assert "transaction" in parent_line
+        branch_line = next(
+            line for line in lines if line.endswith("kvartiry/kvartiry-sell")
+        )
+        assert "tiles" in branch_line
+        assert Category.objects.get(slug="kvartiry").resolved_children_as == "chips"
+        assert (
+            Category.objects.get(slug="kvartiry-sell").resolved_children_as == "tiles"
+        )
 
     def test_root_restricts_the_run(self, catalogue):
         call_command("derive_children_as", "--apply", "--root", "cars")
@@ -549,3 +675,94 @@ class TestProvenanceStaysOff:
 
         assert "external_id" not in row
         assert "external_source" not in row
+
+
+class TestCatalogFixtureRoundTrip(_CatalogTestCase):
+    """`children_as` travels in the catalogue fixture.
+
+    Fixtures are the carrier between a catalogue and the stands that run it,
+    and in this fleet they are baked into images: a value that does not
+    survive DB -> fixture -> DB is a decision the next container start
+    forgets. The AUTHORED column travels; the derivation cache does not —
+    `derive_children_as` rebuilds it from the loaded tree.
+    """
+
+    def _authored(self, value="chips", slug="electronics"):
+        Category.objects.filter(slug=slug).update(children_as=value)
+
+    def test_an_authored_value_is_exported(self):
+        self.seed_catalog()
+        self._authored()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = {c["slug"]: c for c in _read_json(out, cf.CATEGORIES_FILE)}
+
+            assert records["electronics"]["children_as"] == "chips"
+
+    def test_auto_is_not_written(self):
+        """`auto` is what every row says by default, so the key stays absent
+        and every content hash already on disk stays valid."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+
+            assert all("children_as" not in record for record in records)
+
+    def test_the_derivation_cache_never_travels(self):
+        self.seed_catalog()
+        Category.objects.filter(slug="electronics").update(
+            children_as_derived="chips"
+        )
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+
+            assert all("children_as_derived" not in record for record in records)
+            assert all("children_as" not in record for record in records)
+
+    def test_round_trip_through_a_clean_db_keeps_it(self):
+        self.seed_catalog()
+        self._authored()
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            _export(first)
+            before = _read(first, cf.CATEGORIES_FILE)
+            _wipe_db()
+
+            report = cl.load_catalog(first, seed_if_empty=True)
+            assert not report.failed
+
+            loaded = Category.objects.get(slug="electronics")
+            assert loaded.children_as == "chips"
+            assert loaded.resolved_children_as == "chips"
+            _export(second)
+            assert _read(second, cf.CATEGORIES_FILE) == before
+
+    def test_a_reload_over_the_live_tree_is_a_no_op(self):
+        self.seed_catalog()
+        self._authored()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+
+            report = cl.load_catalog(out)
+
+            assert not report.failed
+            assert report.count(cl.UPDATED) == 0
+            assert report.count(cl.CREATED) == 0
+
+    def test_a_fixture_side_change_is_applied_on_update(self):
+        """Taxonomy, not stand curation: how a node's children are drawn is
+        the same wherever the catalogue is loaded, so the fixture owns it."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for record in records:
+                if record["slug"] == "electronics":
+                    record["children_as"] = "chips"
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = cl.load_catalog(out)
+
+            assert not report.failed
+            assert Category.objects.get(slug="electronics").children_as == "chips"

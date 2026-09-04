@@ -23,6 +23,11 @@ Design: ``docs/catalog-fixtures-sync.md``. Key decisions realized here:
   does so ONLY when that label differs from the root's. Absent means "inherit
   the root's name", which is what every fixture written before 0.17.0 says, so
   no content hash on disk moves and no sidecar regeneration is forced.
+* **Presentation of a node's children.** ``children_as`` travels with the
+  category — it is a fact about the shape of the children (a partition of one
+  template vs real subcategories), the same in every deployment of the
+  catalogue, not stand-local curation like the carousel keys. Written only
+  when it is not ``auto``; the derivation CACHE never travels.
 * **Override owner heuristic (§2).** When one override row is propagated to a
   category + its descendants, several categories reference it. We deliberately
   do *not* pick an "owning" category: every referencing category inlines its
@@ -216,6 +221,8 @@ def _category_record(category, include_test: bool, parent_slug) -> dict:
     ``is_test``), producing a fixture that ``load_catalog`` cannot apply to a
     fresh DB (per-record "unknown parent_slug" errors).
     """
+    from .models import CHILDREN_AS_AUTO
+
     features = []
     links = (
         category.category_features.all()
@@ -245,6 +252,14 @@ def _category_record(category, include_test: bool, parent_slug) -> dict:
         "translatable": category.translatable,
         "features": features,
     }
+    # The AUTHORED presentation of this node's children, and only that:
+    # `children_as_derived` is a cache `derive_children_as` rebuilds from the
+    # loaded tree, so shipping it would freeze one run's guess into canon.
+    # Written only when somebody decided, like `external_source`: `auto` is
+    # what every row says by default and every fixture written before this
+    # said, so no content hash on disk moves and no sidecar is regenerated.
+    if category.children_as != CHILDREN_AS_AUTO:
+        rec["children_as"] = category.children_as
     # Written only when set. A blank source is the overwhelmingly common case
     # (one import source per deployment) and omitting the key keeps every
     # content-hash a 0.7.0 export wrote valid — no STATE_VERSION bump, no

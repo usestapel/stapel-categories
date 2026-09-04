@@ -106,12 +106,17 @@
   `derive_children_as` answers the `auto` rows and prints what it decided:
   node path, decision, the SIGNAL that carried it and the number behind it.
   Three signals, reported apart because they are wrong about different
-  things — `structure` (a child with children of its own is a branch, and a
-  branch is never a chip), `schema` (pairwise Jaccard ≥ 0.5 over the
-  children's own feature key sets: a partition of one template is a set of
-  children asking the same questions) and `vocabulary` (the child NAMES fall
-  in one partition group — matched against the whole child set, never a
-  single name, so a shelf with one «Новые» on it stays a shelf). The
+  things — `structure` (a child that has children of its own is a branch),
+  `schema` (pairwise Jaccard ≥ 0.5 over the children's own feature key sets:
+  a partition of one template is a set of children asking the same questions)
+  and `vocabulary` (the child NAMES fall in one partition group — matched
+  against the whole child set, never a single name, so a shelf with one
+  «Новые» on it stays a shelf). A vocabulary match outranks structure and the
+  report says `vocabulary>structure` where it did: `Квартиры` →
+  `Продам`/`Сдам`/`Куплю`/`Сниму` is one partition whether or not `Продам`
+  splits further, and each branch child is then a parent whose own children
+  are decided by these same rules. `structure` is a veto only where the names
+  say nothing and schema overlap is the sole signal. The
   vocabulary is data in the command, not in the model: it is a fact about the
   catalogues a deployment imports, and in the model every deployment would
   inherit one market's words. Nothing in the derivation reads
@@ -119,7 +124,9 @@
   would silently do nothing for the next supplier. Dry run by default;
   `--apply` writes only `children_as_derived`, only where `children_as` is
   still `auto`, and with the guard repeated in the UPDATE so a value authored
-  mid-run still wins.
+  mid-run still wins. The AUTHORED column travels in the catalogue fixture —
+  a presentation decision must survive DB → fixture → DB, since the fleet
+  bakes fixtures into images; the derived cache does not travel.
 - **The nested tree read** `GET /categories/api/v1/tree/?depth=N` (1..4,
   default 3): the visible catalogue in one call, one query and one cached
   response, carrying `id`, `slug`, `name`, `path`, `catalog_icon`,
