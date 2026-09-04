@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.20.5] — 2026-09-05
+
+### Fixed
+
+- **A parent no longer counts children nobody can fetch.** On a live stand the
+  services root read `tn_children_pks: "68,67,221"` while
+  `GET /65/children/` returned a single row: 67 and 68 were soft-deleted.
+  django-treenode's `tn_children_pks`/`tn_children_count` are STRUCTURE
+  columns — they count every row that hangs off a node, `deleted` and retired
+  included, and treenode recomputes them from the whole table on any
+  structural change, so they cannot be corrected in place. Every client rule
+  built on them was counting ghosts: leaf-ness, child counts, and the
+  one-child wrapper check 0.20.4 shipped `transparent` for.
+
+  Two new keys on every public category read carry the reader's own answer:
+
+  * **`children_pks`** — the ids of the children a reader can see, in order;
+  * **`children_count`** — how many.
+
+  Both come from `Category.live_children`, whose rule is
+  `views.visible_categories()` — the single definition `children`, `roots` and
+  `by-slug` already answer to. So `children_pks` IS what
+  `GET /categories/{id}/children/` returns, in the same order, which is
+  pinned as one assertion: a count that disagrees with the list under it is
+  the defect this replaces. A retired child that structures nothing drops out
+  of both, and a retired one an active child still hangs from stays in both,
+  exactly as `/children/` serves them.
+
+  **`children_as` now resolves off the live count too.** A node whose every
+  child is soft-deleted answered `tiles` and sent a storefront to draw a grid
+  of nothing; it answers `null` — it is a leaf to everyone who can ask. The
+  rule is still not "how many children this READ chose to send": a
+  depth-capped tree read still says how the level it did not send would be
+  drawn.
+
+  **The tree endpoint carries `children_count` per node**, over live rows and
+  over the WHOLE visible set rather than the depth-capped slice — at the cap
+  `children` is empty and this is what tells a menu there is another level to
+  ask for. That is a second flat read (a grouped count), so the endpoint is
+  now two queries rather than one, constant in the depth; the alternative,
+  treenode's free column, is the wrong number.
+
+  No query per row anywhere: the reads prefetch each row's live children in
+  one go (`views.with_live_children`, on the list, `children`, `roots`,
+  `carousel` and `deleted-children`), so a page of N categories costs what it
+  did before these keys existed — pinned by a query-count test at two page
+  sizes.
+
+  `tn_children_pks` is UNCHANGED and still on the payload: the revision-sync
+  feed's consumers mirror the tree columns. Its help text now says what it
+  counts and points at `children_pks`, and a test pins the disagreement so a
+  reader can tell which key to believe. No migration.
+
 ## [0.20.4] — 2026-09-05
 
 ### Added

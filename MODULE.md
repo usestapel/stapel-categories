@@ -132,6 +132,20 @@
   indistinguishable from an authored one, so the next run would refuse to
   touch its own output and the derivation would be a one-shot rather than the
   re-runnable step a catalogue import needs. Readers never see either raw
+  "Has children" is the LIVE count — `Category.live_children`, whose rule is
+  `visible_categories()`, the one every tree read answers to. Not
+  django-treenode's `tn_children_pks`/`tn_children_count`: those are structure
+  columns counting soft-deleted and retired rows (a live stand read
+  `tn_children_pks: "68,67,221"` where `/children/` returned one row), and
+  treenode recomputes them from the whole table on any structural change, so
+  they cannot be corrected in place. Every public read therefore also carries
+  `children_pks` and `children_count` — literally what
+  `GET /categories/{id}/children/` returns, in the same order — and a client
+  rule (leaf-ness, a one-child wrapper check) reads those. The raw column
+  stays on the payload for the revision-sync feed's consumers. The reads
+  prefetch each row's live children in one query (`views.with_live_children`),
+  so a page of N costs no query per row.
+
   value: every public serializer carries `Category.resolved_children_as` —
   authored wins (served verbatim, `transparent` included), else the cache,
   else `tiles`, and `null` on a childless node — a childless one authored
@@ -167,7 +181,10 @@
 - **The nested tree read** `GET /categories/api/v1/tree/?depth=N` (1..4,
   default 3): the visible catalogue in one call, one query and one cached
   response, carrying `id`, `slug`, `name`, `path`, `catalog_icon`,
-  `children_as` and `children`. `path` is the ancestor ids root→self,
+  `children_as`, `children_count` and `children`. `children_count` is over
+  LIVE rows and over the whole visible set, not the depth-capped slice: at the
+  cap `children` is empty and the count is what tells a menu there is another
+  level to ask for. `path` is the ancestor ids root→self,
   `/`-joined — the exact form a search query's `category` parameter takes.
   Assembled from the same `visible_categories()` the other three reads answer
   to, ordered the same way at every level, and nested in Python off

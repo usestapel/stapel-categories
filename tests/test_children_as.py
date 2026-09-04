@@ -631,7 +631,7 @@ class TestTreeEndpoint:
 
         assert sorted(rows[0]) == [
             "catalog_icon", "children", "children_as", "children_axis_label",
-            "id", "name", "path", "slug",
+            "children_count", "id", "name", "path", "slug",
         ]
 
 
@@ -1386,3 +1386,177 @@ class TestSetChildrenAsCommand:
         )
 
         assert Category.objects.get(slug="predlozhenie").revision != before
+
+
+class TestLiveChildren:
+    """The children a reader can FETCH — not treenode's structure columns.
+
+    On a live stand a services root read `tn_children_pks: "68,67,221"` while
+    `GET /65/children/` returned one row: 67 and 68 were soft-deleted, and
+    treenode's denormalised columns count every row that hangs off a node.
+    Every client rule built on that column — leaf-ness, child counts, the
+    one-child wrapper check — was counting ghosts.
+    """
+
+    @pytest.fixture
+    def parent(self):
+        root = Category.objects.create(name="Услуги", slug="lc-root")
+        Category.objects.create(name="A", slug="lc-a", tn_parent=root)
+        Category.objects.create(name="B", slug="lc-b", tn_parent=root)
+        Category.objects.create(name="C", slug="lc-c", tn_parent=root)
+        return Category.objects.get(pk=root.pk)
+
+    def _row(self, api_client, pk):
+        return api_client.get(f"{BASE}/categories/{pk}/").json()
+
+    def test_a_soft_deleted_child_leaves_the_count(self, api_client, parent):
+        Category.objects.filter(slug="lc-a").update(deleted=True)
+        Category.objects.filter(slug="lc-b").update(deleted=True)
+
+        row = self._row(api_client, parent.pk)
+
+        assert row["children_count"] == 1
+        assert row["children_pks"] == [Category.objects.get(slug="lc-c").pk]
+
+    def test_the_raw_treenode_column_still_carries_the_ghosts(
+        self, api_client, parent
+    ):
+        """The defect, pinned: the two keys disagree, and only one is right.
+
+        `tn_children_pks` stays on the payload for the revision-sync feed's
+        consumers, so a test that did not say this would leave the reader no
+        way to tell which key to believe.
+        """
+        Category.objects.filter(slug="lc-a").update(deleted=True)
+
+        row = self._row(api_client, parent.pk)
+
+        ghost = Category.objects.get(slug="lc-a").pk
+        assert str(ghost) in row["tn_children_pks"]
+        assert ghost not in row["children_pks"]
+
+    def test_a_retired_child_that_structures_nothing_leaves_the_count(
+        self, api_client, parent
+    ):
+        """The same rule as every other read: `visible_categories()`."""
+        Category.objects.filter(slug="lc-a").update(active=False)
+
+        row = self._row(api_client, parent.pk)
+
+        assert row["children_count"] == 2
+
+    def test_a_retired_child_holding_a_live_one_up_stays(self, api_client, parent):
+        """…and only that rule: a retired row an active one hangs from is
+        still served by `/children/`, so it is still counted here."""
+        retired = Category.objects.get(slug="lc-a")
+        Category.objects.create(name="Live", slug="lc-a-live", tn_parent=retired)
+        Category.objects.filter(pk=retired.pk).update(active=False)
+
+        row = self._row(api_client, parent.pk)
+
+        assert row["children_count"] == 3
+
+    def test_the_count_is_what_children_returns(self, api_client, parent):
+        """The contract, stated as one assertion: a count that disagrees with
+        the list under it is the defect this replaces."""
+        Category.objects.filter(slug="lc-a").update(deleted=True)
+        Category.objects.filter(slug="lc-b").update(active=False)
+
+        row = self._row(api_client, parent.pk)
+        children = api_client.get(f"{BASE}/categories/{parent.pk}/children/").json()
+
+        assert row["children_count"] == len(children)
+        assert row["children_pks"] == [child["id"] for child in children]
+
+    def test_a_node_whose_children_are_all_deleted_is_a_leaf(self, parent):
+        Category.objects.filter(tn_parent=parent).update(deleted=True)
+
+        assert Category.objects.get(pk=parent.pk).resolved_children_as is None
+
+    def test_the_serialized_hint_follows(self, api_client, parent):
+        Category.objects.filter(tn_parent=parent).update(deleted=True)
+
+        assert self._row(api_client, parent.pk)["children_as"] is None
+
+    def test_an_authored_value_does_not_survive_the_last_child(self, parent):
+        """`children_as` describes children; with none left there are none."""
+        Category.objects.filter(pk=parent.pk).update(children_as="transparent")
+        Category.objects.filter(tn_parent=parent).update(deleted=True)
+
+        assert Category.objects.get(pk=parent.pk).resolved_children_as is None
+
+    def test_the_keys_cost_no_query_per_row(self, api_client):
+        """One prefetch for the page, not one query per row — the property
+        `children_as` was written to hold and these two must not break."""
+        def count_queries(root_count: int) -> int:
+            Category.objects.all().delete()
+            for index in range(root_count):
+                root = Category.objects.create(
+                    name=f"Root {index}", slug=f"q-root-{index}"
+                )
+                Category.objects.create(
+                    name=f"Kid {index}", slug=f"q-kid-{index}", tn_parent=root
+                )
+            with CaptureQueriesContext(connection) as ctx:
+                response = api_client.get(f"{BASE}/categories/roots/")
+                assert response.status_code == 200
+                assert [row["children_count"] for row in response.json()] == [
+                    1
+                ] * root_count
+            return len(ctx)
+
+        assert count_queries(2) == count_queries(12)
+
+
+class TestTreeLiveChildren:
+    @pytest.fixture
+    def tree(self):
+        root = Category.objects.create(name="Root", slug="tlc-root")
+        first = Category.objects.create(name="A", slug="tlc-a", tn_parent=root)
+        Category.objects.create(name="B", slug="tlc-b", tn_parent=root)
+        Category.objects.create(name="A1", slug="tlc-a1", tn_parent=first)
+        return root
+
+    def test_the_node_says_how_many_children_it_has(self, api_client, tree):
+        rows = api_client.get(f"{BASE}/tree/").json()
+
+        assert rows[0]["children_count"] == 2
+
+    def test_a_soft_deleted_child_drops_out_of_the_count(self, api_client, tree):
+        Category.objects.filter(slug="tlc-b").update(deleted=True)
+
+        rows = api_client.get(f"{BASE}/tree/").json()
+
+        assert rows[0]["children_count"] == 1
+        assert [row["slug"] for row in rows[0]["children"]] == ["tlc-a"]
+
+    def test_a_depth_capped_node_still_says_it_has_children(self, api_client, tree):
+        """`children` is empty at the cap; the count is what says to ask."""
+        rows = api_client.get(f"{BASE}/tree/?depth=2").json()
+
+        first = next(row for row in rows[0]["children"] if row["slug"] == "tlc-a")
+        assert first["children"] == []
+        assert first["children_count"] == 1
+        assert first["children_as"] == "tiles"
+
+    def test_a_node_whose_children_are_all_deleted_is_a_leaf(self, api_client, tree):
+        Category.objects.filter(slug="tlc-a1").update(deleted=True)
+
+        rows = api_client.get(f"{BASE}/tree/?depth=2").json()
+
+        first = next(row for row in rows[0]["children"] if row["slug"] == "tlc-a")
+        assert first["children_count"] == 0
+        assert first["children_as"] is None
+
+    def test_it_is_a_constant_number_of_queries_whatever_the_depth(
+        self, api_client, tree
+    ):
+        from django.core.cache import cache
+
+        def count(depth: int) -> int:
+            cache.clear()
+            with CaptureQueriesContext(connection) as ctx:
+                assert api_client.get(f"{BASE}/tree/?depth={depth}").status_code == 200
+            return len(ctx)
+
+        assert count(1) == count(4)

@@ -228,6 +228,13 @@ PUBLIC_CATEGORY_KEYS = sorted([
     # answer as the hint above: it describes the public tree's own shape and
     # a reader cannot draw the row without it.
     "children_axis_label",
+    # The child set a reader can actually FETCH, and its size — live rows
+    # only. `tn_children_pks` below is treenode's raw structure column and
+    # counts soft-deleted and retired rows; it stays for the sync feed, but a
+    # client rule (leaf-ness, a one-child wrapper check) reads these two.
+    # Same disclosure answer as the hint above: they describe the shape of the
+    # public tree the same reader can already walk.
+    "children_pks", "children_count",
     "features",
     "tn_parent", "tn_priority", "tn_ancestors_pks", "tn_children_pks",
     "revision", "deleted",

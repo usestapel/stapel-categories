@@ -192,6 +192,29 @@ def visible_categories():
     )
 
 
+def with_live_children(queryset):
+    """Attach each row's LIVE children in ONE query.
+
+    ``Category.live_children`` is the reader's own child list (this module's
+    visibility rule, not treenode's denormalised columns, which count
+    soft-deleted and retired rows). Without this a page of N categories would
+    ask for it N times; with it, once for the page — which is what keeps
+    ``children_pks``/``children_count`` and ``children_as`` free to serve.
+
+    The prefetch fills ``_live_children``, not ``live_children``: the latter
+    is the property that reads it, and a property cannot be assigned over.
+    """
+    from django.db.models import Prefetch
+
+    return queryset.prefetch_related(
+        Prefetch(
+            "tn_children",
+            queryset=visible_categories().order_by("-tn_priority", "id"),
+            to_attr="_live_children",
+        )
+    )
+
+
 @extend_schema(tags=["Categories"])
 class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     """ViewSet for Category with revision-based synchronization.
@@ -251,7 +274,11 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         storefront does — a full paginated walk pinned to one
         ``max_revision``, every session).
         """
-        queryset = super().get_queryset()
+        # `with_live_children` on both branches: the child fingerprint a
+        # reader is served is the LIVE one whichever door it came through,
+        # and a sync consumer that walks the whole table still gets it in one
+        # query rather than one per row.
+        queryset = with_live_children(super().get_queryset())
         if self.action != "list" or self.is_sync_reader(self.request):
             return queryset
         return queryset.filter(pk__in=visible_categories().values("pk"))
@@ -285,9 +312,11 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         cached_data = cache.get(cache_key)
 
         if cached_data is None:
-            queryset = Category.objects.filter(
-                active=True, carousel_enabled=True, deleted=False
-            ).prefetch_related("features").order_by("-tn_priority")
+            queryset = with_live_children(
+                Category.objects.filter(
+                    active=True, carousel_enabled=True, deleted=False
+                ).prefetch_related("features").order_by("-tn_priority")
+            )
             cached_data = CategorySerializer(queryset, many=True).data
             cache.set(cache_key, cached_data, timeout=categories_settings.CAROUSEL_CACHE_TIMEOUT)
 
@@ -521,7 +550,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     def children(self, request, pk=None):  # noqa: R007
         """Return non-deleted children, sorted by tn_priority descending."""
         category = self.get_object()
-        children = (
+        children = with_live_children(
             visible_categories()
             .filter(tn_parent=category)
             .prefetch_related("features")
@@ -564,7 +593,7 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         cache_key = _roots_cache_key()
         cached_data = cache.get(cache_key)
         if cached_data is None:
-            queryset = (
+            queryset = with_live_children(
                 visible_categories()
                 .filter(tn_parent__isnull=True)
                 .prefetch_related("features")
@@ -635,7 +664,9 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     def deleted_children(self, request, pk=None):  # noqa: R007
         """Return deleted children of this category."""
         category = self.get_object()
-        deleted_children = Category.objects.filter(tn_parent=category, deleted=True).order_by("name")
+        deleted_children = with_live_children(
+            Category.objects.filter(tn_parent=category, deleted=True).order_by("name")
+        )
         return Response(CategorySerializer(deleted_children, many=True).data)  # noqa: R001
 
     @extend_schema(
@@ -965,11 +996,19 @@ def _tree_depth_param(raw) -> int:
 def build_category_tree(depth: int) -> list[dict]:
     """The visible catalogue, nested, down to *depth* levels.
 
-    ONE query whatever the depth: django-treenode denormalises ancestry onto
-    every row, so the whole visible set comes back as a flat ``values()`` read
-    and the nesting is done in Python. The alternative — a queryset per level,
-    or a nested serializer over model instances — is the N+1 this endpoint
-    exists to remove from the storefront.
+    TWO flat reads whatever the depth: django-treenode denormalises ancestry
+    onto every row, so the visible set comes back as one ``values()`` read and
+    the nesting is done in Python; the second is a grouped count of LIVE
+    children per parent over the WHOLE visible set. The alternative — a
+    queryset per level, or a nested serializer over model instances — is the
+    N+1 this endpoint exists to remove from the storefront.
+
+    The second read is not the first one counted: at the depth cap a node's
+    children are real but unsent, and ``children_count`` / ``children_as``
+    have to say so. treenode's own ``tn_children_count`` would answer without
+    a query and answer WRONG — it counts soft-deleted and retired rows, which
+    is how a services root reported three children while ``/children/``
+    returned one.
 
     Visibility is :func:`visible_categories`, the same rule ``roots``,
     ``children`` and ``by-slug`` answer to, and the order is theirs as well
@@ -980,6 +1019,8 @@ def build_category_tree(depth: int) -> list[dict]:
     hand back, and promoting an orphan would invent a root the catalogue
     does not have.
     """
+    from django.db.models import Count
+
     rows = list(
         visible_categories()
         .filter(tn_level__lte=depth)
@@ -987,9 +1028,16 @@ def build_category_tree(depth: int) -> list[dict]:
         .values(
             "id", "slug", "name", "catalog_icon",
             "children_as", "children_as_derived", "children_axis_label",
-            "tn_parent_id", "tn_ancestors_pks", "tn_children_count",
+            "tn_parent_id", "tn_ancestors_pks",
         )
     )
+    live_children = {
+        row["tn_parent_id"]: row["n"]
+        for row in visible_categories()
+        .exclude(tn_parent_id=None)
+        .values("tn_parent_id")
+        .annotate(n=Count("pk"))
+    }
 
     nodes: dict[int, dict] = {}
     for row in rows:
@@ -1007,11 +1055,15 @@ def build_category_tree(depth: int) -> list[dict]:
             "children_as": resolve_children_as(
                 row["children_as"],
                 row["children_as_derived"],
-                bool(row["tn_children_count"]),
+                bool(live_children.get(row["id"], 0)),
             ),
             # The stored key, like `name` above — a caption for the chip row
             # the level below is drawn as, "" when nobody named the axis.
             "children_axis_label": row["children_axis_label"],
+            # How many children this node HAS, not how many this read sent:
+            # at the depth cap `children` is empty and this is what tells a
+            # menu there is another level to ask for.
+            "children_count": live_children.get(row["id"], 0),
             "children": [],
         }
 

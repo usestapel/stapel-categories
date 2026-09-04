@@ -38,6 +38,16 @@ every public read:
 | `transparent` | browsing SKIPS this node: its children appear where it would, and its own page is its parent's |
 | `null` | the node has no children |
 
+**Children are counted live.** Every public read carries `children_pks` (the
+ids of the children a reader can see, in order) and `children_count`. Both are
+`GET /categories/{id}/children/` — the same visibility rule, the same order —
+and `children_as` resolves off the same count, so a node whose every child is
+soft-deleted answers `null` rather than sending a storefront to draw a grid of
+nothing. Do **not** build on `tn_children_pks`/`tn_children_count`: those are
+django-treenode's structure columns and count soft-deleted and retired rows
+(a live stand read `"68,67,221"` where `/children/` returned one row). They
+stay on the payload for the revision-sync feed.
+
 `transparent` is the import wrapper — a level a catalogue keeps for placement
 that nobody should have to browse through («Предложение услуг» between a root
 and the 34 groups that are the real level). The TREE is unchanged: the node

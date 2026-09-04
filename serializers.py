@@ -209,12 +209,36 @@ class CategorySerializer(serializers.ModelSerializer):
             "id", "name", "slug",
             "catalog_icon", "carousel_icon", "carousel_enabled", "active",
             "children_as", "children_axis_label",
+            "children_pks", "children_count",
             "features", "translatable",
             "tn_parent", "tn_priority",
             "tn_ancestors_pks", "tn_children_pks",
             "revision", "deleted",
         ]
         read_only_fields = ["revision"]
+
+    children_pks = serializers.SerializerMethodField(
+        help_text=(
+            "Ids of the children a reader can see — exactly what "
+            "`GET /categories/{id}/children/` returns, in the same order. "
+            "Read this, not `tn_children_pks`: that is django-treenode's raw "
+            "structure column and it counts soft-deleted and retired rows "
+            "too, so a rule built on it (leaf-ness, child counts, a "
+            "one-child wrapper check) sees children no reader can fetch."
+        )
+    )
+    children_count = serializers.SerializerMethodField(
+        help_text="How many children a reader can see — `len(children_pks)`."
+    )
+    tn_children_pks = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "django-treenode's raw structure column, `,`-joined. Counts "
+            "soft-deleted and retired rows, so it is NOT the child set a "
+            "reader can fetch — use `children_pks`. Kept because the "
+            "revision-sync feed's consumers mirror the tree columns."
+        ),
+    )
 
     children_axis_label = serializers.CharField(
         read_only=True,
@@ -231,10 +255,18 @@ class CategorySerializer(serializers.ModelSerializer):
         )
     )
     def get_children_as(self, obj) -> str | None:
-        # Three columns already on the row (see Category.resolved_children_as)
-        # — no query, so a page of N categories costs exactly what it did
-        # before this key existed.
+        # Two columns on the row plus the prefetched live child list (see
+        # `views.with_live_children`) — one query for the whole page, so a
+        # page of N categories costs what it did before this key existed.
         return obj.resolved_children_as
+
+    @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
+    def get_children_pks(self, obj) -> list:
+        return [child.pk for child in obj.live_children]
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_children_count(self, obj) -> int:
+        return obj.live_children_count
 
 
 class CategoryStaffSerializer(CategorySerializer):
@@ -322,6 +354,14 @@ class CategoryTreeNodeSerializer(serializers.Serializer):
             "Name of the axis the children split on, for a `chips` row. A "
             "translation key, like `name`; empty when nobody named it."
         ),
+    )
+    children_count = serializers.IntegerField(
+        help_text=(
+            "How many children this node HAS — live rows only, so it counts "
+            "no soft-deleted or retired row. Not `len(children)`: at the "
+            "requested depth `children` is empty and this still says whether "
+            "there is another level to ask for."
+        )
     )
     children = serializers.ListField(
         child=serializers.DictField(),

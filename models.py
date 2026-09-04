@@ -91,10 +91,12 @@ def resolve_children_as(
       destination, so the worst case is an extra click, where a wrong
       ``chips`` hides a branch behind a filter nobody looks at.
 
-    "Childless" is a STRUCTURAL fact (``tn_children_count``), not "how many
-    children this particular read is allowed to show" — a node whose children
-    are all retired still says how its children would be presented, and a
-    depth-capped tree read says it about the level it did not send. A childless
+    "Childless" is what a READER can see (``Category.live_children``), not
+    treenode's ``tn_children_count`` — that column counts soft-deleted and
+    retired rows too, and a node whose every child is deleted is a leaf to
+    everyone who can ask. It is still not "how many children THIS read chose
+    to send": a depth-capped tree read says how the level it did not send
+    would be drawn. A childless
     node authored ``transparent`` still answers ``None``: with no children
     there is nothing to show in its place, so the honest answer is the leaf's.
     """
@@ -563,14 +565,56 @@ class Category(RevisionMixin, TreeNodeModel):
             validate_features(self)
 
     @property
+    def live_children(self) -> list:
+        """The children a READER can see — the rows ``GET /children/`` returns.
+
+        NOT ``tn_children_pks``/``tn_children_count``. Those are treenode's
+        denormalised structure columns: they count every row that hangs off
+        this one, soft-deleted and retired included, and treenode recomputes
+        them from the whole table on any structural change, so they cannot be
+        corrected in place. On a live stand a services root read
+        ``tn_children_pks: "68,67,221"`` while ``/children/`` returned one row
+        — 67 and 68 were ``deleted`` — so every client rule built on that
+        column (leaf-ness, child counts, the one-child wrapper check) was
+        counting ghosts.
+
+        The rule here is the reader's own: :func:`views.visible_categories`,
+        the single definition ``children``, ``roots`` and ``by-slug`` answer
+        to. So this list IS what ``GET /<id>/children/`` returns, in the same
+        order — a count that disagrees with the list under it is the defect
+        this replaces.
+
+        Free when a read prefetched it (``views.with_live_children`` fills
+        ``_live_children``); ONE query for this row otherwise, memoised.
+        """
+        cached = getattr(self, "_live_children", None)
+        if cached is None:
+            from .views import visible_categories
+
+            cached = list(
+                visible_categories()
+                .filter(tn_parent=self)
+                .order_by("-tn_priority", "id")
+            )
+            self._live_children = cached
+        return cached
+
+    @property
+    def live_children_count(self) -> int:
+        """How many children a reader can see — see :attr:`live_children`."""
+        return len(self.live_children)
+
+    @property
     def resolved_children_as(self) -> str | None:
         """How this node's children are presented — see :func:`resolve_children_as`.
 
-        Three columns already loaded on the row, no query: a list of N
-        categories serializes this for free.
+        "Has children" is the LIVE count (:attr:`live_children`), not
+        treenode's: a node whose every child is soft-deleted is a leaf to
+        every reader, and answering `tiles` for it sends a storefront to draw
+        a grid of nothing.
         """
         return resolve_children_as(
-            self.children_as, self.children_as_derived, bool(self.tn_children_count)
+            self.children_as, self.children_as_derived, bool(self.live_children_count)
         )
 
     def get_all_features(self):
