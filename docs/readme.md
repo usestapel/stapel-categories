@@ -113,6 +113,19 @@ django-admin set_children_as --paths-from census.txt --value transparent
 django-admin set_children_as --path a/b --value tiles --dry-run
 ```
 
+The same command owns `children_axis_label` — the caption a chip row needs
+for its axis («Тип жилья» over Новостройка | Вторичка). `derive_children_as`
+only ever fills a blank label or improves its own previous key; text an
+engineer actually wrote had no command of its own until now:
+
+```bash
+django-admin set_children_as --path a/b --axis-label "Тип жилья"
+django-admin set_children_as --path a/b --clear-axis-label
+```
+
+`--value` and `--axis-label`/`--clear-axis-label` combine in one run — one
+save per node either way — and at least one of the three is required.
+
 The path is the slug path root→self — the exact form the derivation report
 prints, so a census read off that report pastes straight back. A bare slug
 works too (the column is unique); a longer path is checked against the tree and

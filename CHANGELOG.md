@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.20.6] — 2026-09-05
+
+### Added
+
+- **`set_children_as` now owns `children_axis_label`.** The column names the
+  axis a chip row splits on («Тип жилья» over Новостройка | Вторичка);
+  `derive_children_as` only ever fills a blank label from the vocabulary
+  group it matched, or improves its own previous key. A caption an engineer
+  actually wrote had no command of its own until now and had to be edited as
+  fixture data. `--axis-label "<text>"` writes it, `--clear-axis-label`
+  blanks it, and both combine with `--value` in the same run — one save per
+  node either way. `derive_children_as` already refused to overwrite authored
+  text (`axis_label_for`); a test now exercises that rule end to end through
+  the command that authors it.
+
 ## [0.20.5] — 2026-09-05
 
 ### Fixed

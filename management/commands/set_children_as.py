@@ -21,15 +21,31 @@ here. A bare slug is accepted too (the column is unique); a longer path is
 CHECKED against the tree, and a path that no longer matches is refused rather
 than applied to a node that has been re-parented since the census was taken.
 
+This command also owns ``children_axis_label`` — the NAME of the axis a chip
+row splits on («Тип жилья» over Новостройка | Вторичка). ``derive_children_as``
+only ever fills a BLANK label from the vocabulary group it matched, or
+improves its own previous key; a caption an engineer actually wrote is
+authored text with no command of its own until now, and had to be edited as
+fixture data::
+
+    python manage.py set_children_as --path a/b --axis-label "Тип жилья"
+    python manage.py set_children_as --path a/b --clear-axis-label
+
+``--value`` and ``--axis-label``/``--clear-axis-label`` combine freely in one
+run (one write per node either way); at least one of the three must be given.
+``--axis-label``/``--clear-axis-label`` write the column exactly as given —
+including a value ``derive_children_as`` would never have emitted itself —
+because this is the authoring side of the same column, not a re-derivation.
+
 Writes go through ``Category.save()``, not a targeted UPDATE: this is authored
 content a reader sees, so the revision bump and the ``category.changed`` event
 that invalidate every downstream ``categories.features`` cache are the point.
-(``derive_children_as`` writes its CACHE column with a bare UPDATE for the
+(``derive_children_as`` writes its CACHE columns with a bare UPDATE for the
 opposite reason — a catalogue-wide re-derivation must not fan out.)
 
-Nothing is written for a node that already carries the value; the run says so
-per path and in the summary, so a re-run of the same list prints "0 changed"
-rather than churning revisions.
+Nothing is written for a node that already carries the value(s) given; the
+run says so per path and in the summary, so a re-run of the same list prints
+"0 changed" rather than churning revisions.
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -97,9 +113,30 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--value",
-            required=True,
+            default=None,
             choices=list(VALUES),
-            help=f"The authored value to write: {' | '.join(VALUES)}.",
+            help=(
+                f"The authored `children_as` value to write: "
+                f"{' | '.join(VALUES)}. Optional if --axis-label or "
+                "--clear-axis-label is given instead (or as well)."
+            ),
+        )
+        axis_group = parser.add_mutually_exclusive_group()
+        axis_group.add_argument(
+            "--axis-label",
+            type=str,
+            default=None,
+            help=(
+                "Authored `children_axis_label` text to write on the named "
+                "node(s) — the name of the axis a chip row splits on (e.g. "
+                "«Тип жилья»). `derive_children_as` never "
+                "overwrites text set here."
+            ),
+        )
+        axis_group.add_argument(
+            "--clear-axis-label",
+            action="store_true",
+            help="Blank the authored `children_axis_label` on the named node(s).",
         )
         parser.add_argument(
             "--dry-run",
@@ -109,6 +146,18 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         value = options["value"]
+        clear_axis_label = options["clear_axis_label"]
+        set_axis_label = options["axis_label"] is not None or clear_axis_label
+        # "" for --clear-axis-label, the given text for --axis-label, or
+        # None when this run does not touch the column at all — three states,
+        # not two, because "" is itself a value this command can write.
+        new_axis_label = "" if clear_axis_label else options["axis_label"]
+
+        if value is None and not set_axis_label:
+            raise CommandError(
+                "Give --value, --axis-label or --clear-axis-label (or several)."
+            )
+
         paths = list(options["path"])
         if options["paths_from"]:
             paths.extend(self._read_paths(options["paths_from"]))
@@ -119,39 +168,61 @@ class Command(BaseCommand):
         # in it must not leave half the census applied.
         targets = [(path, resolve_path(path)) for path in paths]
 
-        changes = [
-            (path, node) for path, node in targets if node.children_as != value
-        ]
+        # One plan per path, computed before anything is printed or written,
+        # so `--value chips --axis-label "..."` writes both columns in the
+        # SAME save — one revision bump per node, not two.
+        plans = []
         for path, node in targets:
-            before = node.children_as
-            if before == value:
-                self.stdout.write(f"unchanged  {value:<11}  {path}")
-            else:
-                self.stdout.write(f"set        {before} -> {value:<11}  {path}")
+            value_changes = value is not None and node.children_as != value
+            label_changes = (
+                set_axis_label and node.children_axis_label != new_axis_label
+            )
+            plans.append((path, node, value_changes, label_changes))
 
-        if not changes:
-            self.stdout.write(f"Nothing to write — {len(targets)} path(s) already {value}.")
+        for path, node, value_changes, label_changes in plans:
+            pieces = []
+            if value is not None:
+                if value_changes:
+                    pieces.append(f"children_as {node.children_as} -> {value}")
+                else:
+                    pieces.append(f"children_as unchanged ({value})")
+            if set_axis_label:
+                before = node.children_axis_label or "(empty)"
+                after = new_axis_label or "(empty)"
+                if label_changes:
+                    pieces.append(f"axis_label {before!r} -> {after!r}")
+                else:
+                    pieces.append(f"axis_label unchanged ({after!r})")
+            tag = "set" if (value_changes or label_changes) else "unchanged"
+            self.stdout.write(f"{tag:<10} {'  '.join(pieces)}  {path}")
+
+        changed = [plan for plan in plans if plan[2] or plan[3]]
+        if not changed:
+            self.stdout.write(
+                f"Nothing to write — {len(plans)} path(s) already as given."
+            )
             return
 
         if options["dry_run"]:
             self.stdout.write(
                 self.style.WARNING(
-                    f"Dry run — {len(changes)} of {len(targets)} path(s) would "
+                    f"Dry run — {len(changed)} of {len(plans)} path(s) would "
                     "change. Re-run without --dry-run to write them."
                 )
             )
             return
 
         with transaction.atomic():
-            for _path, node in changes:
-                node.children_as = value
+            for _path, node, value_changes, label_changes in changed:
+                if value_changes:
+                    node.children_as = value
+                if label_changes:
+                    node.children_axis_label = new_axis_label
                 # A full save, deliberately: see the module docstring.
                 node.save()
 
         self.stdout.write(
-            self.style.SUCCESS(
-                f"Wrote {len(changes)} of {len(targets)} path(s) as {value}."
-            )
+            self.style.SUCCESS(f"Wrote {len(changed)} of {len(plans)} path(s).")
         )
 
     @staticmethod

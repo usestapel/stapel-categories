@@ -1388,6 +1388,131 @@ class TestSetChildrenAsCommand:
         assert Category.objects.get(slug="predlozhenie").revision != before
 
 
+class TestSetChildrenAsAxisLabel:
+    """``--axis-label``/``--clear-axis-label`` — the authoring side of
+    ``children_axis_label`` (0.20.6). Until now the column had no command of
+    its own: an authored caption («Тип жилья» over Новостройка/Вторичка) had
+    to be edited as fixture data, and ``derive_children_as`` only ever fills a
+    blank column or improves its own previous key.
+    """
+
+    @pytest.fixture
+    def catalogue(self):
+        root = Category.objects.create(name="Услуги", slug="uslugi-al")
+        wrapper = Category.objects.create(
+            name="Предложение услуг", slug="predlozhenie-al", tn_parent=root
+        )
+        Category.objects.create(name="Ремонт", slug="remont-al", tn_parent=wrapper)
+        other = Category.objects.create(name="Авто", slug="avto-al")
+        Category.objects.create(name="Новые", slug="avto-new-al", tn_parent=other)
+        return {"root": root, "wrapper": wrapper, "other": other}
+
+    def test_it_writes_the_authored_label(self, catalogue, capsys):
+        call_command(
+            "set_children_as", "--path", "uslugi-al/predlozhenie-al",
+            "--axis-label", "Тип жилья",
+        )
+
+        row = Category.objects.get(slug="predlozhenie-al")
+        assert row.children_axis_label == "Тип жилья"
+        out = capsys.readouterr().out
+        assert "set" in out
+        assert "Тип жилья" in out
+
+    def test_a_second_run_writes_nothing(self, catalogue, capsys):
+        args = ("--path", "predlozhenie-al", "--axis-label", "Тип жилья")
+        call_command("set_children_as", *args)
+        before = Category.objects.get(slug="predlozhenie-al").revision
+        capsys.readouterr()
+
+        call_command("set_children_as", *args)
+
+        out = capsys.readouterr().out
+        assert "unchanged" in out
+        assert "Nothing to write" in out
+        assert Category.objects.get(slug="predlozhenie-al").revision == before
+
+    def test_clear_blanks_an_authored_label(self, catalogue):
+        Category.objects.filter(slug="predlozhenie-al").update(
+            children_axis_label="Тип жилья"
+        )
+
+        call_command(
+            "set_children_as", "--path", "predlozhenie-al", "--clear-axis-label"
+        )
+
+        assert Category.objects.get(slug="predlozhenie-al").children_axis_label == ""
+
+    def test_clear_on_an_already_blank_label_is_a_no_op(self, catalogue, capsys):
+        call_command(
+            "set_children_as", "--path", "predlozhenie-al", "--clear-axis-label"
+        )
+
+        assert "Nothing to write" in capsys.readouterr().out
+
+    def test_value_and_axis_label_write_together_in_one_save(self, catalogue):
+        call_command(
+            "set_children_as", "--path", "predlozhenie-al",
+            "--value", "chips", "--axis-label", "Тип жилья",
+        )
+
+        row = Category.objects.get(slug="predlozhenie-al")
+        assert row.children_as == "chips"
+        assert row.children_axis_label == "Тип жилья"
+
+    def test_axis_label_and_clear_axis_label_are_mutually_exclusive(self, catalogue):
+        from django.core.management.base import CommandError
+
+        with pytest.raises(CommandError):
+            call_command(
+                "set_children_as", "--path", "predlozhenie-al",
+                "--axis-label", "x", "--clear-axis-label",
+            )
+
+    def test_neither_value_nor_axis_label_is_refused(self, catalogue):
+        from django.core.management.base import CommandError
+
+        with pytest.raises(CommandError):
+            call_command("set_children_as", "--path", "predlozhenie-al")
+
+    def test_a_dry_run_writes_nothing(self, catalogue, capsys):
+        call_command(
+            "set_children_as", "--path", "predlozhenie-al",
+            "--axis-label", "Тип жилья", "--dry-run",
+        )
+
+        assert "Dry run" in capsys.readouterr().out
+        assert Category.objects.get(slug="predlozhenie-al").children_axis_label == ""
+
+    def test_an_authored_label_survives_a_derive_run(self):
+        """The rule ``derive_children_as`` already holds
+        (:func:`axis_label_for`: authored text always wins) exercised end to
+        end through the command that now authors it, on a parent the
+        vocabulary signal WOULD otherwise have captioned itself: a
+        `Куплю`/`Сдам` split, named by hand instead."""
+        root = Category.objects.create(name="Flats", slug="flats-al")
+        buy = Category.objects.create(
+            name="Куплю", slug="flats-al-buy", tn_parent=root
+        )
+        rent = Category.objects.create(
+            name="Сдам", slug="flats-al-rent", tn_parent=root
+        )
+        link(root)
+        link(buy, "rooms", "area", "floor")
+        link(rent, "deposit", "term", "furnished", "pets")
+
+        call_command(
+            "set_children_as", "--path", "flats-al", "--axis-label", "Тип сделки"
+        )
+        call_command("derive_children_as", "--apply")
+
+        row = Category.objects.get(slug="flats-al")
+        # The derivation still decides `chips` off the vocabulary — only the
+        # CAPTION is untouched.
+        assert row.children_as_derived == "chips"
+        assert row.children_axis_label == "Тип сделки"
+
+
 class TestLiveChildren:
     """The children a reader can FETCH — not treenode's structure columns.
 
