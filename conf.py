@@ -36,6 +36,20 @@ categories_settings = AppSettings(
         # resolved names points this at its translation backend (e.g. a
         # wrapper over the ``translate.resolve`` comm Function).
         "DISPLAY_TRANSLATOR": "stapel_categories.translation.identity_translator",
+        # The comm Function ``load_catalog --rename-features`` calls to perform
+        # the OTHER half of a feature-slug rename. A slug is the key every
+        # listing files its answer under, so a rename applied here alone
+        # strands every stored answer under a key the schema no longer knows
+        # (2026-09-05: five car features at once, an empty facet and a search
+        # projection that lost the values).
+        #
+        # "auto" (the default) resolves to "listings.rename_feature_keys" when
+        # stapel-listings is installed beside this module, and to nothing when
+        # it is not — a deployment with no listings has no stored answers to
+        # move. An explicit Function name overrides it; "" or "none" says there
+        # is no second half, and the loader then makes the operator confirm
+        # that at the command line (--no-hook) rather than infer it.
+        "FEATURE_RENAME_HOOK": "auto",
     },
     import_strings=("DISPLAY_TRANSLATOR",),
 )

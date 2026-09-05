@@ -108,6 +108,12 @@ NAME_COLLISION = "name_collision"
 # write something else. The sidecar records both sides (§4.1), so the record
 # does NOT re-plan — which is exactly why this note exists.
 RESIDUAL = "residual"
+# A feature-slug rename this load DETECTED and did not perform. The slug is the
+# key every listing files its answer under, so renaming it here without moving
+# the stored answers strands them under a key the schema no longer knows — the
+# 2026-09-05 incident this kind exists to make impossible to repeat silently.
+# See the "Feature renames" section below.
+RENAME_BLOCKED = "rename_blocked"
 ERROR = "error"          # bad fixture record (validation / dangling reference)
 
 # Inline (override) feature-list entries carry at least these keys; a bare
@@ -191,6 +197,18 @@ class Report:
     #: it replaces was silent: a reload answered ``children_axis_label: ''``
     #: for every derived chip row and said nothing about having done it.
     kept_unsaid: Dict[str, int] = field(default_factory=dict)
+    #: ``{old feature slug: new}`` this load detected — whether or not it was
+    #: allowed to perform them (``feature_renames_applied`` says which).
+    feature_renames: Dict[str, str] = field(default_factory=dict)
+    #: The same, per category slug: the map each hook call is made with.
+    feature_renames_by_category: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    #: Whether the renames above were APPLIED (``--rename-features``) or kept
+    #: at their live slugs and reported as blocked.
+    feature_renames_applied: bool = False
+    #: The comm Function the renames were handed to, "" when none was called.
+    rename_hook: str = ""
+    #: One entry per hook call: ``{category, renames, result|error}``.
+    rename_hook_results: List[dict] = field(default_factory=list)
 
     def add(self, side: str, item: Item) -> None:
         (self.features if side == "features" else self.categories).append(item)
@@ -835,6 +853,305 @@ def _rename_order(idents: _Identities) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
+# Feature renames — the half of a slug rename that lives outside this module
+# ---------------------------------------------------------------------------
+#
+# A feature's SLUG is not a label. It is the key every listing files its answer
+# under (``stapel_listings.Listing.features_draft`` is ``{slug: value}``), so
+# renaming one here moves the schema and strands every stored answer under a
+# key the schema no longer knows. Measured on a live fleet on 2026-09-05:
+# ``load_catalog --on-conflict fixture-wins`` applied a fixture in which five
+# car features had new slugs (``make_ref_select`` → ``make``,
+# ``body_type_ref_select`` → ``body_type``, and three more). The dry run said
+# ``features: updated 62`` and not one word about a rename. Afterwards the make
+# facet was empty, the search projection had lost the values, and
+# ``listings_reproject_features`` — which keys on the CURRENT slugs — would have
+# DROPPED them rather than repaired them.
+#
+# The loader renamed silently, so three things change:
+#
+# 1. renames are DETECTED and named, in the dry run and in the apply alike;
+# 2. a plain apply REFUSES them — the live slug is kept and the rename is
+#    reported as blocked — because a rename is a two-sided data migration and
+#    this side alone cannot perform it;
+# 3. ``--rename-features`` performs it, and calls the hook that performs the
+#    other side (``FEATURE_RENAME_HOOK``, by default
+#    ``listings.rename_feature_keys``) once per category. With no hook
+#    reachable the renames stay blocked unless the operator ALSO passes
+#    ``--no-hook``, which is the explicit statement "there are no listings
+#    behind this catalogue" — nobody should be able to make that statement by
+#    forgetting to install something.
+
+#: The comm Function ``--rename-features`` calls when ``FEATURE_RENAME_HOOK``
+#: is left at ``"auto"`` and stapel-listings is installed beside us.
+DEFAULT_FEATURE_RENAME_HOOK = "listings.rename_feature_keys"
+
+
+def _feature_identity(record: dict):
+    """What makes two feature records the SAME feature under different slugs.
+
+    The source's own id where there is one — the ``(external_source,
+    external_id)`` pair, exactly how a category is matched — and the display
+    NAME otherwise, case-folded. ``Feature`` carries no external identity
+    column today, so in practice this is the name; the id branch is here
+    because the export record is the one place a source id would arrive, and a
+    detector that could only ever see names would have to be rewritten the day
+    one does.
+
+    ``None`` for a record with neither: an unnamed feature is not evidence of
+    anything, and guessing a rename from an empty identity is how a repair pass
+    rewrites the wrong listings.
+    """
+    ext = str(record.get("external_id") or "").strip()
+    if ext:
+        return ("id", str(record.get("external_source") or "").strip(), ext)
+    name = str(record.get("name") or "").strip()
+    return ("name", name.casefold()) if name else None
+
+
+@dataclass
+class _FeatureRenames:
+    """Every ``old_slug -> new_slug`` this load would perform, and where.
+
+    ``by_category`` is what the hook is called with — one map per category, so
+    the module that owns the listings is told exactly which subtree moved.
+    ``pairs`` is the same information flattened, for the plan the operator
+    reads and for the blocking substitution. ``notes`` holds the pairs that
+    LOOK like renames and are refused as ambiguous: a rename applied to the
+    wrong feature rewrites sellers' answers into the wrong field, so anything
+    short of a one-to-one match is reported and left alone.
+    """
+    by_category: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    pairs: Dict[str, str] = field(default_factory=dict)
+    notes: List[Item] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.pairs)
+
+    def blocked_notes(self) -> Dict[str, str]:
+        """``{feature slug: why this record is not being written}``.
+
+        Both ends of every pair: the new slug must not be created (nothing
+        would reference it) and the old one must not be deleted (every stored
+        answer is still filed under it).
+        """
+        out: Dict[str, str] = {}
+        for old, new in self.pairs.items():
+            out[new] = (
+                f"feature rename BLOCKED: '{old}' → '{new}' is a slug rename, and "
+                "every listing in these categories still answers under the old "
+                "slug. Re-run with --rename-features to apply it and move the "
+                "stored answers with it"
+            )
+            out[old] = (
+                f"feature rename BLOCKED: kept, because '{new}' would strand the "
+                f"answers stored under '{old}'"
+            )
+        return out
+
+    def describe(self) -> str:
+        return ", ".join(f"{old} → {new}" for old, new in sorted(self.pairs.items()))
+
+
+def _entry_slugs(record: dict) -> set:
+    """Slugs a category record's feature list references, malformed rows aside."""
+    return {
+        e["slug"] for e in (record.get("features") or ())
+        if isinstance(e, dict) and e.get("slug")
+    }
+
+
+def _detect_feature_renames(fix_feat, fix_cat, db_feat, db_cat) -> _FeatureRenames:
+    """Which features this fixture renames, per category, by identity.
+
+    A rename is a feature that LEAVES a category's list and one that JOINS it
+    carrying the same identity — the only shape in which "the same feature
+    under a new slug" can be seen from two record sets. Everything else (a
+    feature genuinely removed, a genuinely new one) has no counterpart on the
+    other side and is left to the ordinary plan.
+
+    Deliberately narrow. A pair is a rename only when the old slug is a live
+    root the fixture no longer defines and the new slug is not a live root
+    already, and when the identities match ONE to ONE on both sides. Two
+    features sharing a name inside one category, or one identity arriving
+    under two slugs, is reported as ambiguous and applied as neither: the cost
+    of a wrong rename is other people's data written into the wrong field.
+    """
+    out = _FeatureRenames()
+    # Identities that turned out ambiguous ANYWHERE. A feature root is shared
+    # by every category that lists it, so an identity nobody can resolve under
+    # one category is not resolvable under another either — a pair that looked
+    # one-to-one over there would move the same root.
+    poisoned: set = set()
+    ident_of: Dict[str, tuple] = {}
+    for key, record in sorted(fix_cat.items()):
+        live = db_cat.get(key)
+        if live is None:
+            continue  # a category being created holds no listings to strand
+        fixture_slugs = _entry_slugs(record)
+        live_slugs = _entry_slugs(live)
+        gone = sorted(live_slugs - fixture_slugs)
+        arrived = sorted(fixture_slugs - live_slugs)
+        if not gone or not arrived:
+            continue
+
+        old_by_ident: Dict[tuple, List[str]] = {}
+        for slug in gone:
+            if slug not in db_feat:
+                continue  # not a root of ours; nothing to rename
+            ident = _feature_identity(db_feat[slug])
+            if ident is not None:
+                old_by_ident.setdefault(ident, []).append(slug)
+        new_by_ident: Dict[tuple, List[str]] = {}
+        for slug in arrived:
+            if slug in db_feat or slug not in fix_feat:
+                continue  # the slug is already a live root, or has no definition
+            ident = _feature_identity(fix_feat[slug])
+            if ident is not None:
+                new_by_ident.setdefault(ident, []).append(slug)
+
+        for ident, olds in sorted(old_by_ident.items()):
+            news = new_by_ident.get(ident)
+            if not news:
+                continue
+            if len(olds) > 1 or len(news) > 1:
+                poisoned.add(ident)
+                out.notes.append(Item(RENAME_BLOCKED, key, (
+                    f"{len(olds)} feature(s) leaving and {len(news)} arriving share "
+                    f"one identity ({ident[-1]}) — refusing to guess which is a "
+                    "rename of which; give them distinct names, or rename them "
+                    "one at a time"
+                )))
+                continue
+            old, new = olds[0], news[0]
+            seen = out.pairs.get(old)
+            if seen is not None and seen != new:
+                out.notes.append(Item(RENAME_BLOCKED, key, (
+                    f"'{old}' renames to '{seen}' under another category and to "
+                    f"'{new}' here — a root feature is shared, so it cannot move "
+                    "to two slugs; split it first"
+                )))
+                continue
+            out.pairs[old] = new
+            ident_of[old] = ident
+            out.by_category.setdefault(key, {})[old] = new
+
+    # One identity arriving under two different slugs across categories is the
+    # mirror image of the check above and just as unresolvable.
+    targets: Dict[str, str] = {}
+    for old, new in sorted(out.pairs.items()):
+        clash = targets.get(new)
+        if clash is not None:
+            poisoned.add(ident_of[old])
+            poisoned.add(ident_of[clash])
+            out.notes.append(Item(RENAME_BLOCKED, new, (
+                f"both '{clash}' and '{old}' would rename to '{new}' — refusing "
+                "to merge two features into one slug"
+            )))
+        targets[new] = old
+
+    # An identity that could not be resolved under ONE category is dropped
+    # everywhere. The alternative — renaming the shared root because some other
+    # category happened to see a clean one-to-one — is the wrong-field write
+    # this whole detector exists to avoid.
+    for old, ident in sorted(ident_of.items()):
+        if ident not in poisoned:
+            continue
+        out.pairs.pop(old, None)
+        for mapping in out.by_category.values():
+            mapping.pop(old, None)
+    out.by_category = {k: v for k, v in out.by_category.items() if v}
+    return out
+
+
+def _unrename_categories(fix_cat: Dict[str, dict], renames: _FeatureRenames):
+    """Fixture category records with every blocked rename put back to the live slug.
+
+    Blocking the feature records alone would leave the category records
+    referencing a slug no root defines, and every one of them would fail with
+    a dangling reference — turning a refusal into a wall of errors. So the
+    entries are read back to the slug the catalogue actually holds: the load
+    applies everything else in the record and the categories keep the feature
+    they have. The substitution is by slug across the WHOLE fixture, not only
+    the categories the rename was detected under, because the new root is not
+    being created anywhere.
+    """
+    back = {new: old for old, new in renames.pairs.items()}
+    out = dict(fix_cat)
+    for key, record in fix_cat.items():
+        entries = record.get("features") or ()
+        if not (_entry_slugs(record) & set(back)):
+            continue
+        out[key] = {
+            **record,
+            "features": [
+                {**e, "slug": back[e["slug"]]}
+                if isinstance(e, dict) and (e.get("slug") or "") in back
+                else e
+                for e in entries
+            ],
+        }
+    return out
+
+
+def _resolve_rename_hook():
+    """The comm Function name ``--rename-features`` should call, or ``None``.
+
+    ``"auto"`` (the default) means "the listings library if it is installed":
+    a deployment that has one must move its stored answers, and a deployment
+    that has none has nothing to move. An explicit name overrides; an empty
+    value, or ``"none"``, says there is no second half — which the loader then
+    makes the operator confirm at the command line rather than infer.
+    """
+    from .conf import categories_settings
+
+    name = (categories_settings.FEATURE_RENAME_HOOK or "").strip()
+    if not name or name.lower() == "none":
+        return None
+    if name.lower() != "auto":
+        return name
+    import importlib.util
+
+    if importlib.util.find_spec("stapel_listings") is not None:
+        return DEFAULT_FEATURE_RENAME_HOOK
+    return None
+
+
+def _call_rename_hook(report, hook: str, by_category: Dict[str, Dict[str, str]]) -> None:
+    """Perform the other half of the migration, once per renamed category.
+
+    After the transaction, deliberately: the hook is a comm call that may cross
+    a process boundary and write another module's tables, and holding this
+    module's subtree lock open across it is how a catalogue import becomes a
+    deadlock. The catalogue is already committed if the hook fails — which is
+    why the failure is reported per category with the map it was called with,
+    so the operator can replay exactly that call by hand.
+    """
+    from stapel_core.comm import call
+
+    from .models import Category
+
+    ids = dict(
+        Category.objects.filter(slug__in=list(by_category)).values_list("slug", "pk")
+    )
+    for slug, mapping in sorted(by_category.items()):
+        entry = {"category": slug, "renames": dict(mapping)}
+        category_id = ids.get(slug)
+        if category_id is None:
+            entry["error"] = "category not found after apply — nothing was called"
+            report.rename_hook_results.append(entry)
+            continue
+        try:
+            entry["result"] = call(
+                hook,
+                {"category_id": category_id, "renames": dict(mapping), "dry_run": False},
+            )
+        except Exception as exc:  # comm is a network boundary; never fatal here
+            entry["error"] = f"{exc.__class__.__name__}: {exc}"
+        report.rename_hook_results.append(entry)
+
+
+# ---------------------------------------------------------------------------
 # Apply helpers — always through .save()/.full_clean()
 # ---------------------------------------------------------------------------
 
@@ -1386,7 +1703,8 @@ class _Planned:
 
 
 def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions,
-               idents: Optional[_Identities] = None, hash_view=None):
+               idents: Optional[_Identities] = None, hash_view=None,
+               blocked: Optional[Dict[str, str]] = None):
     """Classify every natural key on one side (features or categories).
 
     ``hash_view`` (categories only) maps a record to the projection that gets
@@ -1400,6 +1718,15 @@ def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions
     keys = set(fix) | set(base) | set(db_hashes)
     planned: List[_Planned] = []
     for key in sorted(keys):
+        if blocked and key in blocked:
+            # A slug rename this load refuses to perform: never written, never
+            # deleted, and the base is left where it was so the record stays
+            # visible on every subsequent run until somebody decides.
+            planned.append(_Planned(
+                key, Decision("note", RENAME_BLOCKED), fix.get(key),
+                note=blocked[key],
+            ))
+            continue
         if idents is not None and key in idents.problems:
             # Unresolvable identity: never planned as a write. The report
             # carries the reason and the run exits non-zero.
@@ -1441,12 +1768,23 @@ def load_catalog(
     on_conflict: str = ON_CONFLICT_ABORT,
     deletions: str = DELETIONS_SOFT,
     seed_if_empty: bool = False,
+    rename_features: bool = False,
+    call_hook: bool = True,
 ):
     """Reconcile the fixtures in ``directory`` into the live catalog.
 
     Returns a :class:`Report`. Writes the updated ``.sync-state.json`` sidecar
     on a real (non ``dry_run``) run. Raises nothing for conflicts — the caller
     inspects ``report.failed`` for the exit code.
+
+    ``rename_features`` allows the one class of change this loader refuses by
+    default: a feature-slug rename, which moves the key every listing files its
+    answer under and therefore has a second half outside this module (see the
+    "Feature renames" section). With ``call_hook`` (the default) that second
+    half is performed by ``FEATURE_RENAME_HOOK`` — and if no hook is reachable
+    the renames stay blocked, because applying them alone is precisely the
+    incident. ``call_hook=False`` is the operator saying out loud that there
+    are no listings behind this catalogue.
     """
     from .models import Category, Feature
 
@@ -1485,10 +1823,16 @@ def load_catalog(
         # fresh bootstrap into a wall of "db deleted it" warnings).
         base_feat, base_cat = {}, {}
 
+    # Resolved before the plan, not after it: whether the other half of a
+    # rename can be performed at all is what decides whether this half may be.
+    hook = _resolve_rename_hook() if call_hook else None
+    apply_renames = bool(rename_features) and (not call_hook or hook is not None)
+
     if dry_run:
         _run_plan(
             report, fix_feat, fix_cat, base_feat, base_cat,
             on_conflict=on_conflict, deletions=deletions, apply=False,
+            apply_renames=apply_renames, rename_features=rename_features,
         )
         return report
 
@@ -1504,16 +1848,25 @@ def load_catalog(
         new_state = _run_plan(
             report, fix_feat, fix_cat, base_feat, base_cat,
             on_conflict=on_conflict, deletions=deletions, apply=True,
+            apply_renames=apply_renames, rename_features=rename_features,
         )
 
     # The sidecar reflects the applied state — written after commit.
     with open(os.path.join(directory, cf.STATE_FILE), "w", encoding="utf-8") as fh:
         fh.write(cf.canonical_json(new_state))
+
+    # …and only then the other half of a rename. After the commit and after the
+    # sidecar: the schema move is durable either way, and a hook that fails must
+    # cost the operator a replay, not the record of what was applied.
+    if report.feature_renames_applied and hook and report.feature_renames_by_category:
+        report.rename_hook = hook
+        _call_rename_hook(report, hook, report.feature_renames_by_category)
     return report
 
 
 def _run_plan(
-    report, fix_feat, fix_cat, base_feat, base_cat, *, on_conflict, deletions, apply
+    report, fix_feat, fix_cat, base_feat, base_cat, *, on_conflict, deletions, apply,
+    apply_renames: bool = False, rename_features: bool = False,
 ):
     """Classify and (optionally) apply, in referential order.
 
@@ -1524,10 +1877,15 @@ def _run_plan(
     """
     from .models import Category, Feature
 
-    # DB view (excludes is_test + soft-deleted, exactly like export).
-    _, _, db_state = cf.build_catalog(include_test=False)
+    # DB view (excludes is_test + soft-deleted, exactly like export). The
+    # RECORDS as well as the hashes: the hashes drive the 3-way diff, and the
+    # records are what a rename is read off (which feature a category lists,
+    # and under which name).
+    db_feat_records, db_cat_records, db_state = cf.build_catalog(include_test=False)
     db_feat = db_state["features"]
     db_cat = db_state["categories"]
+    db_feat_by_slug = {r["slug"]: r for r in db_feat_records}
+    db_cat_by_slug = {r["slug"]: r for r in db_cat_records}
 
     # Source identity first: a node the source renamed sits in the DB view (and
     # in the sidecar base) under its OLD slug. Re-keying those two onto the new
@@ -1541,8 +1899,39 @@ def _run_plan(
     db_optional = _remap_by_identity(_db_optional_values(), idents)
     report.kept_unsaid = _kept_unsaid(fix_cat, db_optional)
 
+    # A slug rename is the one change this loader will not make by itself: the
+    # slug is the key every listing files its answer under, so moving it here
+    # and nowhere else strands them all. Detected first, because a blocked
+    # rename changes what the whole plan below is planning.
+    renames = _detect_feature_renames(
+        fix_feat, fix_cat, db_feat_by_slug,
+        _remap_by_identity(db_cat_by_slug, idents),
+    )
+    report.feature_renames = dict(renames.pairs)
+    report.feature_renames_by_category = {
+        key: dict(mapping) for key, mapping in renames.by_category.items()
+    }
+    report.feature_renames_applied = bool(renames) and apply_renames
+    for item in renames.notes:
+        report.add("features", item)
+    blocked = {} if apply_renames else renames.blocked_notes()
+    if blocked:
+        fix_cat = _unrename_categories(fix_cat, renames)
+    if renames and rename_features and not apply_renames:
+        # Asked for, and still refused: there is nothing to perform the other
+        # half with. Saying "renamed" here would be the incident again, with a
+        # flag as its alibi.
+        report.add("features", Item(RENAME_BLOCKED, "*", (
+            "--rename-features was passed but no rename hook is reachable "
+            f"(STAPEL_CATEGORIES['FEATURE_RENAME_HOOK'], default {DEFAULT_FEATURE_RENAME_HOOK!r} "
+            "when stapel-listings is installed) — the renames are still blocked. "
+            "Install/point the hook, or pass --no-hook to state that no listings "
+            "stand behind this catalogue"
+        )))
+
     feat_plan = _plan_side(
-        fix_feat, base_feat, db_feat, on_conflict=on_conflict, deletions=deletions
+        fix_feat, base_feat, db_feat, on_conflict=on_conflict, deletions=deletions,
+        blocked=blocked,
     )
     cat_view = _fixture_hash_view(_root_names_after(fix_feat, feat_plan), db_optional)
     cat_plan = _plan_side(

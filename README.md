@@ -24,7 +24,7 @@ pip install stapel-categories
 
 | Fact | Value |
 |---|---|
-| Version | `0.20.6` |
+| Version | `0.21.0` |
 | Python | `>=3.11` (3.11, 3.12, 3.13, 3.14) |
 | HTTP operations | 34 |
 | Config axes | 1 |
@@ -202,6 +202,7 @@ flat setting, or env var — resolved lazily):
 |---|---|---|
 | `CAROUSEL_CACHE_TIMEOUT` | `300` | Seconds the `carousel` response is cached. |
 | `FEATURE_DISPLAY_CACHE_TIMEOUT` | `60` | Seconds an admin feature display label is memoized. |
+| `FEATURE_RENAME_HOOK` | `"auto"` | comm Function `load_catalog --rename-features` hands a feature-slug rename to, so the stored listing answers move with the schema. |
 | `DISPLAY_TRANSLATOR` | `stapel_categories.translation.identity_translator` | Dotted path `(key)->str` for rendering translation keys (default: identity). |
 
 ## comm surface

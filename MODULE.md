@@ -241,6 +241,7 @@ setting of the same name -> environment variable -> default. Read lazily.
 | `CAROUSEL_CACHE_TIMEOUT` | `300` | value | Seconds the `carousel` action caches its response. |
 | `TREE_CACHE_TIMEOUT` | `300` | value | Seconds the public tree reads (`roots`, `{id}/children`, `by-slug/{slug}`) are cacheable for, and the ceiling on the server-side `roots` entry. The storefront's cold path — the first thing every visitor asks for and the last thing that changes. |
 | `FEATURE_DISPLAY_CACHE_TIMEOUT` | `60` | value | Seconds an admin feature display label is memoized. |
+| `FEATURE_RENAME_HOOK` | `"auto"` | **REPLACE** (comm Function name, single provider) | The Function `load_catalog --rename-features` calls to move the stored answers when a feature SLUG is renamed. `"auto"` resolves to `listings.rename_feature_keys` when stapel-listings is installed and to nothing when it is not; `""`/`"none"` says there is no second half, and the loader then makes the operator confirm that with `--no-hook` rather than infer it. |
 | `DISPLAY_TRANSLATOR` | `stapel_categories.translation.identity_translator` | **REPLACE** (dotted path, single strategy) | Callable `(key: str) -> str` that renders a translation key for `__str__`/admin display. Default is identity — the module stores keys, not resolved text. Point it at a translation backend (e.g. a wrapper over the `translate.resolve` comm Function) to show resolved names. |
 
 There are no open (merge) registries in this module — the one registry that
@@ -461,6 +462,23 @@ re-running the load could not repair it). All writes go through `save()`/`full_c
 (never bulk/`.update()` — H-2), under a `select_for_update` catalog lock (M-5),
 and a re-run on materialized fixtures is zero saves / zero events. Engine:
 `catalog_load.py`.
+
+**A feature-slug rename is REFUSED by default (0.21.0).** A feature's `slug` is
+not a label: it is the key every listing files its answer under
+(`stapel_listings.Listing.features_draft` is `{slug: value}`), so renaming one
+here and nowhere else strands every stored answer under a key the schema no
+longer knows. The loader now detects a rename — a feature under the same
+category whose identity (source id, else `name`) is unchanged while its slug
+moves — names it in the dry run and in the apply (`feature renames: N (old →
+new …)`), and by default keeps the live slug and reports the record as
+`rename_blocked`. `--rename-features` performs it and hands the other half of
+the migration to the comm Function named by `FEATURE_RENAME_HOOK` (default
+`listings.rename_feature_keys` when stapel-listings is installed), once per
+category, printing the counts it answers. With no hook reachable the renames
+stay blocked unless `--no-hook` is ALSO passed — the explicit statement that no
+listings stand behind this catalogue. Anything short of a one-to-one identity
+match is reported and applied as neither: a wrong rename writes sellers'
+answers into the wrong field.
 
 **The load CONVERGES (0.20.2).** The sidecar records, per natural key, the
 PAIR of hashes the last successful sync established — the fixture hash that

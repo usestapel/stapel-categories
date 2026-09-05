@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.21.0] — 2026-09-05
+
+### Changed — `load_catalog` refuses a feature-slug rename by default
+
+A feature's `slug` is not a label: it is the key every listing files its
+answer under (`stapel_listings.Listing.features_draft` is `{slug: value}`),
+so renaming one here and nowhere else strands every stored answer under a key
+the schema no longer knows. On 2026-09-05 a fleet ran
+`load_catalog --on-conflict fixture-wins` over a fixture in which five car
+features had new slugs (`make_ref_select` → `make`, `body_type_ref_select` →
+`body_type`, `drive_type_ref_select`, `fuel_type_ref_select`,
+`power_ref_select`); the dry run said `features: updated 62` and not one word
+about a rename. Afterwards the make facet was empty, the search projection had
+lost the values, and `listings_reproject_features` — which keys on the CURRENT
+slugs — would have DROPPED them rather than repaired them.
+
+The class of defect is a loader performing one half of a two-sided migration
+in silence: this side owns the schema, another module owns the stored answers,
+and nothing connected the two or even said the rename had happened. So the
+loader now DETECTS a rename (a feature under the same category whose identity
+— source id, else `name` — is unchanged while its slug moves), NAMES it in the
+dry run and in the apply alike (`feature renames: N (old → new …)`), and
+REFUSES to perform it on its own: a plain apply keeps the live slug, applies
+everything else in the record, and reports `rename_blocked`.
+
+`--rename-features` performs it, and hands the other half to the comm Function
+named by the new `FEATURE_RENAME_HOOK` setting — `"auto"`, which resolves to
+`listings.rename_feature_keys` (stapel-listings 0.22.0) when that library is
+installed and to nothing when it is not — once per affected category, printing
+the counts the hook answers. With no hook reachable the renames stay blocked
+even under the flag, unless `--no-hook` is ALSO passed: applying a rename with
+nothing to move the answers is the incident itself, and a deployment saying
+"there are no listings behind this catalogue" should say it out loud rather
+than by omission. A hook failure is reported per category with the exact map
+to replay; the catalogue is already committed by then, so what the operator
+needs is the call, not a rollback.
+
+Anything short of a one-to-one identity match — two features leaving or
+arriving under one name, one old slug renaming to two new ones, two renaming
+onto one — is reported and applied as neither, everywhere that identity is
+used. The cost of a wrong rename is other people's answers written into the
+wrong field, so the detector refuses to guess.
+
+Minor, not patch: `load_catalog` no longer applies a change it used to apply
+(behaviour a caller can depend on), and a new flag and settings key are
+features. Pre-1.0 house semver reads a minor as the breaking edge.
+
 ## [0.20.6] — 2026-09-05
 
 ### Added
