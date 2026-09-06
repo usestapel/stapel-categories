@@ -128,6 +128,18 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--clear-axis-role",
+            action="store_true",
+            help=(
+                "Let a fixture record ERASE an authored axis_role by stating "
+                "`\"axis_role\": null`. Without this flag a stated null is a "
+                "no-op and an ABSENT key always is: a role is authored by the "
+                "admin and by `set_axis_role` as often as by a fixture, and a "
+                "loader that blanks it on every record that never mentions it "
+                "wipes the decision an operator just made."
+            ),
+        )
+        parser.add_argument(
             "--seed-if-empty",
             action="store_true",
             help=(
@@ -167,6 +179,7 @@ class Command(BaseCommand):
                 seed_if_empty=options["seed_if_empty"],
                 rename_features=options["rename_features"],
                 call_hook=not options["no_hook"],
+                clear_axis_role=options["clear_axis_role"],
             )
         except ValueError as exc:  # incompatible sidecar version
             raise CommandError(str(exc))
@@ -258,9 +271,10 @@ class Command(BaseCommand):
 
         The counts are the useful half — an operator watching a catalogue
         import wants to know the axes were recognised at all — and the
-        ambiguities are the half nothing else would say: a leaf offering both
-        `brand` and `vendor` derives NEITHER, and a storefront then has no
-        make on that leaf with nothing red anywhere to explain it.
+        ambiguities are the half nothing else would say: a leaf whose
+        candidates precedence cannot separate derives NEITHER, and a
+        storefront then has no make on that leaf with nothing red anywhere to
+        explain it.
         """
         if report.axis_roles:
             by_role = {}
@@ -278,9 +292,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING(
             f"{prefix}{len(report.axis_role_ambiguities)} axis-role ambiguit"
             f"{'y' if len(report.axis_role_ambiguities) == 1 else 'ies'} — "
-            "two features claim one axis in one category, so NEITHER is "
-            "derived there or anywhere else (the row is shared). Pin the "
-            "right one with `set_axis_role`, or drop the duplicate spelling:"
+            "two features of EQUAL precedence claim one axis in one "
+            "category (or one shared row would have to answer two ways), so "
+            "neither is derived. Pin the right one with `set_axis_role`, or "
+            "drop the duplicate spelling:"
         ))
         for ambiguity in report.axis_role_ambiguities:
             self.stdout.write(self.style.WARNING(f"    ! {ambiguity}"))

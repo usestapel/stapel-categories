@@ -64,6 +64,7 @@ import contextlib
 import json
 import os
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Dict, List, Optional
 
 from django.core.exceptions import ValidationError
@@ -443,11 +444,15 @@ def _normalize_feature_record(rec: dict) -> dict:
         "hints": rec.get("hints") or [],
         "group": rec.get("group", ""),
     }
-    # Written by the export only when authored, so normalized the same way:
-    # a record that spelled a blank role out would otherwise never hash equal
-    # to the row it describes.
-    if rec.get("axis_role"):
-        out["axis_role"] = rec["axis_role"]
+    # Written by the export only when authored, so an ABSENT key stays absent:
+    # absence is the instruction "keep the live value" (the rule
+    # `_OPTIONAL_CATEGORY_SCALARS` follows on the other side), and a record
+    # that spelled a blank role out would otherwise never hash equal to the
+    # row it describes. A key that IS present — including an explicit `null`,
+    # which normalizes to "" — is carried through: it is a statement, and the
+    # apply decides what a blank one may do (see `_apply_feature_upsert`).
+    if "axis_role" in rec:
+        out["axis_role"] = rec["axis_role"] or ""
     if rec.get("is_test"):
         out["is_test"] = True
     return out
@@ -471,8 +476,8 @@ def _normalize_entry(entry: dict) -> dict:
         "hints": entry.get("hints") or [],
         "group": entry.get("group", ""),
     }
-    if entry.get("axis_role"):
-        out["axis_role"] = entry["axis_role"]
+    if "axis_role" in entry:  # see _normalize_feature_record
+        out["axis_role"] = entry["axis_role"] or ""
     if not slug:
         # Slug-less rows carry their identity inline (no features.json home).
         out["name"] = entry.get("name", "")
@@ -1265,7 +1270,40 @@ def _snapshot(obj, fields) -> dict:
     return {f: getattr(obj, f) for f in fields}
 
 
-def _apply_feature_upsert(record: dict):
+#: "This record says nothing about that field" — distinct from a stored
+#: ``None``, which ``default`` uses as a real value ("the form starts empty").
+_UNSET = object()
+
+
+def _stated_axis_role(record: dict, clear_axis_role: bool):
+    """What this fixture record instructs about the AUTHORED ``axis_role``.
+
+    Three answers, and the middle one is the whole point:
+
+    * the key is ABSENT — ``_UNSET``: leave the live column alone. A role is
+      authored by a human (the admin, ``set_axis_role``) as often as by a
+      fixture, and on 2026-09-07 a stand watched an authored ``make`` wiped by
+      the next ``load_catalog --on-conflict fixture-wins`` over a fixture that
+      had never heard of the field. A loader may not delete a decision the
+      fixture does not mention;
+    * the key states a ROLE — apply it. The fixture is canon about what it
+      states, and ``export_catalog`` writes the authored role, so a round trip
+      through canon keeps it;
+    * the key states ``null``/``""`` — an explicit clear, which needs
+      ``--clear-axis-role`` (``clear_axis_role``) to be performed. Without the
+      flag it is a no-op and the residual report says the fixture and the row
+      still disagree. Erasure is the one instruction that must be typed out
+      loud, because it is the one no re-load can undo.
+    """
+    stated = record.get("axis_role", _UNSET)
+    if stated is _UNSET:
+        return _UNSET
+    if not stated and not clear_axis_role:
+        return _UNSET
+    return stated or ""
+
+
+def _apply_feature_upsert(record: dict, *, clear_axis_role: bool = False):
     from .models import Feature
 
     slug = record["slug"]
@@ -1284,7 +1322,9 @@ def _apply_feature_upsert(record: dict):
     feat.mandatory = bool(record.get("mandatory", False))
     for attr, value in _disclosure(record).items():
         setattr(feat, attr, value)
-    feat.axis_role = record.get("axis_role") or ""
+    stated_role = _stated_axis_role(record, clear_axis_role)
+    if stated_role is not _UNSET:
+        feat.axis_role = stated_role
     feat.translate = record.get("translate", "all")
     feat.rules = record.get("rules") or []
     feat.description = record.get("description", "")
@@ -1322,18 +1362,14 @@ def _is_inline(entry: dict) -> bool:
     return any(k in entry for k in _INLINE_KEYS)
 
 
-#: "This entry says nothing about that field" — distinct from a stored ``None``,
-#: which ``default`` uses as a real value ("the form starts empty").
-_UNSET = object()
-
-
 def _entry_matches(feat, desired: dict) -> bool:
     return all(
         v is _UNSET or getattr(feat, k) == v for k, v in desired.items()
     )
 
 
-def _materialize_override(cat, slug: str, entry: dict, used: set):
+def _materialize_override(cat, slug: str, entry: dict, used: set,
+                          *, clear_axis_role: bool = False):
     """Find-or-create-or-update the per-category inline row for ``entry``.
 
     An inline entry is either an override (its own ``config``/flags hanging off
@@ -1381,7 +1417,9 @@ def _materialize_override(cat, slug: str, entry: dict, used: set):
         "default": entry.get("default"),
         "hints": entry.get("hints") or [],
         "group": entry.get("group", ""),
-        "axis_role": entry.get("axis_role") or "",
+        # Absent means "leave the live role alone", exactly as on the root
+        # record — an override's authored role is as hand-set as a root's.
+        "axis_role": _stated_axis_role(entry, clear_axis_role),
     }
 
     # Candidate rows already linked to this category that export would render
@@ -1485,7 +1523,7 @@ def _cleanup_orphaned_overrides(feature_ids) -> None:
             feat.soft_delete()
 
 
-def _reconcile_features(cat, entries: list) -> bool:
+def _reconcile_features(cat, entries: list, *, clear_axis_role: bool = False) -> bool:
     """Bring ``cat``'s materialized feature list to match ``entries``."""
     target = []
     changed = False
@@ -1494,7 +1532,9 @@ def _reconcile_features(cat, entries: list) -> bool:
     for entry in entries:
         slug = entry.get("slug") or ""
         if _is_inline(entry):
-            feat, feat_changed = _materialize_override(cat, slug, entry, used)
+            feat, feat_changed = _materialize_override(
+                cat, slug, entry, used, clear_axis_role=clear_axis_role,
+            )
             changed = changed or feat_changed
         else:
             feat = _root_feature(slug, cat.slug)
@@ -1550,7 +1590,7 @@ def _match_category(record: dict):
     return Category.objects.filter(slug=slug).first(), False
 
 
-def _apply_category_upsert(record: dict):
+def _apply_category_upsert(record: dict, *, clear_axis_role: bool = False):
     from .models import Category
 
     slug = record["slug"]
@@ -1632,12 +1672,16 @@ def _apply_category_upsert(record: dict):
         # assigns the pk and fires copy_parent_features (parent links copied).
         cat.full_clean()
         cat.save()
-        features_changed = _reconcile_features(cat, record.get("features", []))
+        features_changed = _reconcile_features(
+            cat, record.get("features", []), clear_axis_role=clear_axis_role,
+        )
         if features_changed:
             cat.full_clean()  # pk set now → validate the final feature set
             cat.save()        # bump/emit reflecting the reconciled schema
     else:
-        features_changed = _reconcile_features(cat, record.get("features", []))
+        features_changed = _reconcile_features(
+            cat, record.get("features", []), clear_axis_role=clear_axis_role,
+        )
         if features_changed or before != _snapshot(cat, _CATEGORY_SCALARS):
             cat.full_clean()  # validate_features over the reconciled set
             cat.save()        # single bump/emit for scalar + feature changes
@@ -1798,6 +1842,7 @@ def load_catalog(
     seed_if_empty: bool = False,
     rename_features: bool = False,
     call_hook: bool = True,
+    clear_axis_role: bool = False,
 ):
     """Reconcile the fixtures in ``directory`` into the live catalog.
 
@@ -1813,6 +1858,12 @@ def load_catalog(
     the renames stay blocked, because applying them alone is precisely the
     incident. ``call_hook=False`` is the operator saying out loud that there
     are no listings behind this catalogue.
+
+    ``clear_axis_role`` lets a fixture record ERASE an authored
+    ``Feature.axis_role`` by stating ``null``. Without it a stated ``null`` is
+    a no-op, and an ABSENT key always is: a role is authored by a human as
+    often as by a fixture, and a loader that blanks the column on every record
+    that never mentions it wipes the decision the operator just made.
     """
     from .models import Category, Feature
 
@@ -1861,6 +1912,7 @@ def load_catalog(
             report, fix_feat, fix_cat, base_feat, base_cat,
             on_conflict=on_conflict, deletions=deletions, apply=False,
             apply_renames=apply_renames, rename_features=rename_features,
+            clear_axis_role=clear_axis_role,
         )
         return report
 
@@ -1877,6 +1929,7 @@ def load_catalog(
             report, fix_feat, fix_cat, base_feat, base_cat,
             on_conflict=on_conflict, deletions=deletions, apply=True,
             apply_renames=apply_renames, rename_features=rename_features,
+            clear_axis_role=clear_axis_role,
         )
 
     # The sidecar reflects the applied state — written after commit.
@@ -1895,6 +1948,7 @@ def load_catalog(
 def _run_plan(
     report, fix_feat, fix_cat, base_feat, base_cat, *, on_conflict, deletions, apply,
     apply_renames: bool = False, rename_features: bool = False,
+    clear_axis_role: bool = False,
 ):
     """Classify and (optionally) apply, in referential order.
 
@@ -1999,9 +2053,9 @@ def _run_plan(
         # full_clean, revision bump, category.changed, copy_parent_features.
         with _deferred_tree_rebuild(Feature, Category):
             _apply_phase(report, "features", [p for p in feat_plan if p.decision.op == "upsert"],
-                         _apply_feature_upsert)
+                         partial(_apply_feature_upsert, clear_axis_role=clear_axis_role))
             _apply_phase(report, "categories", cat_upserts,
-                         _apply_category_upsert)
+                         partial(_apply_category_upsert, clear_axis_role=clear_axis_role))
             _apply_delete_phase(report, "categories", cat_deletes,
                                 _apply_category_delete, deletions)
             _apply_delete_phase(report, "features",

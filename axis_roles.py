@@ -30,13 +30,37 @@ five features across exactly that seam. So a trailing ``_ref_select`` (or
 ``_select``) is stripped before matching, and the table lists base words
 only. That is what keeps the fourth spelling from being the one nobody added.
 
-**Ambiguity derives nothing.** A category that offers two candidates for one
-role — ``brand`` AND ``vendor`` — is a schema the reader cannot resolve:
-whichever the derivation picked, a «more of this make» link built off the
-other one sends a buyer to a facet they did not click. So neither is stamped,
-in that category or in any other (the row is shared), and the pair is
-reported as a warning by ``load_catalog`` and by ``catalog_health``. Silence
-is the honest answer; a guess is the bug this whole field exists to end.
+**Precedence decides most contests; only a tie is an ambiguity.** A leaf
+offering two candidates for one role is not automatically unresolvable. A
+large live catalogue puts a general ``brand`` («Бренд одежды/Производитель»)
+on 82 leaves that ALSO carry the catalogue's own ``make_ref_select``, and
+there is nothing undecidable about that pair: the canonical ``make*``
+spelling is the axis, and ``brand`` is a second, weaker word for it. So the
+table carries a TIER per base word, and the strongest tier present in a
+category wins:
+
+``make`` > ``make_ref_select`` > ``vendor`` / ``manufacturer`` > ``brand``
+
+— i.e. the base word's tier first, and within one base word the bare
+spelling ahead of the vocabulary-backed one (``model`` > ``model_ref_select``
+for the same reason). Only a tie WITHIN one tier (``vendor`` AND
+``manufacturer``) is a real ambiguity: the reader has no basis to pick, and
+whichever the derivation chose, a «more of this make» link built off the
+other one sends a buyer to a facet they did not click. A tie stamps NOBODY
+in that category and is reported as a warning by ``load_catalog`` and by
+``catalog_health``. Silence is the honest answer; a guess is the bug this
+whole field exists to end.
+
+**Resolution is per ROW, because that is what a reader reads.** The winner
+is decided per category (``by_axis_role`` in stapel-attributes drops a role
+two features claim, so stamping both would give those 82 leaves nothing at
+all), and the decision lands on the FEATURE ROW that won. A catalogue that
+carries a per-category override row for ``brand`` therefore keeps ``brand``
+as the make on every leaf where it stands alone, and yields to
+``make_ref_select`` on the leaves where both appear. Where one SHARED row
+would have to be a make in one category and not-a-make in another, one
+column cannot hold both answers: the row is left blank and the category
+where it lost is reported as an ambiguity, exactly as before.
 
 **Derivation never writes the authored column.** ``axis_role`` is what a
 fixture, the admin or ``set_axis_role`` said; ``axis_role_derived`` is this
@@ -76,11 +100,44 @@ AXIS_ROLE_BY_SLUG: Dict[str, str] = {
     "kilometrage": MILEAGE,
 }
 
+#: Precedence TIER of each base word within its own role — lower wins. It is
+#: read only when one category offers several candidates for one role, and it
+#: says which spelling that catalogue means: the canonical ``make`` first, the
+#: generic manufacturer words next, and ``brand`` last, because ``brand`` is
+#: the word a catalogue also hangs on clothing and appliances beside a real
+#: make. A base word absent here sits in the last tier by default, so adding a
+#: spelling to :data:`AXIS_ROLE_BY_SLUG` alone can never promote it over the
+#: canonical one by accident.
+_LAST_TIER = 9
+AXIS_ROLE_TIER_BY_SLUG: Dict[str, int] = {
+    "make": 0,
+    "vendor": 1,
+    "manufacturer": 1,
+    "brand": 2,
+    "model": 0,
+    "generation": 0,
+    "year": 0,
+    "god_vypuska": 1,
+    "mileage": 0,
+    "kilometrage": 1,
+}
+
 #: Stripped from the end of a slug before the table lookup. A vocabulary-
 #: backed field carries the type in its name in several live catalogues
 #: (``make_ref_select``, ``model_ref_select``), and that is a fact about how
 #: the field is BACKED, not about which axis it is.
 _REF_SUFFIXES = ("_ref_select", "_select")
+
+
+def _base_word(slug: Optional[str]) -> Tuple[str, bool]:
+    """``(base word, carried a vocabulary suffix)`` — case-folded."""
+    folded = (slug or "").strip().lower()
+    if not folded:
+        return "", False
+    for suffix in _REF_SUFFIXES:
+        if folded.endswith(suffix) and len(folded) > len(suffix):
+            return folded[: -len(suffix)], True
+    return folded, False
 
 
 def role_for_slug(slug: Optional[str]) -> Optional[str]:
@@ -91,18 +148,39 @@ def role_for_slug(slug: Optional[str]) -> Optional[str]:
     table, because a near-miss ("brand_new") stamped as a make is worse than
     an unstamped feature.
     """
-    folded = (slug or "").strip().lower()
-    if not folded:
+    base, _ = _base_word(slug)
+    if not base:
         return None
-    for suffix in _REF_SUFFIXES:
-        if folded.endswith(suffix) and len(folded) > len(suffix):
-            folded = folded[: -len(suffix)]
-            break
-    return AXIS_ROLE_BY_SLUG.get(folded)
+    return AXIS_ROLE_BY_SLUG.get(base)
+
+
+def precedence_for_slug(slug: Optional[str]) -> Optional[Tuple[int, int]]:
+    """How strongly this slug claims its role — lower wins, ``None`` if it
+    claims nothing.
+
+    A sort key of ``(tier of the base word, 1 if it carried a vocabulary
+    suffix)``, which spells the documented order out in one comparison::
+
+        make (0, 0) < make_ref_select (0, 1) < vendor (1, 0)
+                    < manufacturer (1, 0) < brand (2, 0)
+
+    Two slugs with the SAME key are the only real ambiguity: nothing in the
+    catalogue says which of them the axis is.
+    """
+    base, suffixed = _base_word(slug)
+    if not base or base not in AXIS_ROLE_BY_SLUG:
+        return None
+    return (AXIS_ROLE_TIER_BY_SLUG.get(base, _LAST_TIER), 1 if suffixed else 0)
 
 
 class Ambiguity(tuple):
-    """One category offering two or more candidates for one role.
+    """One category whose claim on a role the derivation could not settle.
+
+    Either a TIE — two candidates of the same precedence tier — or a category
+    whose contest precedence DID settle onto a row that another category needs
+    to answer differently (one shared row, two answers). Both read the same way
+    to an operator: this category names no axis until you pin one with
+    ``set_axis_role`` or drop the duplicate spelling.
 
     A named 3-tuple ``(category_slug, role, slugs)`` — a tuple so a report can
     sort and compare it without importing anything.
@@ -157,43 +235,105 @@ def _candidate_categories():
     )
 
 
-def find_ambiguities() -> List[Ambiguity]:
-    """Every ``(category, role, slugs)`` a derivation must refuse to answer.
+def _resolve_category(category):
+    """What ONE category's schema says about its axes.
+
+    Returns ``(wants, ties, beaten)``:
+
+    * ``wants`` — ``{feature pk: role or None}`` over every candidate this
+      category carries: the winner of each role, and an explicit ``None`` for
+      every candidate that lost or was tied out. ``None`` is a decision, not
+      an absence: this category is saying "that row is not my make".
+    * ``ties`` — the roles two same-tier candidates claimed.
+    * ``beaten`` — ``{pk: Ambiguity}`` for a row precedence pushed out, kept so
+      the contest can be reported IF the row turns out to be shared with a
+      category that needs the other answer.
 
     Resolved with the library's own inheritance
     (``Category.get_all_features``: own + inherited, override-aware, deduped
-    by slug), so this can never disagree with the schema the product renders
-    — the same rule ``dead_end_leaves`` follows and for the same reason.
+    by slug), so this can never disagree with the schema the product renders —
+    the same rule ``dead_end_leaves`` follows and for the same reason.
     """
-    found: List[Ambiguity] = []
+    by_role: Dict[str, List[Tuple[Tuple[int, int], str, int]]] = defaultdict(list)
+    for feature in category.get_all_features():
+        role = role_for_slug(feature.slug)
+        if role:
+            by_role[role].append((precedence_for_slug(feature.slug), feature.slug, feature.pk))
+
+    wants: Dict[int, Optional[str]] = {}
+    ties: List[Ambiguity] = []
+    beaten: Dict[int, Ambiguity] = {}
+    for role, candidates in by_role.items():
+        best = min(key for key, _, _ in candidates)
+        top = {slug for key, slug, _ in candidates if key == best}
+        contest = Ambiguity(category.slug, role, tuple(slug for _, slug, _ in candidates))
+        if len(top) > 1:
+            # A tie inside one tier: nothing in the catalogue says which one.
+            ties.append(Ambiguity(category.slug, role, tuple(top)))
+            for _, _, pk in candidates:
+                wants[pk] = None
+            continue
+        for key, _, pk in candidates:
+            if key == best:
+                wants[pk] = role
+            else:
+                wants[pk] = None
+                beaten[pk] = contest
+    return wants, ties, beaten
+
+
+def resolve_axis_roles() -> Tuple[Dict[int, Optional[str]], List[Ambiguity]]:
+    """``({feature pk: role or None}, ambiguities)`` over every linked feature.
+
+    A pk absent from the map was never a candidate in any category — the
+    caller falls back to the slug alone for it.
+
+    Two categories may want opposite things of ONE row (``brand`` is the make
+    of a clothing leaf and loses to ``make_ref_select`` on a car leaf). The
+    column cannot hold both, so the row is blanked and the category where the
+    row lost is reported: precedence resolves what a per-category override row
+    makes resolvable and never invents an answer where it does not.
+    """
+    wanted: Dict[int, set] = defaultdict(set)
+    ambiguities: List[Ambiguity] = []
+    beaten_by_pk: Dict[int, List[Ambiguity]] = defaultdict(list)
     for category in _candidate_categories():
-        by_role: Dict[str, set] = defaultdict(set)
-        for feature in category.get_all_features():
-            role = role_for_slug(feature.slug)
-            if role:
-                by_role[role].add(feature.slug)
-        for role, slugs in by_role.items():
-            if len(slugs) > 1:
-                found.append(Ambiguity(category.slug, role, tuple(slugs)))
-    return sorted(found)
+        wants, ties, beaten = _resolve_category(category)
+        ambiguities.extend(ties)
+        for pk, role in wants.items():
+            wanted[pk].add(role)
+        for pk, contest in beaten.items():
+            beaten_by_pk[pk].append(contest)
+
+    resolved: Dict[int, Optional[str]] = {}
+    for pk, roles in wanted.items():
+        if len(roles) == 1:
+            resolved[pk] = next(iter(roles))
+        else:
+            resolved[pk] = None
+            ambiguities.extend(beaten_by_pk.get(pk, ()))
+    return resolved, sorted(set(ambiguities))
+
+
+def find_ambiguities() -> List[Ambiguity]:
+    """Every ``(category, role, slugs)`` a derivation must refuse to answer."""
+    return resolve_axis_roles()[1]
 
 
 def derive_axis_roles(apply: bool = False) -> Tuple[Dict[str, str], List[Ambiguity]]:
     """Decide ``axis_role_derived`` for every live feature.
 
-    Returns ``({slug: role}, ambiguities)``. With ``apply`` the decisions are
-    written — by a queryset ``update()``, so no revision bumps and no
-    ``category.changed`` storm follow a re-derivation; the same choice
-    ``derive_children_as --apply`` makes for its own cache.
-
-    A slug caught in ANY ambiguity is derived nowhere: the Feature row is
-    shared across every category that links it, so a role that is wrong in
-    one leaf cannot be right on the row.
+    Returns ``({slug: role}, ambiguities)`` — the slug map is the report's, and
+    says which spellings this catalogue derives SOMEWHERE, not that every row
+    under the slug carries the role (a per-category override row that lost its
+    leaf's contest does not). With ``apply`` the decisions are written — by a
+    queryset ``update()``, so no revision bumps and no ``category.changed``
+    storm follow a re-derivation; the same choice ``derive_children_as
+    --apply`` makes for its own cache.
     """
     from .models import Feature
 
-    ambiguities = find_ambiguities()
-    blocked = {slug for amb in ambiguities for slug in amb.slugs}
+    resolved, ambiguities = resolve_axis_roles()
 
     decided: Dict[str, str] = {}
     rows = Feature.objects.filter(deleted=False, is_test=False).values_list(
@@ -201,11 +341,12 @@ def derive_axis_roles(apply: bool = False) -> Tuple[Dict[str, str], List[Ambigui
     )
     writes: Dict[str, List[int]] = defaultdict(list)
     for pk, slug, current in rows:
-        role = role_for_slug(slug)
-        if role and slug not in blocked:
+        # A row no category links is decided by its slug alone: there is no
+        # schema it could contradict.
+        role = resolved[pk] if pk in resolved else role_for_slug(slug)
+        role = role or ""
+        if role:
             decided[slug] = role
-        else:
-            role = ""
         if current != role:
             writes[role].append(pk)
 

@@ -97,8 +97,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(
                 f"catalog_health: {len(ambiguities)} axis-role ambiguit"
                 f"{'y' if len(ambiguities) == 1 else 'ies'} — two features "
-                "claim one axis in one category, so NEITHER is derived (pin "
-                "one with `set_axis_role`, or drop the duplicate spelling):"
+                "of EQUAL precedence claim one axis in one category (or one "
+                "shared row would have to answer two ways), so neither is "
+                "derived (pin one with `set_axis_role`, or drop the duplicate "
+                "spelling):"
             ))
             for ambiguity in ambiguities:
                 self.stdout.write(self.style.WARNING(f"    ! {ambiguity}"))

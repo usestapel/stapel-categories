@@ -1,5 +1,82 @@
 # Changelog
 
+## [0.21.2] — 2026-09-07
+
+### Fixed — a `load_catalog` no longer wipes an authored `axis_role` it was never told about
+
+`Feature.axis_role` is AUTHORED — by a fixture, by the admin, by
+`set_axis_role`. On 2026-09-07 a stand set one with `set_axis_role` and the
+next `load_catalog --on-conflict fixture-wins` erased it: the fixture had been
+exported before the role existed, so its feature record carried no `axis_role`
+key at all, and the upsert wrote the column anyway
+(`feat.axis_role = record.get("axis_role") or ""`). Nothing was red. The
+catalogue simply stopped naming its make, and the storefront link and the AI
+descent that read the axis went quiet in exactly the way this field exists to
+prevent.
+
+The class of defect is a loader treating "the record says nothing about that
+key" as "the record says blank". This module already knew the difference for
+categories — `_OPTIONAL_CATEGORY_SCALARS` documents absence as *keep the live
+value* — and the feature side did not. So now:
+
+* an **absent** `axis_role` leaves the live column exactly as it is, on a root
+  record and on an inline override entry alike;
+* a **stated role** applies, as any fixture statement does — `export_catalog`
+  writes the authored role, so a round trip through canon keeps it;
+* a stated **`null`** is an explicit erasure and needs
+  `load_catalog --clear-axis-role` (`clear_axis_role=True`) to be performed.
+  Without the flag it is a no-op and the residual report says the two sides
+  still disagree. Erasure is the one instruction that must be typed out loud,
+  because it is the one no re-load can undo.
+
+The hashing side moves with it: `_normalize_feature_record` /
+`_normalize_entry` now keep the key when the fixture states it (a `null`
+normalizes to `""`) and drop it when it does not — so a fixture that never
+heard of the field still hashes byte-for-byte as it did, and no sidecar is
+regenerated.
+
+### Changed — the axis-role derivation resolves a leaf by PRECEDENCE, and only a tie is an ambiguity
+
+0.21.1 refused to derive anything for a category offering two candidates for
+one role. On the live catalogue that flagged **82 leaves** ambiguous for
+`make`, every one of them for the same non-mystery: a general `brand`
+(«Бренд одежды/Производитель», 589 rows) sitting beside the catalogue's own
+`make_ref_select`. Nothing about that pair is undecidable — the canonical
+`make*` spelling is the axis and `brand` is a weaker second word for it — so
+82 leaves lost their make to a rule that was being careful about the wrong
+thing.
+
+The rule table now carries a TIER per base word (`AXIS_ROLE_TIER_BY_SLUG`),
+and the strongest tier present in a category wins:
+
+```
+make > make_ref_select > vendor / manufacturer > brand
+model > model_ref_select        year > god_vypuska        mileage > kilometrage
+```
+
+— the base word's tier first, and within one base word the bare spelling ahead
+of the vocabulary-backed one, which is the same fact `_REF_SUFFIXES` already
+encodes from the other side. Only a tie WITHIN one tier (`vendor` AND
+`manufacturer`) is a real ambiguity: nobody is stamped there and the warning
+`load_catalog` and `catalog_health` print is unchanged.
+
+**Resolution is per ROW, because that is what a reader reads.**
+stapel-attributes' `by_axis_role` DROPS a role two definitions claim, so
+stamping both `brand` and `make_ref_select` would have left those 82 leaves
+with no make at all — the very outcome being fixed. The winner is decided per
+category and lands on the row that won, so a catalogue carrying a per-category
+`brand` row keeps `brand` as the make on every leaf where it stands alone and
+yields to `make_ref_select` where both appear. Where one SHARED row would have
+to be a make in one category and not-a-make in another, the column cannot hold
+both answers: the row stays blank and the category where it lost is reported
+as an ambiguity — the 0.21.1 behaviour, kept for exactly the case that still
+deserves it.
+
+Patch, not minor: no schema change, no migration, no read contract moved. A
+catalogue with one spelling per axis derives what it derived before; a
+catalogue with two derives more than it did, and never a different answer than
+the one an operator would have pinned by hand.
+
 ## [0.21.1] — 2026-09-06
 
 ### Added — a feature can say which classified AXIS it is

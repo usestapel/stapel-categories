@@ -229,10 +229,13 @@ class Feature(RevisionMixin, TreeNodeModel):
     # derivation refusing to touch its own output on the next run.
     #
     # * ``axis_role`` is authored — by the catalogue fixture, the admin, or
-    #   ``set_axis_role``. Blank means "nobody has decided".
+    #   ``set_axis_role``. Blank means "nobody has decided", and a fixture
+    #   that does not MENTION the key leaves it as it is (only an explicit
+    #   null under ``load_catalog --clear-axis-role`` erases one).
     # * ``axis_role_derived`` is ``load_catalog``'s cache, filled from the
-    #   slug rule table in :mod:`stapel_categories.axis_roles` and blanked
-    #   again wherever a leaf offers two candidates for one role.
+    #   slug rule table in :mod:`stapel_categories.axis_roles` — resolved by
+    #   precedence where a leaf offers several candidates for one role, and
+    #   blanked where two of EQUAL precedence claim it.
     #
     # Readers never see either raw value — they see
     # :attr:`resolved_axis_role`, a plain column read.

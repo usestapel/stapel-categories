@@ -24,8 +24,10 @@ from stapel_categories import catalog_fixtures as cf
 from stapel_categories import catalog_load as cl
 from stapel_categories.axis_roles import (
     AXIS_ROLE_BY_SLUG,
+    AXIS_ROLE_TIER_BY_SLUG,
     derive_axis_roles,
     find_ambiguities,
+    precedence_for_slug,
     role_for_slug,
 )
 from stapel_categories.models import Category, CategoryFeature, Feature
@@ -112,6 +114,82 @@ class TestTheRuleTable:
     def test_a_near_miss_derives_nothing(self, slug):
         # A wrongly stamped make is worse than an unstamped feature.
         assert role_for_slug(slug) is None
+
+
+class TestPrecedence:
+    """Which spelling a catalogue MEANS when a leaf carries several."""
+
+    def test_every_table_word_has_a_tier(self):
+        # A spelling added to the rule table with no tier would silently land
+        # in the last one — findable here, not in a storefront's link.
+        assert set(AXIS_ROLE_BY_SLUG) == set(AXIS_ROLE_TIER_BY_SLUG)
+
+    @pytest.mark.parametrize("stronger, weaker", [
+        ("make", "make_ref_select"),
+        ("make_ref_select", "vendor"),
+        ("make_ref_select", "manufacturer"),
+        ("vendor", "brand"),
+        ("manufacturer", "brand"),
+        ("model", "model_ref_select"),
+        ("year", "god_vypuska"),
+        ("mileage", "kilometrage"),
+    ])
+    def test_the_documented_order(self, stronger, weaker):
+        assert precedence_for_slug(stronger) < precedence_for_slug(weaker)
+
+    def test_two_words_of_one_tier_are_a_tie(self):
+        assert precedence_for_slug("vendor") == precedence_for_slug("manufacturer")
+
+    def test_a_slug_outside_the_table_claims_nothing(self):
+        assert precedence_for_slug("color") is None
+
+    def test_the_live_leaf_prefers_the_catalogue_s_own_make(self):
+        """The 82 leaves that carry a general `brand` beside `make_ref_select`."""
+        category = leaf("telefony", "brand", "make_ref_select", "model_ref_select")
+
+        decided, ambiguities = derive_axis_roles(apply=True)
+
+        assert ambiguities == []
+        assert decided["make_ref_select"] == "make"
+        assert "brand" not in decided
+        defs = Category.objects.get(pk=category.pk).feature_defs()
+        assert by_axis_role(defs)["make"]["slug"] == "make_ref_select"
+
+    def test_a_per_category_row_keeps_its_role_where_it_stands_alone(self):
+        # `brand` is «Бренд одежды» on its own leaf and a second word for the
+        # make on the leaf that also carries `make_ref_select`. Per-category
+        # rows can hold both answers, so both leaves name exactly one make.
+        leaf("odezhda", "brand")
+        root = Feature.objects.get(slug="brand")
+        override = Feature.objects.create(
+            tn_parent=root, slug="brand", name=root.name, config={"type": "string"},
+        )
+        cars = leaf("legkovye", "make_ref_select")
+        CategoryFeature.objects.create(category=cars, feature=override, order=1)
+
+        _, ambiguities = derive_axis_roles(apply=True)
+
+        assert ambiguities == []
+        assert Feature.objects.get(pk=root.pk).resolved_axis_role == "make"
+        assert Feature.objects.get(pk=override.pk).resolved_axis_role is None
+        assert Feature.objects.get(slug="make_ref_select").resolved_axis_role == "make"
+
+    def test_a_shared_row_that_cannot_hold_both_answers_is_blanked(self):
+        # One row, two categories wanting opposite answers of it: precedence
+        # settles the leaf, the column cannot, so nobody is stamped and the
+        # leaf where it lost is reported — the honest degradation.
+        leaf("odezhda", "brand")
+        cars = leaf("legkovye", "make_ref_select")
+        CategoryFeature.objects.create(
+            category=cars, feature=Feature.objects.get(slug="brand"), order=1,
+        )
+
+        decided, ambiguities = derive_axis_roles(apply=True)
+
+        assert "brand" not in decided
+        assert [(a.category, a.role, a.slugs) for a in ambiguities] == [
+            ("legkovye", "make", ("brand", "make_ref_select")),
+        ]
 
 
 class TestResolvedValue:
@@ -207,36 +285,38 @@ class TestDerivation:
 
 
 class TestAmbiguity:
-    def test_two_candidates_for_one_role_derive_neither(self):
-        leaf("odezhda", "brand", "vendor", "model")
+    def test_a_tie_inside_one_tier_derives_neither(self):
+        # `vendor` and `manufacturer` sit in the same precedence tier, so
+        # nothing in the catalogue says which of them the axis is.
+        leaf("odezhda", "vendor", "manufacturer", "model")
 
         decided, ambiguities = derive_axis_roles(apply=True)
 
-        assert "brand" not in decided and "vendor" not in decided
+        assert "vendor" not in decided and "manufacturer" not in decided
         assert decided == {"model": "model"}
-        assert Feature.objects.get(slug="brand").resolved_axis_role is None
         assert Feature.objects.get(slug="vendor").resolved_axis_role is None
+        assert Feature.objects.get(slug="manufacturer").resolved_axis_role is None
 
     def test_the_ambiguity_names_the_category_the_role_and_both_slugs(self):
-        leaf("odezhda", "brand", "vendor")
+        leaf("odezhda", "manufacturer", "vendor")
 
         _, ambiguities = derive_axis_roles(apply=True)
 
         assert len(ambiguities) == 1
         assert ambiguities[0].category == "odezhda"
         assert ambiguities[0].role == "make"
-        assert ambiguities[0].slugs == ("brand", "vendor")
+        assert ambiguities[0].slugs == ("manufacturer", "vendor")
         assert "odezhda" in str(ambiguities[0])
 
     def test_one_ambiguous_leaf_blocks_the_slug_everywhere(self):
         # The Feature row is shared, so a role that is wrong in one leaf
         # cannot be right on the row.
-        leaf("odezhda", "brand", "vendor")
-        leaf("obuv", "brand")
+        leaf("odezhda", "vendor", "manufacturer")
+        leaf("obuv", "vendor")
 
         decided, _ = derive_axis_roles(apply=True)
 
-        assert "brand" not in decided
+        assert "vendor" not in decided
 
     def test_an_inherited_clash_is_still_a_clash(self):
         parent = leaf("transport", "vendor")
@@ -247,16 +327,16 @@ class TestAmbiguity:
         assert [a.category for a in ambiguities] == ["legkovye"]
 
     def test_an_authored_role_settles_it_for_the_reader(self):
-        leaf("odezhda", "brand", "vendor")
+        leaf("odezhda", "vendor", "manufacturer")
         derive_axis_roles(apply=True)
 
-        Feature.objects.filter(slug="brand").update(axis_role="make")
+        Feature.objects.filter(slug="vendor").update(axis_role="make")
 
-        assert Feature.objects.get(slug="brand").resolved_axis_role == "make"
-        assert Feature.objects.get(slug="vendor").resolved_axis_role is None
+        assert Feature.objects.get(slug="vendor").resolved_axis_role == "make"
+        assert Feature.objects.get(slug="manufacturer").resolved_axis_role is None
 
     def test_find_ambiguities_answers_the_same_thing_on_its_own(self):
-        leaf("odezhda", "brand", "vendor")
+        leaf("odezhda", "vendor", "manufacturer")
 
         assert find_ambiguities() == derive_axis_roles(apply=False)[1]
 
@@ -308,7 +388,7 @@ class TestWhatAReaderIsTold:
         assert roles["color"] is None
 
     def test_the_features_api_answers_null_on_an_ambiguous_leaf(self, api_client):
-        category = leaf("odezhda", "brand", "vendor")
+        category = leaf("odezhda", "vendor", "manufacturer")
         derive_axis_roles(apply=True)
 
         response = api_client.get(f"{BASE}/categories/{category.pk}/features/")
@@ -392,7 +472,7 @@ class TestTheFixtureRoundTrip:
         assert Feature.objects.get(slug="make_ref_select").axis_role_derived == "make"
 
     def test_the_loader_reports_an_ambiguity_it_refused(self):
-        leaf("odezhda", "brand", "vendor")
+        leaf("odezhda", "vendor", "manufacturer")
         with tempfile.TemporaryDirectory() as out:
             _export(out)
             report = cl.load_catalog(out)
@@ -422,20 +502,107 @@ class TestTheFixtureRoundTrip:
         reloaded = Category.objects.get(slug="cars").get_all_features()
         assert [f.resolved_axis_role for f in reloaded] == ["generation"]
 
-    def test_a_fixture_that_drops_the_key_blanks_the_authored_role(self):
-        """A feature record is canon, as it is for `name` and `visibility`."""
+    @pytest.mark.parametrize("on_conflict", ["fixture-wins", "db-wins"])
+    def test_an_authored_role_survives_a_load_that_never_mentions_it(self, on_conflict):
+        """The 2026-09-07 stand incident, both policies.
+
+        An operator ran `set_axis_role`, then the next `load_catalog
+        --on-conflict fixture-wins` over a fixture that had never heard of the
+        field wiped it. An absent key is not the instruction "blank it".
+        """
         cars_leaf()
-        Feature.objects.filter(slug="make_ref_select").update(axis_role="make")
 
         with tempfile.TemporaryDirectory() as out:
             _export(out)
             records = _read_json(out, cf.FEATURES_FILE)
             for record in records:
-                record.pop("axis_role", None)
+                record["comment"] = "moved on the fixture side"
+            _write_json(out, cf.FEATURES_FILE, records)
+            # Authored AFTER the export: exactly the operator's order.
+            Feature.objects.filter(slug="make_ref_select").update(axis_role="make")
+            cl.load_catalog(out, on_conflict=on_conflict)
+
+        row = Feature.objects.get(slug="make_ref_select")
+        assert row.axis_role == "make"
+        if on_conflict == "fixture-wins":
+            # …and the rest of the record still applied: the guard is about
+            # the one key the fixture did not state, not about the record.
+            assert row.comment == "moved on the fixture side"
+
+    def test_a_fixture_that_states_a_role_applies_it(self):
+        """What it states IS canon — absence is the only thing that is not."""
+        cars_leaf()
+        Feature.objects.filter(slug="make_ref_select").update(axis_role="model")
+
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.FEATURES_FILE)
+            for record in records:
+                if record["slug"] == "make_ref_select":
+                    record["axis_role"] = "make"
             _write_json(out, cf.FEATURES_FILE, records)
             cl.load_catalog(out, on_conflict="fixture-wins")
 
+        assert Feature.objects.get(slug="make_ref_select").axis_role == "make"
+
+    def _load_with_a_nulled_role(self, **kwargs):
+        cars_leaf()
+        Feature.objects.filter(slug="make_ref_select").update(axis_role="make")
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.FEATURES_FILE)
+            for record in records:
+                if record["slug"] == "make_ref_select":
+                    record["axis_role"] = None
+            _write_json(out, cf.FEATURES_FILE, records)
+            cl.load_catalog(out, on_conflict="fixture-wins", **kwargs)
+        return Feature.objects.get(slug="make_ref_select")
+
+    def test_a_stated_null_is_a_no_op_without_the_flag(self):
+        """Erasure is the one instruction that must be typed out loud."""
+        assert self._load_with_a_nulled_role().axis_role == "make"
+
+    def test_a_stated_null_erases_with_the_flag(self):
+        assert self._load_with_a_nulled_role(clear_axis_role=True).axis_role == ""
+
+    def test_the_command_carries_the_flag(self):
+        cars_leaf()
+        Feature.objects.filter(slug="make_ref_select").update(axis_role="make")
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.FEATURES_FILE)
+            for record in records:
+                record["axis_role"] = None
+            _write_json(out, cf.FEATURES_FILE, records)
+            call_command(
+                "load_catalog", dir=out, on_conflict="fixture-wins",
+                clear_axis_role=True, stdout=io.StringIO(),
+            )
+
         assert Feature.objects.get(slug="make_ref_select").axis_role == ""
+
+    def test_an_authored_override_role_survives_a_load_that_drops_the_key(self):
+        parent = leaf("transport", "model")
+        child = Category.objects.create(name="Cars", slug="cars", tn_parent=parent)
+        root = Feature.objects.get(slug="model")
+        override = Feature.objects.create(
+            tn_parent=root, slug="model", name=root.name,
+            config={"type": "string"}, axis_role="generation",
+        )
+        CategoryFeature.objects.filter(category=child).delete()
+        CategoryFeature.objects.create(category=child, feature=override, order=0)
+
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            categories = _read_json(out, cf.CATEGORIES_FILE)
+            for record in categories:
+                for entry in record.get("features", []):
+                    entry.pop("axis_role", None)
+                record["comment"] = "moved on the fixture side"
+            _write_json(out, cf.CATEGORIES_FILE, categories)
+            cl.load_catalog(out, on_conflict="fixture-wins")
+
+        assert Feature.objects.get(pk=override.pk).axis_role == "generation"
 
 
 class TestSetAxisRoleCommand:
@@ -453,12 +620,12 @@ class TestSetAxisRoleCommand:
         assert "Wrote 1 row" in output
 
     def test_the_pin_outlives_a_re_derivation(self):
-        leaf("odezhda", "brand", "vendor")
-        self._run(slug=["brand"], role="make")
+        leaf("odezhda", "vendor", "manufacturer")
+        self._run(slug=["vendor"], role="make")
 
         derive_axis_roles(apply=True)
 
-        assert Feature.objects.get(slug="brand").resolved_axis_role == "make"
+        assert Feature.objects.get(slug="vendor").resolved_axis_role == "make"
 
     def test_it_is_idempotent(self):
         leaf("stanki", "proizvoditel")
@@ -514,7 +681,7 @@ class TestSetAxisRoleCommand:
 
 class TestCatalogHealth:
     def test_it_warns_about_an_ambiguity_without_failing(self):
-        leaf("odezhda", "brand", "vendor")
+        leaf("odezhda", "vendor", "manufacturer")
         out = io.StringIO()
 
         call_command("catalog_health", stdout=out)
