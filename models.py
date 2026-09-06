@@ -223,6 +223,59 @@ class Feature(RevisionMixin, TreeNodeModel):
         help_text="Form section; sections order by first appearance.",
     )
 
+    # WHICH CLASSIFIED AXIS THIS FEATURE IS — two columns, for the reason
+    # `Category.children_as` needs two: the question has an AUTHORED answer
+    # and a DERIVED one, and one column cannot hold both without the
+    # derivation refusing to touch its own output on the next run.
+    #
+    # * ``axis_role`` is authored — by the catalogue fixture, the admin, or
+    #   ``set_axis_role``. Blank means "nobody has decided".
+    # * ``axis_role_derived`` is ``load_catalog``'s cache, filled from the
+    #   slug rule table in :mod:`stapel_categories.axis_roles` and blanked
+    #   again wherever a leaf offers two candidates for one role.
+    #
+    # Readers never see either raw value — they see
+    # :attr:`resolved_axis_role`, a plain column read.
+    #
+    # The vocabulary is stapel-attributes' (``stapel_attributes.axis``),
+    # mirrored as TextChoices like :class:`Visibility` so the admin renders
+    # labels and the migration state is stable; the mirror is pinned by a
+    # test rather than built at import time, so a silently reordered or
+    # renamed upstream constant fails loudly here.
+    class AxisRole(models.TextChoices):
+        """Mirrors ``stapel_attributes.axis.AXIS_ROLES``, in descent order."""
+
+        MAKE = "make", "Make (brand / vendor / manufacturer)"
+        MODEL = "model", "Model"
+        GENERATION = "generation", "Generation"
+        YEAR = "year", "Year of manufacture"
+        MILEAGE = "mileage", "Mileage"
+
+    axis_role = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        choices=AxisRole.choices,
+        help_text=(
+            "Which classified axis this feature IS, when it is one: `make`, "
+            "`model`, `generation`, `year`, `mileage`. Blank (the default) "
+            "for the overwhelming majority of features, which describe an "
+            "object rather than organise it. An authored value wins over "
+            "the loader's derivation."
+        ),
+    )
+    axis_role_derived = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        choices=AxisRole.choices,
+        editable=False,
+        help_text=(
+            "Cache of `load_catalog`'s slug-table derivation. Read only when "
+            "`axis_role` is blank; never overwrites an authored value."
+        ),
+    )
+
     class TranslateMode(models.TextChoices):
         ALL = "all", "All (title + options)"
         TITLE = "title", "Title only"
@@ -289,6 +342,30 @@ class Feature(RevisionMixin, TreeNodeModel):
             self.show_at_title = False
             self.show_as_badge = False
 
+    def coerce_axis_role(self) -> None:
+        """Normalize the authored axis role; raise on a value outside the canon.
+
+        The column stores ``""`` for "no axis" while the canon spells it
+        ``None``, so the two blanks are translated here in one place. An
+        unrecognized role raises rather than blanking: a catalogue that meant
+        ``make`` and wrote ``manufacturer`` must not end up storing a feature
+        that quietly claims no axis at all — which is the exact failure
+        ``axis_role`` exists to end.
+        """
+        from stapel_attributes.axis import normalize_axis_role
+
+        self.axis_role = normalize_axis_role(self.axis_role) or ""
+
+    @property
+    def resolved_axis_role(self):
+        """The axis role a reader is served, or ``None``.
+
+        Authored wins outright; a blank one falls through to the loader's
+        derivation cache; blank in both is ``None`` — "this feature is not an
+        axis, or nobody has said it is", which a consumer treats the same way.
+        """
+        return (self.axis_role or self.axis_role_derived) or None
+
     def clean(self):
         """Validate the feature configuration and rules via stapel-attributes."""
         from stapel_attributes import validate_feature_config
@@ -298,6 +375,11 @@ class Feature(RevisionMixin, TreeNodeModel):
             self.coerce_visibility()
         except ValueError as e:
             raise ValidationError({"visibility": str(e)})
+
+        try:
+            self.coerce_axis_role()
+        except ValueError as e:
+            raise ValidationError({"axis_role": str(e)})
 
         if not self.config:
             self.config = {}
@@ -363,6 +445,9 @@ class Feature(RevisionMixin, TreeNodeModel):
         # reach the table at all — an UnknownVisibility here is deliberate,
         # a refused write beats a published identifier.
         self.coerce_visibility()
+        # Same reasoning, weaker stakes: a role outside the canon is a typo,
+        # and a stored typo is a feature that silently claims no axis.
+        self.coerce_axis_role()
         # The feature write and the category.changed fanout emitted by the
         # post_save receiver (emit_category_changed_on_feature_save) commit
         # as ONE transaction — a feature edit is never committed without its
@@ -680,6 +765,9 @@ class Category(RevisionMixin, TreeNodeModel):
                 "showAtTitle": feature.show_at_title,
                 # Not camelCased — the canon's key IS `visibility`, one word.
                 "visibility": feature.visibility,
+                # Likewise `axis_role`, and the RESOLVED one: a reader acts on
+                # the answer, not on which of the two columns produced it.
+                "axis_role": feature.resolved_axis_role,
                 "rules": feature.rules or [],
                 "description": feature.description,
                 "example": feature.example,
@@ -712,6 +800,11 @@ class Category(RevisionMixin, TreeNodeModel):
         MUST cross it too: stapel-listings stamps it onto every stored value at
         write time, and a definition that arrives without it stamps ``public``,
         which publishes the VIN this axis exists to keep off a public page.
+
+        ``axis_role`` crosses because it is the ONLY thing that says which of
+        these features is the make and which is the model. A consumer that
+        does not get it goes back to matching slugs against a table of its
+        own, which is the state this key ended.
         """
         return [feature_def_dict(feature) for feature in self.get_all_features()]
 
@@ -731,6 +824,9 @@ def feature_def_dict(feature) -> dict:
         "show_at_title": feature.show_at_title,
         "show_as_badge": feature.show_as_badge,
         "visibility": feature.visibility,
+        # The RESOLVED role (authored, else derived, else None) — a consumer
+        # acts on the answer, not on which column produced it.
+        "axis_role": feature.resolved_axis_role,
         "translate": feature.translate,
         "rules": feature.rules or [],
         "description": feature.description,

@@ -14,8 +14,8 @@
   "$defs": {
     "ResolvedFeature": {
       "type": "object",
-      "description": "One resolved feature in the response 'features' array. Fed to stapel-attributes' coerce_feature_defs / FeatureDef. Every property of the canon (stapel-attributes docs/feature-def.schema.json $defs.FeatureDef) except 'config' — which has its own per-type shape there — MUST be present here; tests/test_resolved_feature_contract.py gates that. show_at_title, show_as_badge and translate carry the title/badge projections attributes' dto_to_dao builds; 'rules' carries requiredness and conditional show/hide, without which the whole category silently reverts to static 'mandatory'; 'visibility' carries the disclosure axis stapel-listings stamps onto every stored value at write time — a definition arriving without it stamps 'public', which publishes the VIN the axis exists to keep off a public page.",
-      "required": ["id", "slug", "name", "mandatory", "show_at_title", "show_as_badge", "visibility", "translate", "rules", "description", "example", "default", "hints", "group", "config"],
+      "description": "One resolved feature in the response 'features' array. Fed to stapel-attributes' coerce_feature_defs / FeatureDef. Every property of the canon (stapel-attributes docs/feature-def.schema.json $defs.FeatureDef) except 'config' — which has its own per-type shape there — MUST be present here; tests/test_resolved_feature_contract.py gates that. show_at_title, show_as_badge and translate carry the title/badge projections attributes' dto_to_dao builds; 'rules' carries requiredness and conditional show/hide, without which the whole category silently reverts to static 'mandatory'; 'visibility' carries the disclosure axis stapel-listings stamps onto every stored value at write time — a definition arriving without it stamps 'public', which publishes the VIN the axis exists to keep off a public page; 'axis_role' is the only thing that says which of these features is the make and which is the model, and a consumer that does not get it goes back to matching slugs against a table of its own.",
+      "required": ["id", "slug", "name", "mandatory", "show_at_title", "show_as_badge", "visibility", "axis_role", "translate", "rules", "description", "example", "default", "hints", "group", "config"],
       "properties": {
         "id": { "type": ["integer", "string"], "description": "Stable feature identifier." },
         "slug": { "type": "string", "description": "Payload key the feature is submitted under." },
@@ -28,6 +28,12 @@
           "enum": ["public", "owner", "staff"],
           "description": "Which audience may READ a stored value. Orthogonal to 'mandatory': a non-public feature is still required, still validated, still stored and still moderated — it is only never handed to a reader who is not entitled to it. Identifiers of a specific physical unit (VIN, IMEI, a serial or a registry number) belong here. 'owner' = the object's owner, and staff; 'staff' = staff only, not even the owner's own view. A non-public feature is never in a title, never a badge, never indexed and never facetable, and show_at_title/show_as_badge are forced to false. Default: \"public\" (a definition that says nothing keeps behaving as it did before this axis existed).",
           "default": "public"
+        },
+        "axis_role": {
+          "type": ["string", "null"],
+          "enum": ["make", "model", "generation", "year", "mileage", null],
+          "description": "Which classified AXIS this feature IS, when it is one — the manufacturer ('make'), the model it narrows to, the 'generation', the 'year' of manufacture, the 'mileage' — or null for the overwhelming majority of features, which describe an object rather than organise it. The RESOLVED answer: the catalogue's authored role first, then the loader's slug-table derivation. It is what a storefront reads to build a «more of this make» link and what an AI descent reads to fill make before model (each narrows the next via optionsRef.parentFeature), instead of matching slugs against a closed table of its own that a fourth spelling drops out of. At most one feature per role in one schema: where a category offers two candidates the producer derives NEITHER and answers null for both, because a link built off the wrong one sends a buyer to a facet they did not click. Default: null (a definition that says nothing keeps behaving as it did before this axis existed).",
+          "default": null
         },
         "translate": { "type": "string", "enum": ["all", "title", "none"], "description": "Translation mode." },
         "rules": {

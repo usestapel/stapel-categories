@@ -249,8 +249,41 @@ class Command(BaseCommand):
                 f"INACTIVE parent: {slugs} "
                 "(run catalog_health for the standing gate)"
             ))
+        self._print_axis_roles(report, prefix)
         if report.dry_run:
             self.stdout.write("[dry-run] no changes were written.")
+
+    def _print_axis_roles(self, report: cl.Report, prefix: str) -> None:
+        """Which feature of each leaf is the make, the model, the year.
+
+        The counts are the useful half — an operator watching a catalogue
+        import wants to know the axes were recognised at all — and the
+        ambiguities are the half nothing else would say: a leaf offering both
+        `brand` and `vendor` derives NEITHER, and a storefront then has no
+        make on that leaf with nothing red anywhere to explain it.
+        """
+        if report.axis_roles:
+            by_role = {}
+            for slug, role in sorted(report.axis_roles.items()):
+                by_role.setdefault(role, []).append(slug)
+            detail = "; ".join(
+                f"{role}: {', '.join(slugs)}" for role, slugs in sorted(by_role.items())
+            )
+            self.stdout.write(
+                f"{prefix}axis roles: {len(report.axis_roles)} feature(s) derived "
+                f"({detail})"
+            )
+        if not report.axis_role_ambiguities:
+            return
+        self.stdout.write(self.style.WARNING(
+            f"{prefix}{len(report.axis_role_ambiguities)} axis-role ambiguit"
+            f"{'y' if len(report.axis_role_ambiguities) == 1 else 'ies'} — "
+            "two features claim one axis in one category, so NEITHER is "
+            "derived there or anywhere else (the row is shared). Pin the "
+            "right one with `set_axis_role`, or drop the duplicate spelling:"
+        ))
+        for ambiguity in report.axis_role_ambiguities:
+            self.stdout.write(self.style.WARNING(f"    ! {ambiguity}"))
 
     def _print_renames(self, report: cl.Report, prefix: str) -> None:
         """The line the 2026-09-05 import never printed.

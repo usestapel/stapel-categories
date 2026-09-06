@@ -143,6 +143,44 @@ child is then a parent whose own children are decided by the same rules.
 `load_catalog`), so an authored decision survives an image rebuild; the
 derived cache does not — a load leaves it to be re-derived.
 
+## Which feature is the make
+
+A handful of features are not properties of an object — they are the **axis**
+a classified is organised along, and a product has to know which feature that
+is before it can do anything with it: «Найти больше вариантов этой марки»
+needs the make of the leaf a listing sits in, and an AI descent must fill make
+before model before generation because each narrows the next. So a feature
+carries `axis_role` — `make`, `model`, `generation`, `year`, `mileage`, or
+`null` for the overwhelming majority — and every read that carries a feature
+schema carries it: `GET /categories/{id}/features/`, `feature_defs()` and the
+`categories.features` comm Function alike. A consumer asks
+`by_axis_role(features)["make"]` (stapel-attributes) instead of keeping a
+closed table of slugs that a catalogue spelling the axis a fourth way drops
+out of silently.
+
+Two columns again, for the same reason `children_as` needs two. `axis_role` is
+authored — by the fixture, the admin, or `set_axis_role`; `axis_role_derived`
+is `load_catalog`'s cache, filled after every apply from a documented slug
+table (`brand`/`make`/`vendor`/`manufacturer` → make, `model` → model,
+`generation`, `year`/`god_vypuska`, `mileage`/`kilometrage`, with a trailing
+`_ref_select` stripped first, so `make_ref_select` is not the spelling nobody
+added). The reader sees the resolved answer.
+
+A category offering **two** candidates for one role (`brand` AND `vendor`)
+derives **neither** — there and everywhere else, since the row is shared —
+because a link built off the wrong one sends a buyer to a facet they did not
+click. `load_catalog` and `catalog_health` both name such a pair, and the tie
+is broken by hand:
+
+```bash
+django-admin set_axis_role --slug vendor --role make
+django-admin set_axis_role --slug proizvoditel --slug marka --role make
+django-admin set_axis_role --slug body_type --clear
+```
+
+An authored role travels in the catalogue fixture, so it survives an image
+rebuild; the derived cache does not — a load re-derives it.
+
 The whole visible tree comes back nested in one cached call:
 
 ```

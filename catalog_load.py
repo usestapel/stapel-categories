@@ -70,6 +70,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from . import catalog_fixtures as cf
+from .axis_roles import derive_axis_roles, find_ambiguities
 
 # --- conflict / deletion policies ------------------------------------------
 ON_CONFLICT_ABORT = "abort"
@@ -127,6 +128,11 @@ _INLINE_KEYS = (
     # was dropped on the way in, the mirror image of the export dropping it on
     # the way out.
     "name",
+    # Likewise an override that differs from the root only in WHICH AXIS it
+    # is (a category where `model` is the generation, say): an entry carrying
+    # nothing else must still read as inline, or the role is dropped on the
+    # way in exactly as `name` used to be.
+    "axis_role",
 )
 
 
@@ -209,6 +215,15 @@ class Report:
     rename_hook: str = ""
     #: One entry per hook call: ``{category, renames, result|error}``.
     rename_hook_results: List[dict] = field(default_factory=list)
+    #: ``{feature slug: axis role}`` this load DERIVED (post-apply, from the
+    #: slug rule table in :mod:`stapel_categories.axis_roles`). Written into
+    #: ``Feature.axis_role_derived``; an authored role is never touched and
+    #: never appears here.
+    axis_roles: Dict[str, str] = field(default_factory=dict)
+    #: ``(category, role, slugs)`` triples the derivation REFUSED to answer
+    #: because the category offers two candidates for one role. Neither is
+    #: stamped, anywhere — see :mod:`stapel_categories.axis_roles`.
+    axis_role_ambiguities: List[tuple] = field(default_factory=list)
 
     def add(self, side: str, item: Item) -> None:
         (self.features if side == "features" else self.categories).append(item)
@@ -428,6 +443,11 @@ def _normalize_feature_record(rec: dict) -> dict:
         "hints": rec.get("hints") or [],
         "group": rec.get("group", ""),
     }
+    # Written by the export only when authored, so normalized the same way:
+    # a record that spelled a blank role out would otherwise never hash equal
+    # to the row it describes.
+    if rec.get("axis_role"):
+        out["axis_role"] = rec["axis_role"]
     if rec.get("is_test"):
         out["is_test"] = True
     return out
@@ -451,6 +471,8 @@ def _normalize_entry(entry: dict) -> dict:
         "hints": entry.get("hints") or [],
         "group": entry.get("group", ""),
     }
+    if entry.get("axis_role"):
+        out["axis_role"] = entry["axis_role"]
     if not slug:
         # Slug-less rows carry their identity inline (no features.json home).
         out["name"] = entry.get("name", "")
@@ -1225,6 +1247,10 @@ def _save_feature(feat) -> None:
 _FEATURE_SCALARS = (
     "slug", "name", "icon", "comment", "config", "mandatory",
     "show_as_badge", "show_at_title", "visibility", "translate",
+    # The AUTHORED role only. `axis_role_derived` is this loader's own
+    # post-apply cache, and counting it here would make every derivation a
+    # "change" the next upsert reverts.
+    "axis_role",
     "rules", "description", "example", "default", "hints", "group",
     "is_test", "deleted",
 )
@@ -1258,6 +1284,7 @@ def _apply_feature_upsert(record: dict):
     feat.mandatory = bool(record.get("mandatory", False))
     for attr, value in _disclosure(record).items():
         setattr(feat, attr, value)
+    feat.axis_role = record.get("axis_role") or ""
     feat.translate = record.get("translate", "all")
     feat.rules = record.get("rules") or []
     feat.description = record.get("description", "")
@@ -1354,6 +1381,7 @@ def _materialize_override(cat, slug: str, entry: dict, used: set):
         "default": entry.get("default"),
         "hints": entry.get("hints") or [],
         "group": entry.get("group", ""),
+        "axis_role": entry.get("axis_role") or "",
     }
 
     # Candidate rows already linked to this category that export would render
@@ -1990,6 +2018,13 @@ def _run_plan(
             report.add("categories", item)
         report.dead_end_leaves = dead_end_leaves()
         report.resurrected = active_under_inactive_parent()
+        # …and which feature of each leaf is the make, the model, the year.
+        # Post-apply for the same reason the two above are: the answer is a
+        # fact about the tree this load PRODUCED, not the one it started
+        # from. Written by a queryset update() into the derivation column
+        # alone — no revision bumps, no category.changed storm, and an
+        # authored role is never overwritten.
+        report.axis_roles, report.axis_role_ambiguities = derive_axis_roles(apply=True)
 
         # Sidecar reflects the applied state. Deliberately NO "max_revision":
         # that key is export's pre-filter base ("has the DB changed since the
@@ -2021,6 +2056,10 @@ def _run_plan(
     # tree, but a clash the operator can fix before loading belongs in the plan.
     for item in _sibling_name_collisions():
         report.add("categories", item)
+    # Same rule for axis-role ambiguity: the answer below is about the CURRENT
+    # tree, and one an operator can settle (with `set_axis_role`, or by
+    # dropping a duplicate spelling) before the load rather than after it.
+    report.axis_role_ambiguities = find_ambiguities()
     # …and the writes this plan would attempt and the model would refuse. An
     # apply discovers these by failing; a plan that stayed silent about them
     # is a gate that proves nothing.

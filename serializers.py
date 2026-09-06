@@ -68,10 +68,49 @@ class FeaturesDtoFieldExtension(OpenApiSerializerFieldExtension):
 # =============================================================================
 
 
+class AxisRoleField(serializers.ChoiceField):
+    """``axis_role`` as a reader sees it: authored, else derived, else null.
+
+    Reads the RESOLVED property rather than either column, because the model
+    keeps two (authored intent + the loader's derivation cache) and a reader
+    must never have to know which one answered — the same split
+    `Category.children_as` carries, resolved the same way. The empty string
+    the column stores for "no axis" reaches the wire as `null`, which is what
+    the canon (`stapel-attributes` docs/feature-def.schema.json) spells; a
+    `ChoiceField` so the emitted contract carries the closed vocabulary
+    instead of "some string".
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("source", "resolved_axis_role")
+        kwargs.setdefault("read_only", True)
+        kwargs.setdefault("allow_null", True)
+        super().__init__(choices=Feature.AxisRole.choices, **kwargs)
+
+
 class FeatureSerializer(serializers.ModelSerializer):
     """Feature serializer with polymorphic config support."""
 
     config = serializers.SerializerMethodField()
+    axis_role = AxisRoleField(
+        help_text=(
+            "Which classified axis this feature IS — `make`, `model`, "
+            "`generation`, `year`, `mileage` — or null. Authored value first, "
+            "then the loader's derivation."
+        )
+    )
+    axis_role_authored = serializers.ChoiceField(
+        source="axis_role",
+        choices=Feature.AxisRole.choices,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "The authoring column: blank leaves the role to `load_catalog`'s "
+            "slug-table derivation, a value pins it. `axis_role` above is the "
+            "RESOLVED read."
+        ),
+    )
+    axis_role_derived = serializers.CharField(read_only=True)
 
     @extend_schema_field(get_feature_config_proxy_serializer())
     def get_config(self, obj):
@@ -83,6 +122,7 @@ class FeatureSerializer(serializers.ModelSerializer):
             "id", "name", "slug", "icon", "comment",
             "config",
             "mandatory", "show_as_badge", "show_at_title", "visibility", "translate",
+            "axis_role", "axis_role_authored", "axis_role_derived",
             "rules", "description", "example", "default", "hints", "group",
             "tn_parent", "tn_priority",
             "tn_ancestors_pks", "tn_children_pks",
@@ -94,6 +134,15 @@ class FeatureCompactSerializer(serializers.ModelSerializer):
     """Compact feature serializer for list endpoints and embedded feature data."""
 
     config = serializers.SerializerMethodField()
+    axis_role = AxisRoleField(
+        help_text=(
+            "Which classified axis this feature IS — `make`, `model`, "
+            "`generation`, `year`, `mileage` — or null. It is what a "
+            "storefront reads to build a «more of this make» link, or an AI "
+            "descent to fill make before model, instead of matching slugs "
+            "against a table of its own."
+        )
+    )
 
     @extend_schema_field(get_feature_config_proxy_serializer())
     def get_config(self, obj):
@@ -105,6 +154,7 @@ class FeatureCompactSerializer(serializers.ModelSerializer):
             "id", "tn_parent", "name", "slug", "icon", "comment",
             "config",
             "mandatory", "show_as_badge", "show_at_title", "visibility", "translate",
+            "axis_role",
             "rules", "description", "example", "default", "hints", "group",
         ]
 
@@ -435,6 +485,20 @@ class FeatureEditorFeatureSerializer(serializers.Serializer):
             "'owner' = the object's owner and staff, 'staff' = staff only. The "
             "value is still required, validated and stored either way; a "
             "non-public feature is simply never a title and never a badge."
+        ),
+    )
+    axis_role_authored = serializers.ChoiceField(
+        choices=["", "make", "model", "generation", "year", "mileage"],
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Which classified axis this feature IS, when it is one. Blank "
+            "(the default) leaves it to `load_catalog`'s slug-table "
+            "derivation; a value pins it and wins over derivation. Named for "
+            "the AUTHORING column on purpose: it lines up with the key "
+            "`FeatureSerializer` reads it back under, so an editor round-trip "
+            "cannot pin a role the derivation merely guessed."
         ),
     )
     translate = serializers.ChoiceField(

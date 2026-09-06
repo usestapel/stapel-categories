@@ -29,6 +29,7 @@ class FeatureAdminForm(TreeNodeForm):
             # named in only one of the two still renders in the admin — and
             # then silently disappears wherever this form is used directly.
             "visibility",
+            "axis_role",
             "rules", "description", "example", "default", "hints", "group",
             "tn_priority",
         ]

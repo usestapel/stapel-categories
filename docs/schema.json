@@ -1643,6 +1643,22 @@
         "type": "string",
         "description": "* `keep` - keep\n* `add` - add\n* `edit` - edit\n* `inherit` - inherit\n* `remove` - remove\n* `create` - create\n* `replace` - replace"
       },
+      "AxisRoleDerivedEnum": {
+        "enum": [
+          "make",
+          "model",
+          "generation",
+          "year",
+          "mileage"
+        ],
+        "type": "string",
+        "description": "* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
+      },
+      "BlankEnum": {
+        "enum": [
+          ""
+        ]
+      },
       "BoolConfig": {
         "type": "object",
         "description": "Serializer for boolean feature configuration.",
@@ -2352,6 +2368,34 @@
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
           },
+          "axis_role": {
+            "readOnly": true,
+            "nullable": true,
+            "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. Authored value first, then the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              },
+              {
+                "$ref": "#/components/schemas/NullEnum"
+              }
+            ]
+          },
+          "axis_role_authored": {
+            "description": "The authoring column: blank leaves the role to `load_catalog`'s slug-table derivation, a value pins it. `axis_role` above is the RESOLVED read.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              },
+              {
+                "$ref": "#/components/schemas/BlankEnum"
+              }
+            ]
+          },
+          "axis_role_derived": {
+            "type": "string",
+            "readOnly": true
+          },
           "rules": {
             "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
           },
@@ -2410,6 +2454,8 @@
           }
         },
         "required": [
+          "axis_role",
+          "axis_role_derived",
           "config",
           "id",
           "name",
@@ -2560,6 +2606,26 @@
             "description": "Form section; sections order by first appearance.",
             "maxLength": 100
           },
+          "axis_role": {
+            "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              },
+              {
+                "$ref": "#/components/schemas/BlankEnum"
+              }
+            ]
+          },
+          "axis_role_derived": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              }
+            ],
+            "readOnly": true,
+            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
+          },
           "translate": {
             "allOf": [
               {
@@ -2579,6 +2645,7 @@
           }
         },
         "required": [
+          "axis_role_derived",
           "id",
           "name",
           "revision",
@@ -2658,6 +2725,19 @@
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
           },
+          "axis_role": {
+            "readOnly": true,
+            "nullable": true,
+            "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. It is what a storefront reads to build a «more of this make» link, or an AI descent to fill make before model, instead of matching slugs against a table of its own.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              },
+              {
+                "$ref": "#/components/schemas/NullEnum"
+              }
+            ]
+          },
           "rules": {
             "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
           },
@@ -2684,6 +2764,7 @@
           }
         },
         "required": [
+          "axis_role",
           "config",
           "id",
           "name"
@@ -2913,6 +2994,26 @@
             "description": "Form section; sections order by first appearance.",
             "maxLength": 100
           },
+          "axis_role": {
+            "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              },
+              {
+                "$ref": "#/components/schemas/BlankEnum"
+              }
+            ]
+          },
+          "axis_role_derived": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              }
+            ],
+            "readOnly": true,
+            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
+          },
           "translate": {
             "allOf": [
               {
@@ -2932,6 +3033,7 @@
           }
         },
         "required": [
+          "axis_role_derived",
           "id",
           "name",
           "revision",
@@ -3108,6 +3210,18 @@
             "default": "public",
             "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way; a non-public feature is simply never a title and never a badge.\n\n* `public` - public\n* `owner` - owner\n* `staff` - staff"
           },
+          "axis_role_authored": {
+            "default": "",
+            "description": "Which classified axis this feature IS, when it is one. Blank (the default) leaves it to `load_catalog`'s slug-table derivation; a value pins it and wins over derivation. Named for the AUTHORING column on purpose: it lines up with the key `FeatureSerializer` reads it back under, so an editor round-trip cannot pin a role the derivation merely guessed.\n\n* `` - \n* `make` - make\n* `model` - model\n* `generation` - generation\n* `year` - year\n* `mileage` - mileage",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/FeatureEditorFeatureAxisRoleAuthoredEnum"
+              },
+              {
+                "$ref": "#/components/schemas/BlankEnum"
+              }
+            ]
+          },
           "translate": {
             "allOf": [
               {
@@ -3159,6 +3273,17 @@
             "default": 0
           }
         }
+      },
+      "FeatureEditorFeatureAxisRoleAuthoredEnum": {
+        "enum": [
+          "make",
+          "model",
+          "generation",
+          "year",
+          "mileage"
+        ],
+        "type": "string",
+        "description": "* `` - \n* `make` - make\n* `model` - model\n* `generation` - generation\n* `year` - year\n* `mileage` - mileage"
       },
       "FeatureEditorFeatureTranslateEnum": {
         "enum": [
@@ -3328,6 +3453,19 @@
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
           },
+          "axis_role": {
+            "readOnly": true,
+            "nullable": true,
+            "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. It is what a storefront reads to build a «more of this make» link, or an AI descent to fill make before model, instead of matching slugs against a table of its own.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              },
+              {
+                "$ref": "#/components/schemas/NullEnum"
+              }
+            ]
+          },
           "rules": {
             "description": "Conditional rules (closed grammar). Validated by stapel-attributes."
           },
@@ -3359,6 +3497,7 @@
           }
         },
         "required": [
+          "axis_role",
           "config",
           "divergent",
           "id",
@@ -4242,6 +4381,26 @@
             "description": "Form section; sections order by first appearance.",
             "maxLength": 100
           },
+          "axis_role": {
+            "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              },
+              {
+                "$ref": "#/components/schemas/BlankEnum"
+              }
+            ]
+          },
+          "axis_role_derived": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              }
+            ],
+            "readOnly": true,
+            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
+          },
           "translate": {
             "allOf": [
               {
@@ -4336,6 +4495,14 @@
           },
           "uiStyle": {
             "$ref": "#/components/schemas/RefSelectConfigUiStyleEnum"
+          },
+          "prefix": {
+            "type": "string",
+            "nullable": true
+          },
+          "postfix": {
+            "type": "string",
+            "nullable": true
           }
         }
       },

@@ -170,9 +170,13 @@ class FeatureAdmin(TreeNodeModelAdmin):
     autocomplete_fields = ["tn_parent"]
     list_display = [
         "name", "slug", "feature_type_display", "config_status", "mandatory",
-        "show_as_badge", "show_at_title", "visibility", "translate", "group", "is_test", "tn_priority",
+        "show_as_badge", "show_at_title", "visibility", "resolved_axis_role", "translate",
+        "group", "is_test", "tn_priority",
     ]
-    list_filter = ["mandatory", "show_as_badge", "show_at_title", "visibility", "translate", "is_test"]
+    list_filter = [
+        "mandatory", "show_as_badge", "show_at_title", "visibility", "axis_role",
+        "translate", "is_test",
+    ]
     search_fields = ["name", "slug", "comment"]
     actions = ["validate_configs"]
 
@@ -199,6 +203,23 @@ class FeatureAdmin(TreeNodeModelAdmin):
                 "Changing this does NOT re-stamp values that are already "
                 "stored: run `listings_reproject_features` before the new "
                 "setting takes effect on them."
+            ),
+        }),
+        # Not a display flag either: this says which classified AXIS the
+        # field IS, which is what a storefront reads to build a «more of this
+        # make» link and an AI descent to fill make before model.
+        ("Axis", {
+            "fields": ("axis_role",),
+            "description": (
+                "Which classified axis this feature IS, when it is one: make, "
+                "model, generation, year, mileage. Blank for the overwhelming "
+                "majority of features, which describe an object rather than "
+                "organise it. Blank ALSO leaves the question to "
+                "`load_catalog`'s slug-table derivation, which fills a "
+                "separate column; a value set here wins over it and no import "
+                "overwrites it. Two features claiming one axis in one "
+                "category derive neither — `catalog_health` reports it, and "
+                "this is where the tie is broken."
             ),
         }),
         ("Form", {

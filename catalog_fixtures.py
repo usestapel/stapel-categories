@@ -19,6 +19,9 @@ Design: ``docs/catalog-fixtures-sync.md``. Key decisions realized here:
   (``{"slug", "config", "mandatory", "show_as_badge", "show_at_title",
   "visibility", "translate", "rules", "description", "example", "default",
   "hints", "group"}``) when the linked row is a tree override (``tn_parent`` set).
+  An override may additionally carry ``axis_role`` — which classified axis the
+  field IS — and does so only when authored, so a fixture written before that
+  key existed keeps its content hash.
   An override may additionally carry ``name`` — its own display label — and
   does so ONLY when that label differs from the root's. Absent means "inherit
   the root's name", which is what every fixture written before 0.17.0 says, so
@@ -153,6 +156,14 @@ def _feature_record(feature, include_test: bool) -> dict:
         "hints": feature.hints or [],
         "group": feature.group,
     }
+    # The AUTHORED axis role, and only that: `axis_role_derived` is a cache
+    # `load_catalog` rebuilds from the tree it just loaded, so shipping it
+    # would freeze one run's guess into canon. Written only when somebody
+    # decided, like `children_as` on a category: blank is what every feature
+    # says by default and every fixture written before this key existed said,
+    # so no content hash on disk moves and no sidecar is regenerated.
+    if feature.axis_role:
+        rec["axis_role"] = feature.axis_role
     # is_test is only ever written under --include-test (default export filters
     # test rows out entirely, so this key never appears in a committed fixture).
     if include_test and feature.is_test:
@@ -195,6 +206,9 @@ def _feature_list_entry(feature, include_test: bool) -> dict:
             "hints": feature.hints or [],
             "group": feature.group,
         }
+        if feature.axis_role:
+            # Same when-set rule as the canonical record above.
+            entry["axis_role"] = feature.axis_role
         if not slug:
             # No canonical (features.json) home for the display attributes —
             # keep them on the inline entry so nothing is lost.

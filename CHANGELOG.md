@@ -1,5 +1,85 @@
 # Changelog
 
+## [0.21.1] — 2026-09-06
+
+### Added — a feature can say which classified AXIS it is
+
+`Feature.axis_role` — `make` | `model` | `generation` | `year` | `mileage` |
+blank — published as the resolved `axis_role` on every read that carries a
+feature schema: `GET /categories/{id}/features/`, `Category.feature_defs()`,
+`get_feature_schema()` and the `categories.features` comm Function. It rides
+stapel-attributes 0.9.2's `FeatureDef.axis_role`, whose canon
+(`docs/feature-def.schema.json`) our `$defs.ResolvedFeature` gate now requires
+to cross the boundary.
+
+The gap it closes is a storefront's. «Найти больше вариантов этой марки»
+needs the MAKE feature of the leaf a listing sits in, and an AI descent has to
+fill make before model before generation because each narrows the next
+(`optionsRef.parentFeature`). Nothing in the schema said which feature that
+was, so the storefront kept its own closed table of slugs — `brand`, `make`,
+`make_ref_select`, `vendor` — and a catalogue spelling the axis a fourth way
+(`manufacturer`, `god_vypuska`) fell out of the feature with nothing red
+anywhere: no link, no descent, no error. A table of slugs maintained
+downstream of the catalogue is always one catalogue behind, and this module is
+the only party that knows the answer.
+
+**Two columns, for the reason `children_as` needs two.** `axis_role` is
+AUTHORED — by the fixture, the admin, or the new `set_axis_role` command;
+`axis_role_derived` is `load_catalog`'s cache. `resolved_axis_role` reads
+authored first. One column could not hold both without the next derivation
+refusing to touch its own output.
+
+**The derivation, and its rule table.** After every `load_catalog` apply — in
+the same post-apply pass that finds dead ends — the loader maps each live
+feature's slug through the table in the new `stapel_categories.axis_roles`:
+`brand`/`make`/`vendor`/`manufacturer` → make, `model` → model,
+`generation` → generation, `year`/`god_vypuska` → year,
+`mileage`/`kilometrage` → mileage. A trailing `_ref_select` (or `_select`) is
+stripped BEFORE the lookup, so `make_ref_select` is not the fourth spelling
+nobody remembered to add — the 2026-09-05 import renamed five features across
+exactly that seam. Written by a queryset `update()` into the derivation column
+alone: no revision bumps, no `category.changed` storm, no authored value
+touched. The table is data in that module deliberately, the same call
+`derive_children_as` makes about its name vocabulary: it is a fact about the
+catalogues this fleet imports, not about the model.
+
+**Ambiguity derives nothing, and says so.** A category offering two candidates
+for one role (`brand` AND `vendor`, resolved with `get_all_features` so
+inheritance and overrides count) is a schema the reader cannot resolve:
+whichever the derivation picked, a «more of this make» link built off the
+other sends a buyer to a facet they did not click. So NEITHER is stamped — in
+that category or in any other, since the Feature row is shared — and the pair
+is named by `load_catalog` (apply and dry run alike) and by `catalog_health`.
+A warning there, not a gate: the cost is a degraded link, not a listing
+nothing validates, and a catalogue may spell one axis twice for reasons of its
+own; but its silence would otherwise be indistinguishable from "this catalogue
+has no make".
+
+**`set_axis_role`** breaks the tie, and pins a role the table has never heard
+of (`proizvoditel`): `--slug X --role make`, `--clear` to hand it back to the
+derivation, `--dry-run`, several `--slug`s per run, every slug resolved before
+any is written. It writes EVERY row under the slug — root and per-category
+override alike, since the role is a fact about which axis the FIELD is — and
+through `save()`, so the revision bump and `category.changed` that invalidate
+downstream `categories.features` caches happen. Like any hand edit, it travels
+only once `export_catalog` has run.
+
+**Fixtures.** The authored role ships in `features.json` (and on an inline
+override entry), written ONLY when set — so every content hash a catalogue
+without axes already has on disk is unmoved, and no sidecar is regenerated.
+The derived column never travels: shipping it would freeze one run's guess
+into canon.
+
+Patch, not minor: purely additive. Every existing read answers what it
+answered before with one more key whose value is `null`, the search facets and
+the listings card contract are untouched, no stored value changes shape, and a
+fixture that never heard of the field loads byte-for-byte as it did.
+
+### Migration
+
+`0009_feature_axis_role` — two nullable-by-default `CharField`s on `Feature`.
+Additive; no data migration.
+
 ## [0.21.0] — 2026-09-05
 
 ### Changed — `load_catalog` refuses a feature-slug rename by default

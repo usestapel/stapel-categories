@@ -401,6 +401,7 @@ def apply_feature_editor_changes(
                 feature_obj.show_as_badge = payload.get("show_as_badge", False)
                 feature_obj.show_at_title = payload.get("show_at_title", False)
                 feature_obj.visibility = payload.get("visibility", "public")
+                feature_obj.axis_role = payload.get("axis_role_authored", "") or ""
                 feature_obj.translate = payload.get("translate", "all")
                 feature_obj.rules = payload.get("rules") or []
                 feature_obj.description = payload.get("description", "")
@@ -432,6 +433,7 @@ def apply_feature_editor_changes(
                     show_as_badge=payload.get("show_as_badge", False),
                     show_at_title=payload.get("show_at_title", False),
                     visibility=payload.get("visibility", "public"),
+                    axis_role=payload.get("axis_role_authored", "") or "",
                     translate=payload.get("translate", "all"),
                     rules=payload.get("rules") or [],
                     description=payload.get("description", ""),
@@ -461,6 +463,7 @@ def apply_feature_editor_changes(
                 show_as_badge=payload.get("show_as_badge", False),
                 show_at_title=payload.get("show_at_title", False),
                 visibility=payload.get("visibility", "public"),
+                axis_role=payload.get("axis_role_authored", "") or "",
                 translate=payload.get("translate", "all"),
                 rules=payload.get("rules") or [],
                 description=payload.get("description", ""),
