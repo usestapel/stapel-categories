@@ -80,6 +80,17 @@ fixture that never heard of the field loads byte-for-byte as it did.
 `0009_feature_axis_role` — two nullable-by-default `CharField`s on `Feature`.
 Additive; no data migration.
 
+### Fixed — the `stapel-attributes` floor now matches what this release reads
+
+`stapel_attributes.axis` (`normalize_axis_role`, and the vocabulary
+`axis_roles.py` mirrors) and `FeatureDef.axis_role` above both only exist from
+stapel-attributes 0.9.2 — the floor stayed at 0.8.3 in `pyproject.toml` while
+the code and this very entry already depended on 0.9.2, so a fresh install off
+the declared range pulled 0.8.3 through 0.9.1 and failed every test module
+with `ModuleNotFoundError: No module named 'stapel_attributes.axis'`. A module
+must declare the floor of the behaviour it reads; `dependencies` now says
+`stapel-attributes>=0.9.2,<0.10`.
+
 ## [0.21.0] — 2026-09-05
 
 ### Changed — `load_catalog` refuses a feature-slug rename by default
