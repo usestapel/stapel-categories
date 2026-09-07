@@ -8,6 +8,8 @@ attribute engine. Permissions (staff-only writes, service-only translation
 keys, read-only public) mirror the source via stapel-core permissions.
 """
 from django.core.cache import cache
+from django.http import HttpResponsePermanentRedirect
+from django.urls import NoReverseMatch, reverse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -59,7 +61,7 @@ from .feature_editor import (
     apply_feature_editor_changes,
     build_editor_state,
 )
-from .models import Category, Feature, resolve_children_as
+from .models import Category, Feature, resolve_children_as, retired_slug_target
 from .serializers import (
     CategoryBulkCommandSerializer,
     CategoryBulkSerializer,
@@ -613,9 +615,10 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         description=(
             "Retrieve one category by its slug. `slug` is unique, so this is "
-            "an alternate primary key, not a search."
+            "an alternate primary key, not a search. A slug the category "
+            "USED to carry (renamed since) answers 301 to the current one."
         ),
-        responses={200: CategorySerializer, 404: OpenApiTypes.OBJECT},
+        responses={200: CategorySerializer, 301: None, 404: OpenApiTypes.OBJECT},
         parameters=[],
     )
     @action(
@@ -642,14 +645,50 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         Honours the same visibility rule as ``children`` and ``roots``: a
         soft-deleted category answers 404 here, which is what a reader
         expects from a row the tree does not show.
+
+        A RETIRED slug — one a category carried before a rename
+        (:class:`~stapel_categories.models.CategorySlugAlias`) — answers
+        ``301`` to this same endpoint under the current slug, query string
+        kept. A shared link outlives the spelling it was shared with, and the
+        client learns the canonical address instead of living on the old one.
+        The target is subject to the same visibility rule: an alias of a row
+        the tree does not show is a 404, not a redirect into a 404.
         """
         category = visible_categories().filter(slug=slug).first()
         if category is None:
+            current = retired_slug_target(slug, visible_categories())
+            if current is not None:
+                return self._redirect_to_current_slug(request, slug, current.slug)
             return StapelErrorResponse(
                 404, ERR_404_SLUG_NOT_FOUND, params={"slug": slug}
             )
 
         response = Response(CategorySerializer(category).data)
+        response["Cache-Control"] = (
+            f"public, max-age={categories_settings.TREE_CACHE_TIMEOUT}"
+        )
+        return response
+
+    @staticmethod
+    def _redirect_to_current_slug(request, retired: str, current: str):
+        """301 to ``by-slug/<current>/`` on the mount this request came in on."""
+        match = getattr(request, "resolver_match", None)
+        location = None
+        if match is not None and match.view_name:
+            try:
+                location = reverse(match.view_name, kwargs={"slug": current})
+            except NoReverseMatch:
+                location = None
+        if location is None:
+            # No resolver (a view called outside URL dispatch): the request
+            # path ends in the retired slug, so swap that segment.
+            path = request.path
+            head, sep, tail = path.rpartition(retired)
+            location = head + current + tail if sep else path
+        query = request.META.get("QUERY_STRING", "")
+        if query:
+            location = f"{location}?{query}"
+        response = HttpResponsePermanentRedirect(location)
         response["Cache-Control"] = (
             f"public, max-age={categories_settings.TREE_CACHE_TIMEOUT}"
         )

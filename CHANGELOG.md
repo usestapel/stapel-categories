@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.21.3] — 2026-09-07
+
+### Added — a renamed category keeps answering to the slug it had
+
+A category's slug is its public address (`/c/<slug>`) and its search address
+(`?category=<slug>`). A catalogue that re-spells its slugs — the case this
+exists for: every node becoming `<parent-slug>-<own-slug>`, one flat segment,
+so an address carries its ancestry and `/c/new` stops being a leaf with no
+context — moves every one of those addresses at once, and each of them is
+somebody's shared link, bookmark or crawled page.
+
+* **`CategorySlugAlias`** (migration `0010`, expand-only): one row per retired
+  slug, pointing at the row that holds the name now. `Category.save` writes it
+  whenever a slug moves — a `load_catalog` rename matched by source identity,
+  an admin edit, a bulk command — in the same transaction as the rename. A
+  slug that comes back to life (a row renamed back, a new row created under
+  it) deletes the alias: a live row always outranks a retired spelling.
+  Deleting the category deletes its aliases. Read-only in the admin.
+* **`GET /categories/by-slug/{slug}/` answers a retired slug with `301`** to
+  the same endpoint under the current slug, query string kept and the same
+  `Cache-Control` as a hit; the alias of a row the tree does not show is a 404,
+  not a redirect into one. Declared in the contract (`301` on that operation).
+* **`categories.by_slug`** (the comm Function stapel-search resolves a
+  `category=` segment through) answers a retired slug with the ancestry of
+  the current row, keyed by the slug that was asked — a search address has
+  nothing to redirect, so the old spelling simply keeps working.
+* `retired_slug_target(slug, visible)` — the one lookup both readers share.
+
+### Changed — `Category.slug` grows from 100 to 255 characters
+
+A catalogue that spells every node as `<parent-slug>-<own-slug>` reaches ~210
+characters seven levels down; the old budget was sized for collision
+prefixing, not for ancestry. Still one path segment, still globally unique;
+the contract's `maxLength` moves with it.
+
 ## [0.21.2] — 2026-09-07
 
 ### Fixed — a `load_catalog` no longer wipes an authored `axis_role` it was never told about

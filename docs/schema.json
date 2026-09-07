@@ -893,7 +893,7 @@
     "/categories/api/v1/categories/by-slug/{slug}/": {
       "get": {
         "operationId": "categories_api_v1_categories_by_slug_retrieve",
-        "description": "Retrieve one category by its slug. `slug` is unique, so this is an alternate primary key, not a search.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "description": "Retrieve one category by its slug. `slug` is unique, so this is an alternate primary key, not a search. A slug the category USED to carry (renamed since) answers 301 to the current one.\n\n**Permissions:** `ReadOnlyOrStaff`",
         "parameters": [
           {
             "in": "path",
@@ -922,6 +922,9 @@
               }
             },
             "description": ""
+          },
+          "301": {
+            "description": "No response body"
           },
           "404": {
             "content": {
@@ -1719,7 +1722,7 @@
           },
           "slug": {
             "type": "string",
-            "maxLength": 100
+            "maxLength": 255
           },
           "catalog_icon": {
             "type": "string",
@@ -1838,7 +1841,7 @@
           },
           "slug": {
             "type": "string",
-            "maxLength": 100
+            "maxLength": 255
           },
           "external_id": {
             "type": "string",
@@ -1960,7 +1963,7 @@
           },
           "slug": {
             "type": "string",
-            "maxLength": 100
+            "maxLength": 255
           },
           "catalog_icon": {
             "type": "string",
@@ -4125,7 +4128,7 @@
           },
           "slug": {
             "type": "string",
-            "maxLength": 100
+            "maxLength": 255
           },
           "catalog_icon": {
             "type": "string",

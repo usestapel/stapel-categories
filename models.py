@@ -481,7 +481,11 @@ class Category(RevisionMixin, TreeNodeModel):
 
     treenode_display_field = "slug"
     name = models.CharField(max_length=255)
-    slug = models.CharField(max_length=100, unique=True, db_index=True)
+    # 255, not 100: a catalogue that spells every node as
+    # ``<parent-slug>-<own-slug>`` (one flat segment, so a URL carries its
+    # whole ancestry) reaches ~210 characters seven levels down. The slug is
+    # still one path segment and still globally unique; only the budget grew.
+    slug = models.CharField(max_length=255, unique=True, db_index=True)
     # Identifier this category carries in the source it was imported from
     # (e.g. a source tree node id). Opaque, and NOT unique on its own — two
     # source catalogues may hand out the same id — so the importer's identity
@@ -639,14 +643,52 @@ class Category(RevisionMixin, TreeNodeModel):
     def __str__(self):
         return translate(self.name)
 
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        # Remember the slug this row was READ with, so ``save`` can tell a
+        # rename from a plain edit without a second query per save. A
+        # deferred slug stays ``None`` and ``save`` falls back to one read.
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_slug = instance.__dict__.get("slug")
+        return instance
+
+    def _retiring_slug(self):
+        """The slug this save moves AWAY from, or ``None`` when it stays."""
+        if self._state.adding or not self.pk:
+            return None
+        old = getattr(self, "_loaded_slug", None)
+        if old is None:
+            old = (
+                Category.objects.filter(pk=self.pk)
+                .values_list("slug", flat=True)
+                .first()
+            )
+        return old if old and old != self.slug else None
+
     def save(self, *args, **kwargs):
         # The category write, the copy_parent_features side effects and the
         # category.changed event emitted by the post_save receiver commit as
         # ONE transaction — the invalidation event leaves iff the row
         # committed (outbox atomicity; a lost invalidation strands every
         # downstream categories.features cache).
+        #
+        # A slug RENAME is part of the same transaction: the old slug is
+        # kept as a :class:`CategorySlugAlias` so every address that carried
+        # it (a shared link, a bookmark, a search `category=` segment) keeps
+        # resolving — ``by-slug`` answers it with a redirect. A slug a row
+        # takes over (new or renamed) stops being an alias at the same
+        # moment, because a live row always outranks a retired spelling.
+        retired = self._retiring_slug()
+        created = self._state.adding
         with mutate_and_emit():
             super().save(*args, **kwargs)
+            if created or retired is not None:
+                CategorySlugAlias.objects.filter(slug=self.slug).delete()
+            if retired is not None:
+                CategorySlugAlias.objects.update_or_create(
+                    slug=retired, defaults={"category": self}
+                )
+        self._loaded_slug = self.slug
 
     def clean(self):
         if self.pk:
@@ -839,6 +881,54 @@ def feature_def_dict(feature) -> dict:
         "group": feature.group,
         "config": feature.get_config_with_defaults(),
     }
+
+
+class CategorySlugAlias(models.Model):
+    """A slug a category USED to answer to.
+
+    Written by :meth:`Category.save` whenever a row's slug moves — a
+    source-side rename applied by ``load_catalog``, an admin edit, a bulk
+    command — and read by the ``by-slug`` endpoint and the
+    ``categories.by_slug`` comm Function, which resolve a retired spelling to
+    the row it now names. The endpoint answers with a 301 to the current
+    slug, so a client learns the canonical address rather than living on the
+    old one; the Function answers the ancestry outright, because a search
+    address is not a page and has nothing to redirect.
+
+    One row per retired slug (``slug`` is unique across the table, as it is
+    across ``Category``), pointing at the row that holds the name now. A slug
+    that comes back to life — a category renamed back, a new row created
+    under it — deletes the alias: a live row always outranks a retired one.
+    Deleting the category deletes its aliases; a hard-deleted row has no
+    address to redirect to.
+    """
+
+    slug = models.CharField(max_length=255, unique=True)
+    category = models.ForeignKey(
+        Category, on_delete=models.CASCADE, related_name="slug_aliases",
+    )
+    retired_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "category slug alias"
+        verbose_name_plural = "category slug aliases"
+
+    def __str__(self):
+        return f"{self.slug} -> {self.category.slug}"
+
+
+def retired_slug_target(slug: str, visible):
+    """The category a RETIRED ``slug`` now names, if ``visible`` still shows it.
+
+    ``visible`` is the queryset of rows the caller is allowed to serve (the
+    public tree's :func:`stapel_categories.views.visible_categories`, or an
+    unfiltered ``Category.objects``); an alias whose target that queryset does
+    not contain answers ``None``, exactly as a live slug in that state would.
+    """
+    alias = CategorySlugAlias.objects.filter(slug=slug).only("category_id").first()
+    if alias is None:
+        return None
+    return visible.filter(pk=alias.category_id).first()
 
 
 class CategoryFeature(models.Model):

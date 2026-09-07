@@ -17,7 +17,7 @@ from stapel_attributes import get_feature_type, parse_config
 from stapel_core.django.admin.mixins import RevisionAdmin
 
 from .forms import CategoryAdminForm, FeatureAdminForm
-from .models import Category, CategoryFeature, Feature
+from .models import Category, CategoryFeature, CategorySlugAlias, Feature
 
 
 class SubFeatureInline(admin.TabularInline):
@@ -284,3 +284,20 @@ def _validate_feature(feature):
     except (DjangoValidationError, ValueError) as exc:
         error_msg = str(exc.messages[0]) if hasattr(exc, "messages") else str(exc)
         return {"id": feature.pk, "slug": feature.slug, "name": feature.name, "error": error_msg}
+
+
+@admin.register(CategorySlugAlias)
+class CategorySlugAliasAdmin(admin.ModelAdmin):
+    """The retired spellings ``by-slug`` still answers — read, not authored.
+
+    Rows are written by ``Category.save`` on a rename; an operator deletes
+    one to stop an old address resolving, never adds one by hand.
+    """
+
+    list_display = ("slug", "category", "retired_at")
+    search_fields = ("slug", "category__slug", "category__name")
+    raw_id_fields = ("category",)
+    readonly_fields = ("retired_at",)
+
+    def has_add_permission(self, request):
+        return False

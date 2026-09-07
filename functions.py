@@ -320,10 +320,17 @@ def by_slug_function(payload: dict) -> dict:
     An INACTIVE row still answers, exactly as ``categories.names`` does — a
     listing can sit in a category retired after publication and its feed
     still has an address. A soft-deleted row does not answer at all.
+
+    A RETIRED slug (one a category carried before a rename, kept as a
+    :class:`~stapel_categories.models.CategorySlugAlias`) answers the
+    ancestry of the row that holds the name now, keyed by the slug that was
+    ASKED — a search address has nothing to redirect, so the old spelling
+    simply keeps working. A live slug always wins over an alias of the same
+    spelling, and an alias of a soft-deleted row is absent like the row.
     """
     from treenode.utils import split_pks
 
-    from .models import Category
+    from .models import Category, CategorySlugAlias
 
     wanted = {str(value) for value in (payload.get("slugs") or [])}
     if not wanted:
@@ -331,9 +338,17 @@ def by_slug_function(payload: dict) -> dict:
     rows = Category.objects.filter(slug__in=wanted, deleted=False).values_list(
         "slug", "pk", "tn_ancestors_pks"
     )
-    return {
+    out = {
         slug: [*split_pks(ancestors), str(pk)] for slug, pk, ancestors in rows
     }
+    retired = wanted - set(out)
+    if retired:
+        aliases = CategorySlugAlias.objects.filter(
+            slug__in=retired, category__deleted=False,
+        ).values_list("slug", "category__pk", "category__tn_ancestors_pks")
+        for slug, pk, ancestors in aliases:
+            out[slug] = [*split_pks(ancestors), str(pk)]
+    return out
 
 
 @function("categories.names", schema=_schema("categories.names"))

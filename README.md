@@ -24,7 +24,7 @@ pip install stapel-categories
 
 | Fact | Value |
 |---|---|
-| Version | `0.21.2` |
+| Version | `0.21.3` |
 | Python | `>=3.11` (3.11, 3.12, 3.13, 3.14) |
 | HTTP operations | 34 |
 | Config axes | 1 |
@@ -249,7 +249,7 @@ flat setting, or env var — resolved lazily):
 |---|---|---|
 | Function | `categories.features` | `{"category_id": int}` -> `{"category_id", "revision", "features":[{id,slug,name,mandatory,config}]}` — resolved schema (own + inherited), cacheable by `revision` |
 | Function | `categories.path` | `{"category_ids": [int, ...]}` -> `{"<id>": ["<root_id>", ..., "<id>"]}` — root->leaf ancestry, one query for the batch; segments are ids, an unknown id is absent |
-| Function | `categories.by_slug` | `{"slugs": ["transport", ...]}` -> `{"<slug>": ["<root_id>", ..., "<id>"]}` — the same ancestry keyed by slug (`Category.slug` is globally unique); an unknown slug is absent, an inactive node still answers |
+| Function | `categories.by_slug` | `{"slugs": ["transport", ...]}` -> `{"<slug>": ["<root_id>", ..., "<id>"]}` — the same ancestry keyed by slug (`Category.slug` is globally unique); an unknown slug is absent, an inactive node still answers, a RETIRED slug (renamed since, `CategorySlugAlias`) answers its current row's ancestry keyed as asked |
 | Action (emit) | `category.changed` | `{"category_id": int, "revision": int}` on any category/feature mutation — for downstream cache invalidation |
 
 `categories.features` lets stapel-listings validate attribute values against a
