@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.21.3"
+version = "0.21.4"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -24,9 +24,21 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    # Floor: 0.26.0 emits docs/errors.json with the `owner` field the
+    # Floor: 0.26.0 emitted docs/errors.json with the `owner` field the
     # committed artifact and its drift gate require.
-    "stapel-core>=0.26.0,<1.0",
+    #
+    # >=0.60.8 as of stapel-categories 0.21.4, for the reader on the other end
+    # of that `owner` field: 0.60.8's `catalog_search_dirs()` walks the package
+    # directory of every registered error owner, not only INSTALLED_APPS.
+    # `errors.py` puts thirteen `stapel_attributes`-owned codes into the
+    # registry of every host that mounts this module (the validate-configs and
+    # validate-dto endpoints answer with them), and stapel-attributes is an
+    # embedded library with no Django app — a host never lists it. On every
+    # earlier core the loader therefore could not reach the catalogue that
+    # wheel ships, however complete it was, and those codes rendered their
+    # English floor on an otherwise translated screen.
+    # `tests/test_error_i18n.py` is the gate.
+    "stapel-core>=0.60.8,<1.0",
     # Floor: 0.5.0 brings the rule grammar + evaluator (parse_rules,
     # rule_warnings, evaluate_rules), the FeatureDef v2 fields this module
     # stores, validate_configs_structured(known_slugs=...) and
@@ -110,7 +122,23 @@ dependencies = [
     # which is a floor lying about the behaviour actually read; that shipped
     # CI red (`ModuleNotFoundError: No module named 'stapel_attributes.axis'`)
     # the moment a fresh install pulled anything below 0.9.2.
-    "stapel-attributes>=0.9.2,<0.10",
+    #
+    # >=0.9.3 as of stapel-categories 0.21.4, and this floor is about the CODES
+    # this module re-exports rather than any symbol it calls. `errors.py`
+    # imports `stapel_attributes.errors` on purpose — the validate-configs and
+    # validate-dto endpoints answer with that library's structured validation
+    # codes, so a consumer that did not see them could not render the refusals
+    # a catalogue editor is most likely to hit. The strings for those codes are
+    # upstream's to own and upstream's to ship, and 0.9.3 is the first wheel
+    # that actually contains them (`translations/errors.{ru,es}.json`, all
+    # thirteen keys): 0.9.2 and everything before it ship `errors.py` and no
+    # `translations/` directory at all. Pinning the floor here is how the
+    # strings travel with the codes without this package copying them — a copy
+    # would be an `error`-level `foreign` issue in core's catalogue gate and a
+    # second, drifting version of somebody else's wording. (0.9.3 itself
+    # requires `stapel-core>=0.60.8`, so the two floors above are one decision;
+    # both are stated because the reason differs.)
+    "stapel-attributes>=0.9.3,<0.10",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
 ]

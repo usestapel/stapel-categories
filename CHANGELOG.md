@@ -1,5 +1,96 @@
 # Changelog
 
+## [0.21.4] — 2026-09-08
+
+### Fixed — the codes travelled to the host, their translations did not
+
+Patch (pre-1.0: minor = breaking, patch = compatible). No API change and no
+schema change: `docs/errors.json` still carries the same 64 keys with the same
+owners, and `docs/schema.json` regenerates byte-identical. What changes is the
+range of dependency versions a host may resolve underneath them — the range
+narrows, so every resolution left in it is one where the strings exist.
+
+`errors.py` imports `stapel_attributes.errors` on purpose: the
+`validate-configs` and `validate-dto` endpoints answer with that library's
+structured validation codes, so a consumer that never saw them could not render
+the refusals a catalogue editor is most likely to hit. That import is what puts
+**thirteen** `stapel_attributes`-owned codes into the error registry — and into
+the `docs/errors.json` — of every host that mounts this module:
+
+```
+error.400.description_too_long      error.400.description_too_short
+error.400.feature_above_maximum     error.400.feature_below_minimum
+error.400.feature_invalid_config    error.400.feature_invalid_format
+error.400.feature_invalid_rules     error.400.feature_invalid_type
+error.400.feature_mandatory_missing error.400.feature_not_allowed
+error.400.feature_not_in_options    error.400.feature_unknown
+error.400.feature_unknown_type
+```
+
+**The registry travelled; the strings did not.** Nothing here or upstream
+connected the two, and every gate stayed green because each one is scoped to
+the keys its own package owns — and these are not ours.
+
+The fix is not a copy. A key another package owns, translated in this
+package's catalogue while the owner ships that language, is an `error`-level
+`foreign` issue in core's `check_translation_catalogs`: it is the duplication
+that had five libraries each maintaining the same 41 core keys, and it makes
+this repo the maintainer of a second version of somebody else's wording that
+goes stale the day upstream improves it. The strings stay owned by
+`stapel-attributes` and reach a host from its wheel; what was wrong was that
+this package let a host install a wheel where they are absent.
+
+- **`stapel-attributes>=0.9.3`** (was `>=0.9.2`; cap `<0.10` unchanged) —
+  0.9.3 is the first wheel containing
+  `stapel_attributes/translations/errors.{ru,es}.json` with all thirteen owned
+  keys. 0.9.2 — and every release before it — ships `errors.py` and no
+  `translations/` directory at all.
+- **`stapel-core>=0.60.8`** (was `>=0.26.0`) — 0.60.8's `catalog_search_dirs()`
+  walks the package directory of every registered error owner, not only
+  `INSTALLED_APPS`. stapel-attributes has no Django app; a host never lists it,
+  so on every earlier core its catalogue was unreachable however complete it
+  was. (stapel-attributes 0.9.3 requires this core itself — pip answers
+  `ResolutionImpossible` for the pair — so the two floors are one decision;
+  both are named because the reason differs.) The old `>=0.26.0` had also long
+  stopped describing anything tested: the suite runs against 0.60.x.
+
+### Added — `tests/test_error_i18n.py`, the gate this module never had
+
+The house gate covers the keys a module *owns*. It was green throughout, which
+is the whole point: the codes at fault belong to somebody else. So the
+coverage assertion here is deliberately about the other set — **every code in
+this module's registry that this module does not own has a string in every
+language it renders** — resolved through `load_app_catalogs`, the same merge a
+deployment renders from, over the live registry union the committed
+`docs/errors.json`.
+
+Against the previous floor (`stapel-attributes==0.9.2`) it reports thirteen
+codes with no `ru` string and thirteen with no `es`, each named with its owner.
+Three more tests hold the shape of the fix: the declared floors admit only
+versions that ship the strings (the half a coverage test cannot see, because
+pip installs the newest); each upstream owner's installed wheel actually
+carries its own catalogue, named per owner; and `check_translation_catalogs`
+reports no `foreign` key here — so a future "fix" that closes a coverage gap by
+copying goes red instead.
+
+`conftest.py` now mounts `stapel_core.django.apps.CommonDjangoConfig`, which
+every stapel host gets from `COMMON_INSTALLED_APPS` and this test instance did
+not. Core's error catalogues live in that app's package directory, so without
+it the instance could not resolve forty-two core-owned codes that a real
+deployment resolves fine — the gate would have been measuring the harness.
+No test changes behaviour because of it; the suite is green unchanged.
+
+### Known and not closed by this release
+
+This module ships no `translations/` directory of its own, so the **nine codes
+it owns** still render their English literal in every locale — the contract
+emitter already says so (`[warning:unshipped]`). That is a catalogue this
+package would author, review and own: different work from a dependency range,
+and inventing the strings here to make a number go green would be the same
+copying this release refuses, pointed inward. The test file names the gap, and
+`test_a_catalogue_this_module_ships_covers_every_key_it_owns` arms itself the
+day the catalogue appears.
+
 ## [0.21.3] — 2026-09-07
 
 ### Added — a renamed category keeps answering to the slug it had

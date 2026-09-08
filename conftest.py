@@ -10,6 +10,14 @@ def pytest_configure(config):
                 "django.contrib.staticfiles",
                 "django.contrib.admin",
                 "django.contrib.messages",
+                # Every stapel host gets this from COMMON_INSTALLED_APPS; this
+                # instance did not, and core's error catalogues live in THIS
+                # app's package directory (stapel_core/django/translations).
+                # Without it the instance cannot resolve the forty-two
+                # core-owned codes a real deployment resolves fine, so
+                # tests/test_error_i18n.py would have been measuring the
+                # harness instead of the wheels.
+                "stapel_core.django.apps.CommonDjangoConfig",
                 "stapel_core.django.users",
                 "rest_framework",
                 # treenode (django-treenode) registers the tree-cache signals

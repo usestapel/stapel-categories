@@ -10,6 +10,13 @@ from stapel_core.django.api.errors import register_service_errors
 # keys enter the registry only as a side effect of serializer imports —
 # errors.json emission then depends on whether the schema was built first.
 # The embedding app forces the registration deterministically.
+#
+# The codes travel; the SENTENCES have to travel with them. They stay owned by
+# stapel-attributes and reach a host from its wheel — never copied here, which
+# core's catalogue gate would call a `foreign` key. What makes them reachable
+# is a pair of dependency floors (`stapel-attributes>=0.9.3` for the catalogue,
+# `stapel-core>=0.60.8` for a loader that looks inside a non-app owner), and
+# tests/test_error_i18n.py is what keeps a future widening honest.
 import stapel_attributes.errors  # noqa: F401
 
 ERR_400_EXPECTED_LIST = "error.400.categories_expected_list"
