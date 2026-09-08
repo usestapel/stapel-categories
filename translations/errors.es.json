@@ -1,11 +1,11 @@
 {
   "error.400.categories_config_required": "Se requiere un objeto config",
   "error.400.categories_database_error": "Error de base de datos al aplicar los cambios",
-  "error.400.categories_duplicate_slug": "Ya existe una característica con el slug {slug}",
+  "error.400.categories_duplicate_slug": "Ya existe una característica con el slug «{slug}»",
   "error.400.categories_expected_list": "Se esperaba una lista de objetos",
   "error.400.categories_feature_editor_invalid": "Solicitud al editor de características no válida: {reason}",
   "error.400.categories_invalid_conversion": "Conversión de tipo no válida (solo se admite select ↔ string)",
   "error.400.categories_not_deleted": "La categoría no está eliminada",
-  "error.404.categories_slug_not_found": "No existe ninguna categoría con el slug {slug}",
+  "error.404.categories_slug_not_found": "No existe ninguna categoría con el slug «{slug}»",
   "error.409.categories_feature_editor_conflict": "Otro editor ha modificado la categoría (se esperaba la revisión {expected}, ahora es {actual}); recarga la página y vuelve a intentarlo"
 }

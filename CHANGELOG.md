@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.21.7] — 2026-09-08
+
+### Fixed — the Spanish catalogue quotes the slug, like the Russian one does
+
+Patch, no API change, no schema change, no dependency change. Two strings in
+`translations/errors.es.json`:
+
+| Key | Was | Now |
+|---|---|---|
+| `error.400.categories_duplicate_slug` | `…con el slug {slug}` | `…con el slug «{slug}»` |
+| `error.404.categories_slug_not_found` | `…con el slug {slug}` | `…con el slug «{slug}»` |
+
+A slug is a literal a caller sent, and a literal dropped bare into a sentence
+stops looking like one the moment it contains a hyphen, a digit or a word the
+reader takes for the next word of the prose — `No existe ninguna categoría con
+el slug coches de segunda mano` reads as a sentence that lost its ending. The
+Russian catalogue already quoted it («{slug}»); the Spanish one did not, so the
+same refusal was legible in one language and not the other. Reported by the pair
+train that generates `@stapel/categories-react`'s locale bundles from these
+files, where the two wordings sit side by side.
+
+`«»` rather than `""`: they are the quotation marks the other refusals in this
+catalogue and the neighbouring modules' already use around an interpolated
+literal, and Spanish typography admits them. The `{slug}` slot is preserved
+verbatim, so the placeholder gate is unmoved and `docs/errors.json` is
+byte-identical — the registry declares codes and English text, and neither
+changed.
+
 ## [0.21.6] — 2026-09-08
 
 ### Fixed — the harness's own refusals answer the fleet envelope
