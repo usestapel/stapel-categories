@@ -1,7 +1,10 @@
-"""Every code this module BORROWS has a string in every language it renders.
+"""Every code this module returns has a string in every language it renders.
 
-Not "every code this module owns" — that is the house gate, and it is green on
-a deployment where thirteen of these codes render in English. ``errors.py``
+Both halves: the codes it BORROWS (reachable through a dependency floor) and
+the codes it OWNS (translated in ``translations/errors.<lang>.json``, shipped
+in this wheel).
+
+The borrowed half came first, and is the larger asymmetry. ``errors.py``
 imports ``stapel_attributes.errors`` on purpose: the ``validate-configs`` and
 ``validate-dto`` endpoints answer with that library's structured validation
 codes, so thirteen ``stapel_attributes``-owned keys enter the error registry —
@@ -34,14 +37,16 @@ declaring the override would make this repo the maintainer of a second,
 drifting copy of somebody else's text. The strings reach a host from the
 owner's wheel, which is where they stay correct.
 
-**What is deliberately NOT gated here.** This module ships no ``translations/``
-directory of its own, so the nine codes it OWNS render their English literal
-in every locale. That is a real gap and a different piece of work — a
-catalogue this package would author, review and own, not a dependency range —
-and inventing the strings here to make a number go green would be the same
-"fix by copying" this file exists to prevent, pointed inward.
-:func:`test_a_catalogue_this_module_ships_covers_every_key_it_owns` is the
-trip-wire that arms itself the day such a catalogue appears.
+**The owned half.** Until 0.21.5 this module shipped no ``translations/``
+directory at all, so the nine codes it OWNS rendered their English registry
+literal in every locale — on a Russian storefront whose category tree this
+library is. That gap is a catalogue this package authors, reviews and owns,
+never a dependency range and never a copy of somebody else's text, and it is
+gated from :func:`test_a_catalogue_this_module_ships_covers_every_key_it_owns`
+down: every owned key present and non-empty in every shipped language, no
+foreign key, every ``{param}`` slot of the canon preserved, and the shipped
+language set exactly the gated one — plus the packaging, because three
+sibling libraries authored a correct catalogue and shipped a wheel without it.
 """
 import json
 import re
@@ -205,10 +210,12 @@ def test_this_module_ships_no_foreign_key():
     41 core keys. The fix for the gap the other tests measure is the
     dependency floor, not a copy, and this is what keeps it that way.
 
-    Only ``foreign`` is asserted on. The same call also reports this module's
-    own nine keys as ``missing`` — it ships no catalogue — and that is the
-    separate, honest gap named in the module docstring, not something this
-    release closes.
+    Now that this package ships a catalogue of its own, the whole
+    ``error``-level verdict is asserted, not only ``foreign``: the same call
+    also refuses a byte-unstable file, a dropped placeholder, an owned key
+    with no translation, and — ``unexported`` — a translated key that
+    ``docs/errors.json`` does not declare, which would be a string no consumer
+    can ever reach.
     """
     from stapel_core.i18n import check_translation_catalogs, source_texts
 
@@ -218,38 +225,117 @@ def test_this_module_ships_no_foreign_key():
         languages=LANGUAGES,
         owner=THIS_PACKAGE,
     )
-    foreign = [issue for issue in issues if issue.code == "foreign"]
-    assert not foreign, "\n".join(
-        f"[{issue.code}/{issue.language}] {issue.message}" for issue in foreign
+    errors = [issue for issue in issues if issue.level == "error"]
+    assert not errors, "\n".join(
+        f"[{issue.code}/{issue.language}] {issue.message}" for issue in errors
     )
 
 
-def test_a_catalogue_this_module_ships_covers_every_key_it_owns():
-    """The trip-wire for the day this package starts translating its own keys.
+# ---------------------------------------------------------------------------
+# The owned half: the catalogue this package authors and ships itself.
+# ---------------------------------------------------------------------------
 
-    Today there is no ``translations/`` directory, so this asserts nothing —
-    deliberately: a package that ships no catalogue has made no translation
-    claim to break. The moment one appears, every key this module owns has to
-    be in it, and it has to be packaged, or the new catalogue would ship a
-    locale that covers some screens and not others.
+
+def _canon():
+    """``{code: en text}`` this package answers for, resolved as the loader does.
+
+    Not ``STAPEL_CATEGORIES_ERRORS`` read straight off the module: the point is
+    that ``source_owners`` attributes these keys to this package, because that
+    is what decides whether a host resolves them from this wheel and whether
+    core's gate calls a translation here ``foreign``.
     """
-    if not TRANSLATIONS.is_dir():
-        return
+    from stapel_core.i18n import owned_keys, source_owners, source_texts
 
-    from stapel_core.i18n.catalogs import load_catalog_file
+    return owned_keys(source_texts("errors"), source_owners("errors"), THIS_PACKAGE)
 
-    owned = {code for code, owner in _registry().items() if owner == THIS_PACKAGE}
+
+def _shipped(lang):
+    path = TRANSLATIONS / f"errors.{lang}.json"
+    assert path.is_file(), f"translations/{path.name} is missing"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_a_catalogue_this_module_ships_covers_every_key_it_owns():
+    """Every owned key is translated, in every shipped language, non-empty.
+
+    The trip-wire that used to arm itself the day a catalogue appeared. It has
+    armed: ``translations/errors.{ru,es}.json`` carry all nine keys
+    ``errors.py`` registers.
+    """
+    from stapel_categories.errors import STAPEL_CATEGORIES_ERRORS
+
+    canon = _canon()
+    assert set(canon) == set(STAPEL_CATEGORIES_ERRORS), (
+        "the loader does not attribute this module's registry to it — a host "
+        "would resolve these keys from somewhere else"
+    )
     for lang in TARGET_LANGUAGES:
-        path = TRANSLATIONS / f"errors.{lang}.json"
-        if not path.is_file():
-            continue
-        catalog = load_catalog_file(path)
-        missing = sorted(owned - set(catalog))
+        catalog = _shipped(lang)
+        missing = sorted(set(canon) - set(catalog))
         assert not missing, (
-            f"{lang}: this module ships a catalogue that misses "
-            f"{len(missing)} key(s) it owns: {missing[:8]}"
+            f"{lang}: the catalogue misses {len(missing)} key(s) this module "
+            f"owns: {missing[:8]}"
+        )
+        empty = sorted(k for k, v in catalog.items() if not str(v).strip())
+        assert not empty, f"{lang}: empty translation(s): {empty}"
+
+
+@pytest.mark.parametrize("lang", TARGET_LANGUAGES)
+def test_the_owned_catalogue_carries_nothing_but_owned_keys(lang):
+    """The inward-pointing half of ``foreign``: no stray key of anyone else's.
+
+    ``test_this_module_ships_no_foreign_key`` only fires where the owner
+    already ships that language. This one refuses the copy outright, so a key
+    borrowed from an owner that has not translated it yet cannot quietly
+    become this repo's to maintain.
+    """
+    stray = sorted(set(_shipped(lang)) - set(_canon()))
+    assert not stray, f"{lang}: not this module's keys: {stray}"
+
+
+@pytest.mark.parametrize("lang", TARGET_LANGUAGES)
+def test_the_owned_catalogue_preserves_every_placeholder(lang):
+    """``StapelErrorResponse`` runs ``template.format(**params)`` on the text.
+
+    A dropped slot silently loses the one detail the message exists to carry;
+    an invented one raises ``KeyError`` and falls back to the raw template.
+    """
+    from stapel_core.i18n.domains import params_of
+
+    canon = _canon()
+    for key, text in _shipped(lang).items():
+        if key not in canon:  # a stray key is the previous test's failure
+            continue
+        assert set(params_of(text)) == set(params_of(canon[key])), (
+            f"{lang}: {key} placeholders {sorted(params_of(text))} ≠ canon "
+            f"{sorted(params_of(canon[key]))}"
         )
 
+
+def test_the_shipped_language_set_is_exactly_the_gated_one():
+    """A catalogue for a language this file does not divide by is a catalogue
+    nothing keeps complete — and a gated language with no file is a locale
+    that renders the English floor with everything green."""
+    shipped = {p.name for p in TRANSLATIONS.glob("errors.*.json")}
+    assert shipped == {f"errors.{lang}.json" for lang in TARGET_LANGUAGES}
+
+
+@pytest.mark.parametrize("lang", TARGET_LANGUAGES)
+def test_the_owned_catalogue_is_byte_stable(lang):
+    """``dump_catalog`` form: sorted keys, 2-space indent, non-ASCII kept, one
+    trailing newline — so a regeneration is a no-op diff."""
+    from stapel_core.i18n import dump_catalog
+
+    path = TRANSLATIONS / f"errors.{lang}.json"
+    assert path.read_text(encoding="utf-8") == dump_catalog(_shipped(lang))
+
+
+def test_the_wheel_ships_the_catalogue():
+    """package-data must carry ``translations/*.json``.
+
+    Three sibling libraries authored a correct catalogue, committed it, went
+    green, and shipped a wheel with no ``translations/`` in it at all.
+    """
     with open(REPO / "pyproject.toml", "rb") as handle:
         patterns = tomllib.load(handle)["tool"]["setuptools"]["package-data"]
     assert "translations/*.json" in patterns[THIS_PACKAGE], (

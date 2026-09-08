@@ -1,5 +1,83 @@
 # Changelog
 
+## [0.21.5] — 2026-09-08
+
+### Added — the nine codes this module owns now speak Russian and Spanish
+
+Patch, purely additive (pre-1.0: minor = breaking, patch = compatible). No API
+change, no schema change, no dependency change: `docs/errors.json` carries the
+same 64 keys with the same owners, and `docs/schema.json` regenerates
+byte-identical. Two files appear in the wheel.
+
+0.21.4 closed the half of the i18n gap this module BORROWS — the fifty-five
+codes owned by `stapel_attributes` and `stapel_core` that enter a host's
+registry through `errors.py`, reachable by raising the dependency floors so
+their owners' catalogues travel with them. It said, in its own test file, that
+the other half was still open:
+
+> This module ships no `translations/` directory of its own, so the nine codes
+> it OWNS render their English literal in every locale.
+
+This release closes it. `translations/errors.ru.json` and
+`translations/errors.es.json` translate **all nine** codes `errors.py`
+registers — every one of them, in both languages, authored here because a
+module owns the strings for the keys it registers:
+
+```
+error.400.categories_config_required        error.400.categories_database_error
+error.400.categories_duplicate_slug         error.400.categories_expected_list
+error.400.categories_feature_editor_invalid error.400.categories_invalid_conversion
+error.400.categories_not_deleted            error.404.categories_slug_not_found
+error.409.categories_feature_editor_conflict
+```
+
+These are the refusals a catalogue editor meets: a duplicate feature slug, an
+unsupported type conversion, a concurrent edit of the same category, a slug
+that resolves to nothing. On a Russian-language storefront whose category tree
+this library is, every one of them printed English at the person editing, on
+every deployment, with nothing red anywhere to say so. The contract emitter
+said it out loud at every emission —
+
+```
+[warning:unshipped] 'stapel_categories' owns 9 declared code(s) but ships no
+errors catalog in any language — they will render as English fallbacks in a
+translated deployment
+```
+
+— and that line is gone from this release's emission.
+
+Nothing here translates a key this module does not own. The fifty-five borrowed
+codes still resolve from their owners' wheels through the floors 0.21.4 set;
+copying them here is a `foreign` error in core's catalogue gate and a second,
+drifting copy of somebody else's wording.
+
+### Packaging
+
+`translations/*.json` is in `[tool.setuptools.package-data]`. A catalogue that
+is in git and not in the wheel is a catalogue no deployment ever reads — three
+sibling libraries shipped exactly that first, so `tests/test_error_i18n.py`
+asserts the pattern is declared, and the built wheel was listed before the tag.
+
+### The gate
+
+`test_a_catalogue_this_module_ships_covers_every_key_it_owns` was written in
+0.21.4 as a trip-wire that would arm itself the day a catalogue appeared. It
+has armed, and the properties it now holds are:
+
+* every key the loader attributes to this package is present in every shipped
+  language, and non-empty — with the owned-key set asserted equal to the
+  registry, so a new code in `errors.py` fails here until it is translated;
+* nothing but owned keys is in the catalogue (`foreign`, pointed inward);
+* every `{param}` slot of the canon survives the translation — the runtime
+  runs `template.format(**params)` on the translated text, so a dropped slot
+  loses the detail the message exists to carry;
+* the shipped language set is exactly the gated one, in both directions;
+* the files are in `dump_catalog` byte-stable form;
+* `translations/*.json` is packaged.
+
+`test_this_module_ships_no_foreign_key` now asserts the whole `error`-level
+verdict of `check_translation_catalogs`, not only `foreign`.
+
 ## [0.21.4] — 2026-09-08
 
 ### Fixed — the codes travelled to the host, their translations did not

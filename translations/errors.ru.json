@@ -1,0 +1,11 @@
+{
+  "error.400.categories_config_required": "Требуется объект config",
+  "error.400.categories_database_error": "Ошибка базы данных при применении изменений",
+  "error.400.categories_duplicate_slug": "Характеристика со слагом «{slug}» уже существует",
+  "error.400.categories_expected_list": "Ожидался список объектов",
+  "error.400.categories_feature_editor_invalid": "Некорректный запрос к редактору характеристик: {reason}",
+  "error.400.categories_invalid_conversion": "Недопустимое преобразование типа (поддерживается только select ↔ string)",
+  "error.400.categories_not_deleted": "Категория не удалена",
+  "error.404.categories_slug_not_found": "Категория со слагом «{slug}» не найдена",
+  "error.409.categories_feature_editor_conflict": "Категорию изменил другой редактор (ожидалась ревизия {expected}, сейчас {actual}); обновите страницу и повторите попытку"
+}
