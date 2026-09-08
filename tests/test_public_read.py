@@ -166,6 +166,29 @@ def test_anonymous_cannot_patch_a_category(anonymous_client, parent_category):
     assert parent_category.name == "Vehicles"
 
 
+def test_anonymous_write_is_refused_in_the_fleet_envelope(
+    anonymous_client, parent_category
+):
+    """The refusal body is the fleet envelope, not DRF's bare ``detail``.
+
+    Nothing in ``views.py`` builds this response: DRF's permission layer
+    raises it, and the only seam that dresses it is
+    ``REST_FRAMEWORK["EXCEPTION_HANDLER"]``. Until this harness carried that
+    key, DRF's own handler answered ``{"detail": "..."}`` here — a shape a
+    frontend reading ``localizable_error`` cannot translate — and the suite
+    above could not tell the difference, because it only asserted the status
+    code. stapel_core.error_envelope.W001 reports the settings hole; this
+    asserts the behaviour it costs.
+    """
+    resp = anonymous_client.post(
+        f"{BASE}/categories/", {"name": "Injected", "slug": "injected"}, format="json"
+    )
+    assert resp.status_code in (401, 403), resp.content
+    assert "localizable_error" in resp.data, resp.data
+    assert resp.data["localizable_error"].startswith("error."), resp.data
+    assert set(resp.data) >= {"localizable_error", "error", "params"}, resp.data
+
+
 def test_anonymous_write_is_401_where_a_challenge_exists(
     monkeypatch, api_client, parent_category
 ):

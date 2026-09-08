@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.21.6] — 2026-09-08
+
+### Fixed — the harness's own refusals answer the fleet envelope
+
+Patch, no API change, no schema change, no dependency change. One shipped file
+moves: `_codegen_settings.py`, whose non-contract branch returned
+`rest_framework = None` and therefore shipped **no** `REST_FRAMEWORK` dict at
+all.
+
+A settings module that writes its own `REST_FRAMEWORK` must carry
+`EXCEPTION_HANDLER`, or DRF falls back to `rest_framework.views.exception_handler`
+and every refusal **no view code raises** — 401/403 from authenticators and
+permission classes, 404 from `get_object_or_404`, 405/406/415 from dispatch,
+429 from a throttle — answers a bare `{"detail": "..."}` instead of
+`{localizable_error, error, params, error_language}`. A frontend that reads
+`localizable_error` finds nothing there. `stapel_core.error_envelope.W001`
+(stapel-core 0.61.1) reports exactly this shape; `_codegen_settings.py`'s
+default path had it, and so did `conftest.py`.
+
+Why that was invisible: the suite asserted the envelope only where a view had
+hand-built one, and `tests/test_public_read.py` asserted the anonymous-write
+refusal by **status code alone** (`401, 403`). Both readings pass whether or
+not the handler is wired. `tests/test_public_read.py::
+test_anonymous_write_is_refused_in_the_fleet_envelope` now asserts the body,
+and fails on the previous harness with
+`{'detail': 'Authentication credentials were not provided.'}`.
+
+The key is read off `stapel_core.testing.BASE_REST_FRAMEWORK` rather than
+re-typed, and it is the only key set — DRF's own defaults stay where the
+harness had them, so no permission, renderer or authentication behaviour
+changes. The `contract=True` branch is untouched and the emitted contracts are
+byte-identical.
+
 ## [0.21.5] — 2026-09-08
 
 ### Added — the nine codes this module owns now speak Russian and Spanish
