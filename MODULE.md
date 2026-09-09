@@ -229,6 +229,35 @@ package data), so the gate never degrades to a skip. When upstream adds a
 `FeatureDef` field, that test fails until this module carries it — through
 `feature_defs()`, the serializers, the editor, the fixtures and the admin.
 
+### Children that are not rows (`branching.py`, 0.22.0)
+
+Two additive columns on `Category`, both empty by default, and one table —
+together they let a catalogue describe a level without inventing a second
+tree:
+
+- `children_axis_tag` — the external tag of the field a branch splits on,
+  beside the human caption `children_axis_label`. Where the tree does NOT
+  split, the same tag rides a leaf as an ordinary Feature; without the tag
+  there is nowhere to record that the level and the field are one question.
+- `children_expand_by` — the slug of one of this node's own features whose
+  closed value set IS its children. `GET /tree/` and `GET /{id}/children/`
+  answer with **virtual** children (`virtual: true`, `name`, `value`, and a
+  `{feature: value}` filter pair), no ids, no slugs, and **no rows written**.
+  Values come from an inline option set, or — for a referential type — from
+  the registered vocabulary resolver IF it offers the optional reader
+  `terms(vocabulary, level) -> [(code, label)]`; the four-question
+  `VocabularyResolver` protocol cannot list a level, so a resolver without
+  that reader yields no values rather than a guess.
+- `CategoryLink` — a pointer drawn among a category's children at the index
+  its `order` names, with the target's own slug, address and breadcrumbs
+  behind it (`linked: true`; `label` overrides the displayed name). Curated
+  groups and cross-root sections are this table, not a second node.
+
+Both refusals of a mis-authored expansion — a feature the category does not
+have or cannot enumerate, and a node that has real children *and* expands —
+are one function (`branching.expansion_error`), reported by the staff write
+(400) and by the `stapel_categories.E001` system check over the whole table.
+
 ## Extension points (fork-free)
 
 ### Settings — `STAPEL_CATEGORIES` namespace (`conf.py`)
@@ -446,6 +475,33 @@ its curation) but are excluded from the 3-way content hash on every side
 loader writes them **only when it creates the row** — a catalogue re-import
 can never reset a curated carousel again. `tn_priority` was already
 fixture-invisible; these three now follow the same ownership.
+
+`links.json` is the third file (0.22.0) — one record per `CategoryLink`,
+optional, and out of the category records on purpose: an edge belongs to two
+of them and would move whichever record it was written into whenever the
+other end moved. Its shape:
+
+```json
+[{"source": "<slug>", "target": "<slug>",
+  "source_external_id": "<id>", "target_external_id": "<id>",
+  "order": 0, "label": "", "external_source": "<who authored it>"}]
+```
+
+Both ends resolve by `external_id` first (it survives a source-side rename
+the file's own slug column may already have moved) and by `slug` otherwise;
+`order`, `label` and `external_source` are always written. **A load rewrites
+only the `external_source` values its own file names** — it deletes and
+recreates those and never looks at another author's, so an operator's links
+(`external_source: "storefront"`, authored in the admin) survive every
+re-import. This is `children_as`'s discipline one table over: a fixture never
+overwrites what somebody else authored. An absent `links.json` says nothing
+about links and touches none; the one case this cannot express is "the last
+link of source X is gone", since a file naming X nowhere no longer owns X.
+
+Two category keys joined the same "written only when set" rule in 0.22.0:
+`children_axis_tag` (the source catalogue's own identifier for the field a
+branch splits on) and `children_expand_by` (the slug of the feature whose
+values ARE this node's children).
 
 `python manage.py load_catalog` reconciles those fixtures back into the DB:
 base = sidecar hashes, theirs = files, ours = live DB. Fast-forwards apply;

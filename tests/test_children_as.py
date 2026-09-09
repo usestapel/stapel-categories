@@ -631,7 +631,8 @@ class TestTreeEndpoint:
 
         assert sorted(rows[0]) == [
             "catalog_icon", "children", "children_as", "children_axis_label",
-            "children_count", "id", "name", "path", "slug",
+            "children_axis_tag", "children_count", "id", "name", "path",
+            "slug",
         ]
 
 

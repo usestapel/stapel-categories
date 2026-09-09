@@ -34,7 +34,9 @@ migration-lint:
 # flows automatically when present). The budget is raised from the
 # generator's default 4000 to 5000 once the errors + operations sections are
 # in the mix — the same deliberate exception stapel-forms (5000),
-# stapel-recordings (5000) and stapel-workspaces (4500) already take. Do NOT
+# stapel-recordings (5000) and stapel-workspaces (4500) already take. Raised
+# again to 5500 in 0.22.0: the links fixture builder is a 23rd surface entry
+# and the file came out 63 tokens over. Do NOT
 # shorten the `intent` lines in docs/capabilities.meta.json to fit instead —
 # a trimmed context file reads exactly like a complete one at the point of
 # use, which is the failure the hard budget exists to prevent.
@@ -47,7 +49,7 @@ migration-lint:
 contract:
 	$(PYTHON) -m stapel_categories._codegen --out docs
 	$(PYTHON) -m stapel_tools.surface . --patch
-	$(PYTHON) -m stapel_tools.llms_txt . --out docs --budget 5000
+	$(PYTHON) -m stapel_tools.llms_txt . --out docs --budget 5500
 	$(PYTHON) -m stapel_tools.readme .
 
 # Drift gate: regenerate the triad into a temp dir and diff against the
@@ -64,7 +66,7 @@ contract-check:
 	done; \
 	rm -rf "$$tmp"; \
 	$(PYTHON) -m stapel_tools.surface . --patch --check || rc=1; \
-	$(PYTHON) -m stapel_tools.llms_txt . --check --budget 5000 || rc=1; \
+	$(PYTHON) -m stapel_tools.llms_txt . --check --budget 5500 || rc=1; \
 	$(PYTHON) -m stapel_tools.readme . --check || rc=1; \
 	if [ $$rc -eq 0 ]; then echo "contract-check: docs/{schema,flows,errors,capabilities,llms.txt} + README.md up to date"; fi; \
 	exit $$rc

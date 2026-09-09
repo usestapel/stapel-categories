@@ -20,7 +20,7 @@ two are now merged into one Meta.
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Case, IntegerField, Q, When
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 from treenode.models import TreeNodeModel
@@ -595,6 +595,50 @@ class Category(RevisionMixin, TreeNodeModel):
         ),
     )
 
+    # The external TAG of the axis field, next to the human caption above.
+    #
+    # The caption alone cannot carry the "path <-> field" symmetry: where a
+    # catalogue splits the tree on a field (a branch per value) the axis is a
+    # level, and where the same catalogue does not split it the SAME field
+    # rides on the leaves as an ordinary Feature with a two-value option set.
+    # A storefront has to draw one chip row in both cases, and without the tag
+    # there is nowhere to store the fact that the level and the field are the
+    # same question. Blank means nobody named the tag — every row before this
+    # field existed, and every branch whose source dump did not say.
+    children_axis_tag = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "External tag of the field whose values this category's children "
+            "enumerate (e.g. `operation_type`). Not a translation key — the "
+            "source catalogue's own identifier, so the same tag can be "
+            "recognised where it rides a leaf as an ordinary feature."
+        ),
+    )
+
+    # A level DERIVED from one of this node's own features instead of stored
+    # as rows. A branch whose children would be the 400 values of a `brand`
+    # field is 400 rows that carry nothing but a name already in the field's
+    # option set, and every one of them is a second place that name can be
+    # wrong. With this set, the tree endpoint and the children listing answer
+    # with the option set itself — virtual children, no ids, no slugs, nothing
+    # written — and each one addresses the filter this node already has.
+    #
+    # Blank (the default) is today's behaviour: real children only.
+    children_expand_by = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text=(
+            "Slug of one of this category's features whose closed value set "
+            "IS this category's children. The reads answer with virtual "
+            "children (a `{feature: value}` filter each), and nothing is "
+            "written to the table. A category with real children cannot "
+            "carry this."
+        ),
+    )
+
     carousel_enabled = models.BooleanField(
         default=False, help_text="Whether this category appears in the carousel"
     )
@@ -945,6 +989,90 @@ class CategoryFeature(models.Model):
     class Meta:
         unique_together = (("category", "feature"),)
         ordering = ["order", "id"]
+
+
+class CategoryLink(models.Model):
+    """A pointer drawn among one category's children, leading to another.
+
+    The tree stays one tree. A curated group ("everything you can rent",
+    a section that gathers the same node under a second root) is this table,
+    not a second node: a second row for the same subject would be a second
+    place its name, its features and its listings could disagree.
+
+    ``order`` is the position the pointer takes AMONG the source's children —
+    they are drawn mixed in with the real ones, not appended after them, and
+    a storefront that renders children renders these without knowing the
+    table exists. Everything else about the pointer belongs to the target:
+    its slug, its address and its breadcrumbs, so following one lands on the
+    target's own page rather than on a copy.
+
+    ``external_source`` says WHO created the link, and it is the whole of the
+    reload discipline: ``load_catalog`` deletes and recreates only the links
+    whose source it is carrying, so an operator's own links survive a
+    catalogue re-import. Same rule ``children_as`` follows — an authored
+    value is never overwritten by a derivation.
+    """
+
+    source = models.ForeignKey(
+        Category, on_delete=models.CASCADE, related_name="links",
+        help_text="The category whose children this pointer is drawn among.",
+    )
+    target = models.ForeignKey(
+        Category, on_delete=models.CASCADE, related_name="linked_from",
+        help_text="The category the pointer leads to.",
+    )
+    order = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Position among the source's children — the pointer is inserted "
+            "at this index into the child list, not appended after it."
+        ),
+    )
+    label = models.CharField(
+        max_length=200, blank=True, default="",
+        help_text=(
+            "Text drawn on the pointer — a translation key, like `name`. "
+            "Empty means the target's own name."
+        ),
+    )
+    external_source = models.CharField(
+        max_length=32, blank=True, default="",
+        help_text=(
+            "Who created this link: an importer's name, or `storefront` for "
+            "an operator's own. A catalogue reload rewrites only the links "
+            "carrying the source it loads."
+        ),
+    )
+
+    class Meta:
+        unique_together = (("source", "target"),)
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.source_id} -> {self.target_id}"
+
+    def clean(self):
+        if self.source_id and self.source_id == self.target_id:
+            raise ValidationError(
+                {"target": _("A category cannot link to itself")}
+            )
+
+
+@receiver(post_save, sender=CategoryLink)
+@receiver(post_delete, sender=CategoryLink)
+def touch_source_on_link_change(sender, instance, **kwargs):
+    """A link changes the SOURCE's child list, so the source is rewritten.
+
+    The public tree reads are cached on a fingerprint of the category
+    table's revision state, and nothing in that fingerprint moves when a
+    link is written. Saving the source bumps its revision and emits
+    ``category.changed`` — the same invalidation any other change to its
+    children performs — so a pointer appears at the next read rather than
+    when a five-minute timeout runs out.
+    """
+    source = Category.objects.filter(pk=instance.source_id).first()
+    if source is not None:
+        source.save()
 
 
 @receiver(post_save, sender=Category)

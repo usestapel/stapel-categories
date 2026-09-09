@@ -116,6 +116,10 @@ RESIDUAL = "residual"
 # 2026-09-05 incident this kind exists to make impossible to repeat silently.
 # See the "Feature renames" section below.
 RENAME_BLOCKED = "rename_blocked"
+# A link record whose source or target this catalogue does not have. An
+# ERROR on a real run (the pointer is simply not created); a NOTE on a dry
+# run, where the missing end may be a category the same load would create.
+LINK_UNRESOLVED = "link_unresolved"
 ERROR = "error"          # bad fixture record (validation / dangling reference)
 
 # Inline (override) feature-list entries carry at least these keys; a bare
@@ -221,6 +225,12 @@ class Report:
     #: ``Feature.axis_role_derived``; an authored role is never touched and
     #: never appears here.
     axis_roles: Dict[str, str] = field(default_factory=dict)
+    #: ``{"created", "deleted", "kept"}`` of the link reconciliation — how
+    #: many pointers this load wrote, how many of its own it replaced, and
+    #: how many it left alone because another author owns them. ``kept`` is
+    #: the number worth reading: it is the operator's links surviving a
+    #: catalogue re-import.
+    links: Dict[str, int] = field(default_factory=dict)
     #: ``(category, role, slugs)`` triples the derivation REFUSED to answer
     #: because the category offers two candidates for one role. Neither is
     #: stamped, anywhere — see :mod:`stapel_categories.axis_roles`.
@@ -524,14 +534,18 @@ def _normalize_entry(entry: dict) -> dict:
 #   * `is_test` / `deleted` / `tn_parent_id` — the loader owns these outright,
 #     and an is_test row is refused before a scalar is written at all.
 _OPTIONAL_CATEGORY_SCALARS = (
-    "children_as", "children_axis_label", "comment",
+    "children_as", "children_axis_label", "children_axis_tag",
+    "children_expand_by", "comment",
     "external_id", "external_source", "translatable",
 )
 
 #: Of those, the ones the EXPORT writes only when set (``cf._category_record``).
 #: The fixture side has to hash by the same rule — drop an unset value — or a
 #: record spelling the default out never equals the row it describes.
-_EXPORT_WHEN_SET = ("children_as", "children_axis_label", "external_source")
+_EXPORT_WHEN_SET = (
+    "children_as", "children_axis_label", "children_axis_tag",
+    "children_expand_by", "external_source",
+)
 
 _OPTIONAL_DEFAULTS: Dict[str, object] = {}
 
@@ -599,8 +613,41 @@ def _index_records(records: list, normalize, what: str) -> Dict[str, dict]:
     return out
 
 
+def _normalize_link_record(rec: dict) -> dict:
+    """Coerce a fixture link record to the shape :func:`cf.build_links` writes.
+
+    Both ends may be addressed twice — by slug and by external id — and the
+    loader tries the id first (it survives a source-side rename that the
+    file's own slug column may already have moved). Every other key has a
+    default, so a hand-written record can be three keys long.
+    """
+    return {
+        "source": str(rec.get("source") or ""),
+        "target": str(rec.get("target") or ""),
+        "source_external_id": str(rec.get("source_external_id") or ""),
+        "target_external_id": str(rec.get("target_external_id") or ""),
+        "order": int(rec.get("order") or 0),
+        "label": str(rec.get("label") or ""),
+        "external_source": str(rec.get("external_source") or ""),
+    }
+
+
+def _load_links(directory: str) -> list:
+    """The ``links.json`` records, normalized. Absent file = no links stated.
+
+    Absent is NOT "delete every link": a fixture directory written before
+    this file existed says nothing about links, and a loader that read
+    silence as an instruction would wipe an operator's own pointers on the
+    first upgrade.
+    """
+    records = _read_json(os.path.join(directory, cf.LINKS_FILE), [])
+    if not isinstance(records, list):
+        raise ValueError(f"{cf.LINKS_FILE}: expected a list of link records")
+    return [_normalize_link_record(rec) for rec in records]
+
+
 def _load_inputs(directory: str):
-    """Read the two fixtures + the sidecar. Returns (fix_feat, fix_cat, base).
+    """Read the fixtures + the sidecar: (fix_feat, fix_cat, base, fix_links).
 
     Records are normalized to the canonical export shape (see
     :func:`_normalize_feature_record`) so hashing, planning and applying all
@@ -611,7 +658,7 @@ def _load_inputs(directory: str):
     base = _read_json(os.path.join(directory, cf.STATE_FILE), None)
     fix_feat = _index_records(features, _normalize_feature_record, cf.FEATURES_FILE)
     fix_cat = _index_records(categories, _normalize_category_record, cf.CATEGORIES_FILE)
-    return fix_feat, fix_cat, base
+    return fix_feat, fix_cat, base, _load_links(directory)
 
 
 # ---------------------------------------------------------------------------
@@ -1263,6 +1310,7 @@ _CATEGORY_SCALARS = (
     "slug", "name", "external_id", "external_source", "comment", "catalog_icon",
     "carousel_icon", "carousel_enabled", "active", "translatable", "is_test",
     "deleted", "tn_parent_id", "children_as", "children_axis_label",
+    "children_axis_tag", "children_expand_by",
 )
 
 
@@ -1692,6 +1740,104 @@ def _apply_category_upsert(record: dict, *, clear_axis_role: bool = False):
     return cat, created
 
 
+# ---------------------------------------------------------------------------
+# Links (CategoryLink) — the third file
+# ---------------------------------------------------------------------------
+#
+# The discipline is `children_as`'s, one table over: a fixture never
+# overwrites what somebody else authored. A link record carries the name of
+# whoever created it (`external_source`), and a load OWNS exactly the sources
+# its own file names — it deletes and recreates those, and does not look at
+# any other. An operator's links (`storefront`) therefore survive every
+# re-import, and two importers feeding one tree cannot delete each other's.
+#
+# The one thing this cannot express is "the last link of source X is gone":
+# with no record naming X, the file no longer owns X and its links stand.
+# A producer that emits its whole set every run never meets that case; an
+# operator removing the last one does it in the admin, which is where it was
+# authored.
+
+
+def _resolve_link_endpoint(slug: str, external_id: str):
+    """The live category a link record's end names, or ``None``.
+
+    External id first — it survives a source-side rename that has already
+    moved the slug — then the slug, which is how every other edge in these
+    files is addressed. An id matched by more than one row resolves nothing:
+    two catalogues numbering from 1 is exactly the collision
+    ``external_source`` exists for, and guessing here would attach the
+    pointer to whichever row sorted first.
+    """
+    from .models import Category
+
+    if external_id:
+        rows = list(
+            Category.objects.filter(external_id=external_id, deleted=False)[:2]
+        )
+        if len(rows) == 1:
+            return rows[0]
+    if slug:
+        return Category.objects.filter(slug=slug, deleted=False).first()
+    return None
+
+
+def _plan_links(fix_links: list):
+    """``(resolved, errors, owned_sources)`` for the stated link records.
+
+    ``resolved`` is ``[(source, target, record)]`` with live rows on both
+    ends; ``errors`` are :class:`Item` s for the records that name something
+    this catalogue does not have.
+    """
+    resolved, errors = [], []
+    owned = {rec["external_source"] for rec in fix_links}
+    seen = set()
+    for rec in fix_links:
+        key = f"{rec['source'] or rec['source_external_id']}"
+        source = _resolve_link_endpoint(rec["source"], rec["source_external_id"])
+        target = _resolve_link_endpoint(rec["target"], rec["target_external_id"])
+        if source is None or target is None:
+            missing = "source" if source is None else "target"
+            errors.append(Item(ERROR, key, (
+                f"link {rec['source']!r} -> {rec['target']!r}: unknown "
+                f"{missing} category"
+            )))
+            continue
+        if source.pk == target.pk:
+            errors.append(Item(ERROR, key, (
+                f"link {rec['source']!r} -> {rec['target']!r}: a category "
+                "cannot link to itself"
+            )))
+            continue
+        pair = (source.pk, target.pk)
+        if pair in seen:
+            errors.append(Item(ERROR, key, (
+                f"link {rec['source']!r} -> {rec['target']!r}: stated twice"
+            )))
+            continue
+        seen.add(pair)
+        resolved.append((source, target, rec))
+    return resolved, errors, owned
+
+
+def _apply_links(fix_links: list, resolved: list, owned: set) -> dict:
+    """Rewrite the links of the sources this fixture owns. Returns counts."""
+    from .models import CategoryLink
+
+    kept = CategoryLink.objects.exclude(external_source__in=owned).count()
+    removed = 0
+    if owned:
+        removed, _ = CategoryLink.objects.filter(
+            external_source__in=owned
+        ).delete()
+    for source, target, rec in resolved:
+        CategoryLink.objects.create(
+            source=source, target=target,
+            order=rec["order"], label=rec["label"],
+            external_source=rec["external_source"],
+        )
+    return {"created": len(resolved), "deleted": removed, "kept": kept}
+
+
 def _feature_tree_pks(root) -> list:
     """Pks of a root feature and every override row hanging under it (BFS)."""
     from .models import Feature
@@ -1867,7 +2013,7 @@ def load_catalog(
     """
     from .models import Category, Feature
 
-    fix_feat, fix_cat, base = _load_inputs(directory)
+    fix_feat, fix_cat, base, fix_links = _load_inputs(directory)
     if base is not None and base.get("version") not in cf.SUPPORTED_STATE_VERSIONS:
         raise ValueError(
             f"incompatible .sync-state.json version {base.get('version')!r} "
@@ -1912,7 +2058,7 @@ def load_catalog(
             report, fix_feat, fix_cat, base_feat, base_cat,
             on_conflict=on_conflict, deletions=deletions, apply=False,
             apply_renames=apply_renames, rename_features=rename_features,
-            clear_axis_role=clear_axis_role,
+            clear_axis_role=clear_axis_role, fix_links=fix_links,
         )
         return report
 
@@ -1929,7 +2075,7 @@ def load_catalog(
             report, fix_feat, fix_cat, base_feat, base_cat,
             on_conflict=on_conflict, deletions=deletions, apply=True,
             apply_renames=apply_renames, rename_features=rename_features,
-            clear_axis_role=clear_axis_role,
+            clear_axis_role=clear_axis_role, fix_links=fix_links,
         )
 
     # The sidecar reflects the applied state — written after commit.
@@ -1948,7 +2094,7 @@ def load_catalog(
 def _run_plan(
     report, fix_feat, fix_cat, base_feat, base_cat, *, on_conflict, deletions, apply,
     apply_renames: bool = False, rename_features: bool = False,
-    clear_axis_role: bool = False,
+    clear_axis_role: bool = False, fix_links: Optional[list] = None,
 ):
     """Classify and (optionally) apply, in referential order.
 
@@ -2061,6 +2207,15 @@ def _run_plan(
             _apply_delete_phase(report, "features",
                                 [p for p in feat_plan if p.decision.op == "delete"],
                                 _apply_feature_delete, deletions)
+        # Links last among the writes: both ends must exist, so this runs
+        # after every category upsert and after the deletes that may have
+        # removed an end. Only the sources this file names are rewritten.
+        if fix_links is not None:
+            resolved, link_errors, owned = _plan_links(fix_links)
+            for item in link_errors:
+                report.add("categories", item)
+            report.links = _apply_links(fix_links, resolved, owned)
+
         # Non-mutating outcomes (skip/warn/note/touch_base/drop_base).
         _record_passive(report, "features", feat_plan)
         _record_passive(report, "categories", cat_plan)
@@ -2106,6 +2261,25 @@ def _run_plan(
     for side, plan in (("features", feat_plan), ("categories", cat_plan)):
         for p in plan:
             report.add(side, _item(p))
+    # What the link phase WOULD do, over the tree as it stands. A dangling
+    # end may well be a category this very load would create, so the errors
+    # are reported without failing the run: a dry run that refuses over a
+    # row it has not written yet is a gate measuring the wrong tree.
+    if fix_links is not None:
+        resolved, link_errors, owned = _plan_links(fix_links)
+        from .models import CategoryLink
+
+        for item in link_errors:
+            report.add("categories", Item(LINK_UNRESOLVED, item.key, item.detail))
+        report.links = {
+            "created": len(resolved),
+            "deleted": (
+                CategoryLink.objects.filter(external_source__in=owned).count()
+                if owned else 0
+            ),
+            "kept": CategoryLink.objects.exclude(external_source__in=owned).count(),
+        }
+
     # The collisions that already exist — a dry run cannot see the post-apply
     # tree, but a clash the operator can fix before loading belongs in the plan.
     for item in _sibling_name_collisions():

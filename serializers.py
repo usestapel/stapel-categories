@@ -20,6 +20,7 @@ from .models import (
     CHILDREN_AS_AUTHORED_CHOICES,
     CHILDREN_AS_RESOLVED_VALUES,
     Category,
+    CategoryLink,
     Feature,
 )
 
@@ -258,7 +259,8 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "slug",
             "catalog_icon", "carousel_icon", "carousel_enabled", "active",
-            "children_as", "children_axis_label",
+            "children_as", "children_axis_label", "children_axis_tag",
+            "children_expand_by",
             "children_pks", "children_count",
             "features", "translatable",
             "tn_parent", "tn_priority",
@@ -296,6 +298,25 @@ class CategorySerializer(serializers.ModelSerializer):
             "Name of the axis the children split on, for a `chips` row "
             "(e.g. a key rendering as 'Condition' over New | Used). A "
             "translation key, like `name` — empty when nobody named it."
+        ),
+    )
+    children_axis_tag = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "External tag of the field the children enumerate (e.g. "
+            "`operation_type`) — the source catalogue's own identifier, NOT "
+            "a translation key. It is how a client recognises that this "
+            "level and an ordinary feature elsewhere in the tree are the "
+            "same question. Empty when nobody named it."
+        ),
+    )
+    children_expand_by = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Slug of the feature whose values ARE this category's children. "
+            "When set, `GET /children/` answers with virtual children (each "
+            "a `{feature: value}` filter on this category) and `children_pks` "
+            "is empty — there are no rows. Empty for every ordinary node."
         ),
     )
 
@@ -355,12 +376,44 @@ class CategoryStaffSerializer(CategorySerializer):
     children_axis_label = serializers.CharField(
         required=False, allow_blank=True, max_length=200
     )
+    children_axis_tag = serializers.CharField(
+        required=False, allow_blank=True, max_length=64
+    )
+    children_expand_by = serializers.CharField(
+        required=False, allow_blank=True, max_length=100
+    )
 
     class Meta(CategorySerializer.Meta):
         fields = CategorySerializer.Meta.fields + [
             "external_id", "external_source",
             "children_as_authored", "children_as_derived",
         ]
+
+    def validate(self, attrs):
+        """Refuse an expansion the reads could not answer.
+
+        The same two refusals the system check reports over the whole table
+        (:func:`stapel_categories.branching.expansion_error`), applied at the
+        one write that can introduce them — so an operator learns at the
+        request, not from a warning on the next deploy.
+        """
+        attrs = super().validate(attrs)
+        if "children_expand_by" not in attrs:
+            return attrs
+        import copy
+
+        from .branching import expansion_error
+
+        # A detached copy: a refused write must not leave the instance the
+        # view still holds carrying the value that was refused.
+        candidate = copy.copy(self.instance) if self.instance else Category()
+        for field in ("slug", "children_expand_by"):
+            if field in attrs:
+                setattr(candidate, field, attrs[field])
+        error = expansion_error(candidate)
+        if error is not None:
+            raise serializers.ValidationError({"children_expand_by": error[1]})
+        return attrs
 
 
 class CategoryTreeNodeSerializer(serializers.Serializer):
@@ -405,6 +458,45 @@ class CategoryTreeNodeSerializer(serializers.Serializer):
             "translation key, like `name`; empty when nobody named it."
         ),
     )
+    children_axis_tag = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "External tag of the field the children enumerate — the source "
+            "catalogue's own identifier, not a translation key. Empty when "
+            "nobody named it."
+        ),
+    )
+    linked = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Present and `true` on a POINTER: this node is drawn among its "
+            "parent's children but lives elsewhere in the tree. Its `id`, "
+            "`slug` and `path` are the target's, so following it lands on "
+            "the target's own page; only `name` may be the pointer's."
+        ),
+    )
+    virtual = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Present and `true` on a value of an expanded branch (the "
+            "parent's `children_expand_by`). Such a node has no `id`, no "
+            "`slug` and no `path` — it carries `name`, `value` and a "
+            "`filter` object the client turns into its own filter URL on "
+            "the PARENT category."
+        ),
+    )
+    value = serializers.CharField(
+        required=False,
+        help_text="Virtual nodes only: the option code this node stands for.",
+    )
+    filter = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Virtual nodes only: the `{feature_slug: value}` pair that "
+            "selects this node's listings on the parent category."
+        ),
+    )
     children_count = serializers.IntegerField(
         help_text=(
             "How many children this node HAS — live rows only, so it counts "
@@ -417,6 +509,85 @@ class CategoryTreeNodeSerializer(serializers.Serializer):
         child=serializers.DictField(),
         help_text="Nodes of this same shape; empty at the requested depth.",
     )
+
+
+class CategoryLinkedChildSerializer(CategorySerializer):
+    """A POINTER among a category's children — the target, marked as one.
+
+    Every key is the target's, so a client that already renders a child
+    renders this one with no new code: the address it navigates to, the
+    breadcrumbs it draws and the listings it counts all belong to the node
+    the pointer leads to. Two keys are the pointer's own: ``linked``, which
+    says not to treat this as a child of the category being listed, and
+    ``name``, which is the link's label when it carries one.
+    """
+
+    linked = serializers.SerializerMethodField(
+        help_text=(
+            "Always `true`. This node is drawn here but lives elsewhere in "
+            "the tree — `id`, `slug` and `tn_parent` are the target's."
+        )
+    )
+
+    class Meta(CategorySerializer.Meta):
+        fields = CategorySerializer.Meta.fields + ["linked"]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_linked(self, obj) -> bool:
+        # The class IS the marker: it is used for nothing but a pointer.
+        return True
+
+
+class CategoryVirtualChildSerializer(serializers.Serializer):
+    """One value of an expanded branch — a child with no row behind it.
+
+    Emitted where the parent carries ``children_expand_by``. There is no
+    ``id`` and no ``slug`` because there is nothing to address; the address
+    is the client's own filter URL on the PARENT category, built from
+    ``filter``.
+    """
+
+    name = serializers.CharField(
+        help_text="Display label of the value — a translation key, like `name`."
+    )
+    value = serializers.CharField(help_text="The option code this node stands for.")
+    virtual = serializers.BooleanField(help_text="Always `true`.")
+    filter = serializers.DictField(
+        child=serializers.CharField(),
+        help_text=(
+            "The `{feature_slug: value}` pair that selects this node's "
+            "listings on the parent category."
+        ),
+    )
+
+
+class CategoryLinkSerializer(serializers.ModelSerializer):
+    """Staff read/write of one pointer between two categories.
+
+    ``source`` is the URL's category, so it is never in the body. ``target``
+    is a category id; ``external_source`` says who authored the link and is
+    what a catalogue reload keys its rewrite on — an operator's own links
+    carry ``storefront`` and survive every import.
+    """
+
+    target_slug = serializers.CharField(source="target.slug", read_only=True)
+    target_name = serializers.CharField(source="target.name", read_only=True)
+
+    class Meta:
+        model = CategoryLink
+        fields = [
+            "id", "target", "target_slug", "target_name",
+            "order", "label", "external_source",
+        ]
+
+    def validate(self, attrs):
+        source = self.context.get("source")
+        target = attrs.get("target")
+        if source is not None and target is not None and target.pk == source.pk:
+            raise serializers.ValidationError(
+                {"target": "A category cannot link to itself."}
+            )
+        return attrs
 
 
 class CategoryWithFeaturesSerializer(serializers.ModelSerializer):

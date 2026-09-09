@@ -32,6 +32,16 @@ Design: ``docs/catalog-fixtures-sync.md``. Key decisions realized here:
   template vs real subcategories), the same in every deployment of the
   catalogue, not stand-local curation like the carousel keys. Written only
   when it is not ``auto``; the derivation CACHE never travels.
+* **Branch axis and derived level.** ``children_axis_tag`` (the source
+  catalogue's identifier for the field a branch splits on) and
+  ``children_expand_by`` (the slug of the feature whose values ARE this
+  node's children) travel with the category on the same rule as
+  ``children_as``: written only when set, so a fixture written before they
+  existed keeps its content hash.
+* **Links (``links.json``).** Pointers between categories live in their own
+  file, one record per edge — see :func:`build_links`. Out of the category
+  records on purpose: a link belongs to two of them, and putting it in
+  either would move that record's hash whenever the other end moved.
 * **Override owner heuristic (§2).** When one override row is propagated to a
   category + its descendants, several categories reference it. We deliberately
   do *not* pick an "owning" category: every referencing category inlines its
@@ -53,6 +63,13 @@ import json
 FIXTURE_DIRNAME = "catalog"
 FEATURES_FILE = "features.json"
 CATEGORIES_FILE = "categories.json"
+#: Pointers between categories (``CategoryLink``) — a THIRD file, not a key
+#: inside a category record. A link is an edge between two records and half
+#: of it belongs to each; keeping it out of both means a link never moves a
+#: category's content hash, so no sidecar version had to change and a
+#: fixture set written before links existed loads unchanged. Optional: a
+#: directory without one simply has no links to reconcile.
+LINKS_FILE = "links.json"
 STATE_FILE = ".sync-state.json"
 
 # Sidecar schema version — bump whenever a stored content-hash stops meaning
@@ -293,6 +310,16 @@ def _category_record(category, include_test: bool, parent_slug) -> dict:
     # this key existed keeps its content hash.
     if category.children_axis_label:
         rec["children_axis_label"] = category.children_axis_label
+    # The axis TAG travels for the same reason and under the same rule as the
+    # caption above: it is the source catalogue's identifier for the field
+    # this branch splits on, identical in every deployment of the catalogue.
+    if category.children_axis_tag:
+        rec["children_axis_tag"] = category.children_axis_tag
+    # Which of this node's features its children are the values of. A fact
+    # about the catalogue's shape, not stand curation, and written only when
+    # set so no hash on disk moves.
+    if category.children_expand_by:
+        rec["children_expand_by"] = category.children_expand_by
     # Written only when set. A blank source is the overwhelmingly common case
     # (one import source per deployment) and omitting the key keeps every
     # content-hash a 0.7.0 export wrote valid — no STATE_VERSION bump, no
@@ -360,6 +387,57 @@ def build_catalog(include_test: bool = False):
         },
     }
     return feature_records, category_records, state
+
+
+def build_links(include_test: bool = False) -> list:
+    """The ``links.json`` records — every pointer between two exported rows.
+
+    One record per :class:`~stapel_categories.models.CategoryLink`::
+
+        {"source": "<slug>", "target": "<slug>",
+         "order": 0, "label": "", "external_source": "crawl",
+         "source_external_id": "...", "target_external_id": "..."}
+
+    Both ends are addressed by ``slug``, like every other edge in these
+    files (``parent_slug``, the sidecar keys): by the time links are applied
+    the loader has already applied every category, so a source-side rename
+    has landed and the slug in this file is the slug in the table. The
+    ``*_external_id`` keys ride along and are written whenever the row has
+    one — they are what resolves an endpoint the file itself does not carry
+    (a pointer into a branch this export left out), and the loader tries
+    them first for exactly that case.
+
+    ``order``, ``label`` and ``external_source`` are always written: unlike
+    a category's optional scalars there is no hash on disk to preserve, and
+    a link record that omits its ``external_source`` would be a link nobody
+    can say who owns — which is the whole of the reload discipline.
+
+    Byte-stable: sorted by ``(source, order, target)``.
+    """
+    from .models import CategoryLink
+
+    rows = CategoryLink.objects.select_related("source", "target").all()
+    records = []
+    for link in rows:
+        source, target = link.source, link.target
+        if source.deleted or target.deleted:
+            continue
+        if not include_test and (source.is_test or target.is_test):
+            continue
+        rec = {
+            "source": source.slug,
+            "target": target.slug,
+            "order": int(link.order or 0),
+            "label": link.label,
+            "external_source": link.external_source,
+        }
+        if source.external_id:
+            rec["source_external_id"] = source.external_id
+        if target.external_id:
+            rec["target_external_id"] = target.external_id
+        records.append(rec)
+    records.sort(key=lambda r: (r["source"], r["order"], r["target"]))
+    return records
 
 
 def find_orphan_overrides(include_test: bool = False) -> list:

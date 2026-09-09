@@ -251,6 +251,12 @@ PUBLIC_CATEGORY_KEYS = sorted([
     # answer as the hint above: it describes the public tree's own shape and
     # a reader cannot draw the row without it.
     "children_axis_label",
+    # The same axis, named the way the SOURCE catalogue names it, and the
+    # feature whose values a branch expands into. Both describe the shape of
+    # the public tree the reader can already walk — the same disclosure
+    # answer as the two above — and a client cannot draw an expanded branch
+    # without knowing which filter its values address.
+    "children_axis_tag", "children_expand_by",
     # The child set a reader can actually FETCH, and its size — live rows
     # only. `tn_children_pks` below is treenode's raw structure column and
     # counts soft-deleted and retired rows; it stays for the sync feed, but a

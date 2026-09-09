@@ -1,8 +1,8 @@
-# stapel-categories 0.21.7
+# stapel-categories 0.22.0
 
 Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree. Each node also declares how its CHILDREN are presented (`children_as`: `tiles` for real subcategories, `chips` for a partition of one attribute template), authored or derived by the `derive_children_as` command, and the whole visible tree is readable nested in one cached call (`GET /categories/api/v1/tree/?depth=N`).
 
-Contract: axes 1 · surface 22 · extension points 4 · operations 34 · error codes 64.
+Contract: axes 1 · surface 23 · extension points 4 · operations 37 · error codes 64.
 Generated from docs/capabilities.json by `stapel-llms-txt` — do not edit; drift-gated by `make contract-check`.
 
 ## Configuration axes — what a product switches on
@@ -34,6 +34,8 @@ This is the answer to "does Stapel already have something for X?". `instead of` 
   Snapshot the live Category/Feature/CategoryFeature tables into the natural-key fixture shape (features/categories/sync-state sidecar) — call this for any export/dump/diff tooling that needs the catalog as portable JSON, instead of re-deriving the is_test exclusion, soft-delete filtering and nearest-exported-ancestor parent_slug resolution by hand.
 - build_editor_state — stapel_categories.feature_editor.build_editor_state
   Build the feature-editor's read-model JSON for a category (own + inherited features, per-slug available_actions, available root features, echoed revision) in one call — the shape the editor UI/API is built on. Recomputing it by hand means re-deriving the M-4 rule that edit/remove are only offered for a slug the parent does NOT carry.
+- build_links — stapel_categories.catalog_fixtures.build_links
+  Snapshot the CategoryLink table into the links.json fixture shape — one record per pointer, both ends addressed by slug with the external ids alongside. Call it from export/diff tooling that needs the catalogue's cross-links as portable JSON; links live in their own file because an edge belongs to two category records and writing it into either would move that record's content hash whenever the other end moved.
 - cache_feature_translation — stapel_categories.translation.cache_feature_translation
   Force-rebuild and re-cache a feature's admin display label — call this after a change translate_feature's own cache would not know to invalidate (e.g. a bulk update that bypasses Feature.save()), instead of leaving a stale cached label around.
 - canonical_json — stapel_categories.catalog_fixtures.canonical_json
@@ -85,7 +87,7 @@ This is the answer to "does Stapel already have something for X?". `instead of` 
 - stapel-attributes (required) — the feature-type registry, config/DTO validation, polymorphic serializers and admin widgets are imported from stapel-attributes and never re-implemented (pyproject.toml dependency; admin.py:16, forms.py:14, serializers.py:11, views.py:23-24)
 - stapel-core (required) — comm bus (mutate_and_emit/function), RevisionMixin, AppSettings, error registry (pyproject.toml dependency; models.py:28-29, conf.py:11, functions.py:22)
 
-## HTTP operations (34) — call by operationId, never by a typed path
+## HTTP operations (37) — call by operationId, never by a typed path
 Paths are relative to `/categories/api/v1/`.
 ### Categories
 - POST /categories/bulk_add/ — categories_api_v1_categories_bulk_add_create
@@ -98,6 +100,9 @@ Paths are relative to `/categories/api/v1/`.
 - GET /categories/{id}/deleted-children/ — categories_api_v1_categories_deleted_children_list
 - DELETE /categories/{id}/ — categories_api_v1_categories_destroy
 - GET /categories/{id}/features/ — categories_api_v1_categories_features_list
+- POST /categories/{id}/links/ — categories_api_v1_categories_links_create
+- DELETE /categories/{id}/links/{target_pk}/ — categories_api_v1_categories_links_destroy
+- GET /categories/{id}/links/ — categories_api_v1_categories_links_list
 - GET /categories/ — categories_api_v1_categories_list
 - PATCH /categories/{id}/ — categories_api_v1_categories_partial_update
 - GET /categories/{id}/ — categories_api_v1_categories_retrieve

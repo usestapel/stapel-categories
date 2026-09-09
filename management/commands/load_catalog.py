@@ -37,7 +37,8 @@ from stapel_categories import catalog_load as cl
 _KIND_ORDER = (
     cl.CREATED, cl.UPDATED, cl.DELETED, cl.SKIPPED,
     cl.CONFLICT, cl.DB_ONLY, cl.DB_NEW, cl.DB_NEW_IN_CANON,
-    cl.NAME_COLLISION, cl.RESIDUAL, cl.RENAME_BLOCKED, cl.ERROR,
+    cl.NAME_COLLISION, cl.RESIDUAL, cl.RENAME_BLOCKED, cl.LINK_UNRESOLVED,
+    cl.ERROR,
 )
 _KIND_LABEL = {
     cl.CREATED: "created",
@@ -51,6 +52,7 @@ _KIND_LABEL = {
     cl.NAME_COLLISION: "sibling name collision",
     cl.RESIDUAL: "applied but not equal to canon",
     cl.RENAME_BLOCKED: "feature rename BLOCKED",
+    cl.LINK_UNRESOLVED: "link end not in this catalogue",
     cl.ERROR: "ERROR",
 }
 _KIND_MARK = {
@@ -65,6 +67,7 @@ _KIND_MARK = {
     cl.NAME_COLLISION: "?",
     cl.RESIDUAL: "≈",
     cl.RENAME_BLOCKED: "»",
+    cl.LINK_UNRESOLVED: "?",
     cl.ERROR: "E",
 }
 
@@ -221,11 +224,19 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.ERROR(line))
                 elif it.kind in (
                     cl.DB_ONLY, cl.DB_NEW, cl.DB_NEW_IN_CANON, cl.NAME_COLLISION,
-                    cl.RESIDUAL, cl.RENAME_BLOCKED,
+                    cl.RESIDUAL, cl.RENAME_BLOCKED, cl.LINK_UNRESOLVED,
                 ):
                     self.stdout.write(self.style.WARNING(line))
                 else:
                     self.stdout.write(line)
+        if report.links:
+            # `kept` is the number this line exists for: the pointers this
+            # load left alone because somebody else authored them.
+            self.stdout.write(
+                f"{prefix}links: created {report.links['created']}, "
+                f"replaced {report.links['deleted']}, "
+                f"kept (other authors) {report.links['kept']}"
+            )
         if report.kept_unsaid:
             # What the load did NOT blank. An absent key is not an instruction
             # to empty a column, and the erasure this replaces was silent: a

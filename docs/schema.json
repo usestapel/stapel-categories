@@ -297,7 +297,7 @@
     "/categories/api/v1/categories/{id}/children/": {
       "get": {
         "operationId": "categories_api_v1_categories_children_list",
-        "description": "Get all non-deleted children of this category, sorted by tn_priority descending.\n\n**Permissions:** `ReadOnlyOrStaff`",
+        "description": "The level below this category, in the order a storefront draws it. Three kinds of entry, and a client that renders the first renders the others with no new code: a real child; a POINTER into another branch (`linked: true`, every other key the target's); and, on a category with `children_expand_by`, a VIRTUAL value (`virtual: true`, no id and no slug — a `filter` pair the client turns into its own filter URL on THIS category).\n\n**Permissions:** `ReadOnlyOrStaff`",
         "parameters": [
           {
             "in": "path",
@@ -324,7 +324,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/Category"
+                    "$ref": "#/components/schemas/CategoryChild"
                   }
                 }
               }
@@ -577,6 +577,150 @@
                   "items": {
                     "$ref": "#/components/schemas/FeatureEffective"
                   }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/links/": {
+      "get": {
+        "operationId": "categories_api_v1_categories_links_list",
+        "description": "The pointers drawn among this category's children. Staff only: the public reads serve the ASSEMBLED child list, and the table behind it is operator bookkeeping.\n\n**Permissions:** `IsStaffUser`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryLink"
+                  }
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "categories_api_v1_categories_links_create",
+        "description": "Create a pointer from this category to another. `order` is its position among the children; `external_source` says who authored it — an operator's own links use `storefront` and survive every catalogue reload.\n\n**Permissions:** `IsStaffUser`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryLink"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryLink"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryLink"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryLink"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/categories/api/v1/categories/{id}/links/{target_pk}/": {
+      "delete": {
+        "operationId": "categories_api_v1_categories_links_destroy",
+        "description": "Delete the pointer from this category to `target_pk`. Deleting a pointer deletes nothing else: the target keeps its own place in the tree.\n\n**Permissions:** `IsStaffUser`",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "integer"
+            },
+            "description": "A unique integer value identifying this category.",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "target_pk",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "Categories"
+        ],
+        "security": [
+          {
+            "JWTCookieAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {}
                 }
               }
             },
@@ -1646,7 +1790,18 @@
         "type": "string",
         "description": "* `keep` - keep\n* `add` - add\n* `edit` - edit\n* `inherit` - inherit\n* `remove` - remove\n* `create` - create\n* `replace` - replace"
       },
-      "AxisRoleDerivedEnum": {
+      "AxisRoleAuthoredE96Enum": {
+        "enum": [
+          "make",
+          "model",
+          "generation",
+          "year",
+          "mileage"
+        ],
+        "type": "string",
+        "description": "* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
+      },
+      "AxisRoleEnum": {
         "enum": [
           "make",
           "model",
@@ -1760,6 +1915,16 @@
             "readOnly": true,
             "description": "Name of the axis the children split on, for a `chips` row (e.g. a key rendering as 'Condition' over New | Used). A translation key, like `name` — empty when nobody named it."
           },
+          "children_axis_tag": {
+            "type": "string",
+            "readOnly": true,
+            "description": "External tag of the field the children enumerate (e.g. `operation_type`) — the source catalogue's own identifier, NOT a translation key. It is how a client recognises that this level and an ordinary feature elsewhere in the tree are the same question. Empty when nobody named it."
+          },
+          "children_expand_by": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Slug of the feature whose values ARE this category's children. When set, `GET /children/` answers with virtual children (each a `{feature: value}` filter on this category) and `children_pks` is empty — there are no rows. Empty for every ordinary node."
+          },
           "children_pks": {
             "type": "array",
             "items": {
@@ -1817,7 +1982,9 @@
         "required": [
           "children_as",
           "children_axis_label",
+          "children_axis_tag",
           "children_count",
+          "children_expand_by",
           "children_pks",
           "features",
           "id",
@@ -1905,6 +2072,19 @@
           "categories"
         ]
       },
+      "CategoryChild": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Category"
+          },
+          {
+            "$ref": "#/components/schemas/CategoryLinkedChild"
+          },
+          {
+            "$ref": "#/components/schemas/CategoryVirtualChild"
+          }
+        ]
+      },
       "CategoryCommand": {
         "type": "object",
         "description": "Serializer for category command pattern.",
@@ -1947,6 +2127,189 @@
         },
         "required": [
           "command"
+        ]
+      },
+      "CategoryLink": {
+        "type": "object",
+        "description": "Staff read/write of one pointer between two categories.\n\n``source`` is the URL's category, so it is never in the body. ``target``\nis a category id; ``external_source`` says who authored the link and is\nwhat a catalogue reload keys its rewrite on — an operator's own links\ncarry ``storefront`` and survive every import.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "target": {
+            "type": "integer",
+            "description": "The category the pointer leads to."
+          },
+          "target_slug": {
+            "type": "string",
+            "readOnly": true
+          },
+          "target_name": {
+            "type": "string",
+            "readOnly": true
+          },
+          "order": {
+            "type": "integer",
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "format": "int64",
+            "description": "Position among the source's children — the pointer is inserted at this index into the child list, not appended after it."
+          },
+          "label": {
+            "type": "string",
+            "description": "Text drawn on the pointer — a translation key, like `name`. Empty means the target's own name.",
+            "maxLength": 200
+          },
+          "external_source": {
+            "type": "string",
+            "description": "Who created this link: an importer's name, or `storefront` for an operator's own. A catalogue reload rewrites only the links carrying the source it loads.",
+            "maxLength": 32
+          }
+        },
+        "required": [
+          "id",
+          "target",
+          "target_name",
+          "target_slug"
+        ]
+      },
+      "CategoryLinkedChild": {
+        "type": "object",
+        "description": "A POINTER among a category's children — the target, marked as one.\n\nEvery key is the target's, so a client that already renders a child\nrenders this one with no new code: the address it navigates to, the\nbreadcrumbs it draws and the listings it counts all belong to the node\nthe pointer leads to. Two keys are the pointer's own: ``linked``, which\nsays not to treat this as a child of the category being listed, and\n``name``, which is the link's label when it carries one.",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "catalog_icon": {
+            "type": "string",
+            "description": "CDN catalog icon reference (opaque string, e.g. catalog/asset-name)",
+            "maxLength": 255
+          },
+          "carousel_icon": {
+            "type": "string",
+            "description": "CDN carousel icon reference (opaque string, e.g. carousel/asset-name)",
+            "maxLength": 255
+          },
+          "carousel_enabled": {
+            "type": "boolean",
+            "description": "Whether this category appears in the carousel"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "Whether this category is active"
+          },
+          "children_as": {
+            "description": "How this category's children are presented: `tiles` (real subcategories), `chips` (a partition of one attribute template) or `transparent` (browsing skips this node — its children appear where it would, and its own page is its parent's). `null` when the category has no children. The authoring value `auto` is resolved server-side and never appears here.",
+            "nullable": true,
+            "readOnly": true,
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChildrenAsEnum"
+              },
+              {
+                "$ref": "#/components/schemas/NullEnum"
+              }
+            ]
+          },
+          "children_axis_label": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Name of the axis the children split on, for a `chips` row (e.g. a key rendering as 'Condition' over New | Used). A translation key, like `name` — empty when nobody named it."
+          },
+          "children_axis_tag": {
+            "type": "string",
+            "readOnly": true,
+            "description": "External tag of the field the children enumerate (e.g. `operation_type`) — the source catalogue's own identifier, NOT a translation key. It is how a client recognises that this level and an ordinary feature elsewhere in the tree are the same question. Empty when nobody named it."
+          },
+          "children_expand_by": {
+            "type": "string",
+            "readOnly": true,
+            "description": "Slug of the feature whose values ARE this category's children. When set, `GET /children/` answers with virtual children (each a `{feature: value}` filter on this category) and `children_pks` is empty — there are no rows. Empty for every ordinary node."
+          },
+          "children_pks": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "readOnly": true,
+            "description": "Ids of the children a reader can see — exactly what `GET /categories/{id}/children/` returns, in the same order. Read this, not `tn_children_pks`: that is django-treenode's raw structure column and it counts soft-deleted and retired rows too, so a rule built on it (leaf-ness, child counts, a one-child wrapper check) sees children no reader can fetch."
+          },
+          "children_count": {
+            "type": "integer",
+            "readOnly": true,
+            "description": "How many children a reader can see — `len(children_pks)`."
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "readOnly": true
+          },
+          "translatable": {
+            "type": "boolean",
+            "description": "If True, category name is a translation key"
+          },
+          "tn_parent": {
+            "type": "integer",
+            "nullable": true,
+            "title": "Parent"
+          },
+          "tn_priority": {
+            "type": "integer",
+            "maximum": 9999999999,
+            "minimum": 0,
+            "format": "int64",
+            "title": "Priority"
+          },
+          "tn_ancestors_pks": {
+            "type": "string",
+            "readOnly": true,
+            "title": "Ancestors pks"
+          },
+          "tn_children_pks": {
+            "type": "string",
+            "readOnly": true,
+            "description": "django-treenode's raw structure column, `,`-joined. Counts soft-deleted and retired rows, so it is NOT the child set a reader can fetch — use `children_pks`. Kept because the revision-sync feed's consumers mirror the tree columns."
+          },
+          "revision": {
+            "type": "integer",
+            "readOnly": true
+          },
+          "deleted": {
+            "type": "boolean"
+          },
+          "linked": {
+            "type": "boolean",
+            "readOnly": true,
+            "description": "Always `true`. This node is drawn here but lives elsewhere in the tree — `id`, `slug` and `tn_parent` are the target's."
+          }
+        },
+        "required": [
+          "children_as",
+          "children_axis_label",
+          "children_axis_tag",
+          "children_count",
+          "children_expand_by",
+          "children_pks",
+          "features",
+          "id",
+          "linked",
+          "name",
+          "revision",
+          "slug",
+          "tn_ancestors_pks",
+          "tn_children_pks"
         ]
       },
       "CategoryStaff": {
@@ -1999,6 +2362,14 @@
           "children_axis_label": {
             "type": "string",
             "maxLength": 200
+          },
+          "children_axis_tag": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "children_expand_by": {
+            "type": "string",
+            "maxLength": 100
           },
           "children_pks": {
             "type": "array",
@@ -2126,6 +2497,29 @@
             "type": "string",
             "description": "Name of the axis the children split on, for a `chips` row. A translation key, like `name`; empty when nobody named it."
           },
+          "children_axis_tag": {
+            "type": "string",
+            "description": "External tag of the field the children enumerate — the source catalogue's own identifier, not a translation key. Empty when nobody named it."
+          },
+          "linked": {
+            "type": "boolean",
+            "description": "Present and `true` on a POINTER: this node is drawn among its parent's children but lives elsewhere in the tree. Its `id`, `slug` and `path` are the target's, so following it lands on the target's own page; only `name` may be the pointer's."
+          },
+          "virtual": {
+            "type": "boolean",
+            "description": "Present and `true` on a value of an expanded branch (the parent's `children_expand_by`). Such a node has no `id`, no `slug` and no `path` — it carries `name`, `value` and a `filter` object the client turns into its own filter URL on the PARENT category."
+          },
+          "value": {
+            "type": "string",
+            "description": "Virtual nodes only: the option code this node stands for."
+          },
+          "filter": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Virtual nodes only: the `{feature_slug: value}` pair that selects this node's listings on the parent category."
+          },
           "children_count": {
             "type": "integer",
             "description": "How many children this node HAS — live rows only, so it counts no soft-deleted or retired row. Not `len(children)`: at the requested depth `children` is empty and this still says whether there is another level to ask for."
@@ -2144,11 +2538,43 @@
           "children",
           "children_as",
           "children_axis_label",
+          "children_axis_tag",
           "children_count",
           "id",
           "name",
           "path",
           "slug"
+        ]
+      },
+      "CategoryVirtualChild": {
+        "type": "object",
+        "description": "One value of an expanded branch — a child with no row behind it.\n\nEmitted where the parent carries ``children_expand_by``. There is no\n``id`` and no ``slug`` because there is nothing to address; the address\nis the client's own filter URL on the PARENT category, built from\n``filter``.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display label of the value — a translation key, like `name`."
+          },
+          "value": {
+            "type": "string",
+            "description": "The option code this node stands for."
+          },
+          "virtual": {
+            "type": "boolean",
+            "description": "Always `true`."
+          },
+          "filter": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The `{feature_slug: value}` pair that selects this node's listings on the parent category."
+          }
+        },
+        "required": [
+          "filter",
+          "name",
+          "value",
+          "virtual"
         ]
       },
       "ChildrenAsAuthoredEnum": {
@@ -2377,7 +2803,7 @@
             "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. Authored value first, then the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/AxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/NullEnum"
@@ -2388,7 +2814,7 @@
             "description": "The authoring column: blank leaves the role to `load_catalog`'s slug-table derivation, a value pins it. `axis_role` above is the RESOLVED read.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/AxisRoleAuthoredE96Enum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -2613,7 +3039,7 @@
             "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/AxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -2621,13 +3047,9 @@
             ]
           },
           "axis_role_derived": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
-              }
-            ],
+            "type": "string",
             "readOnly": true,
-            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
+            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value."
           },
           "translate": {
             "allOf": [
@@ -2734,7 +3156,7 @@
             "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. It is what a storefront reads to build a «more of this make» link, or an AI descent to fill make before model, instead of matching slugs against a table of its own.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/AxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/NullEnum"
@@ -3001,7 +3423,7 @@
             "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/AxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -3009,13 +3431,9 @@
             ]
           },
           "axis_role_derived": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
-              }
-            ],
+            "type": "string",
             "readOnly": true,
-            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
+            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value."
           },
           "translate": {
             "allOf": [
@@ -3462,7 +3880,7 @@
             "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. It is what a storefront reads to build a «more of this make» link, or an AI descent to fill make before model, instead of matching slugs against a table of its own.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/AxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/NullEnum"
@@ -4165,6 +4583,14 @@
             "type": "string",
             "maxLength": 200
           },
+          "children_axis_tag": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "children_expand_by": {
+            "type": "string",
+            "maxLength": 100
+          },
           "children_pks": {
             "type": "array",
             "items": {
@@ -4388,7 +4814,7 @@
             "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/AxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -4396,13 +4822,9 @@
             ]
           },
           "axis_role_derived": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
-              }
-            ],
+            "type": "string",
             "readOnly": true,
-            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
+            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value."
           },
           "translate": {
             "allOf": [

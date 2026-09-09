@@ -17,7 +17,13 @@ from stapel_attributes import get_feature_type, parse_config
 from stapel_core.django.admin.mixins import RevisionAdmin
 
 from .forms import CategoryAdminForm, FeatureAdminForm
-from .models import Category, CategoryFeature, CategorySlugAlias, Feature
+from .models import (
+    Category,
+    CategoryFeature,
+    CategoryLink,
+    CategorySlugAlias,
+    Feature,
+)
 
 
 class SubFeatureInline(admin.TabularInline):
@@ -70,7 +76,10 @@ class CategoryAdmin(RevisionAdmin, TreeNodeModelAdmin):
             "description": "CDN asset references as opaque strings (e.g. catalog/electronics).",
         }),
         ("Presentation", {
-            "fields": ("children_as", "children_axis_label"),
+            "fields": (
+                "children_as", "children_axis_label", "children_axis_tag",
+                "children_expand_by",
+            ),
             "description": (
                 "How a storefront presents this category's CHILDREN. `auto` "
                 "leaves the answer to the `derive_children_as` command; "
@@ -83,7 +92,15 @@ class CategoryAdmin(RevisionAdmin, TreeNodeModelAdmin):
                 "`children_axis_label` names the axis a chip row splits on "
                 "— a translation key, like the name; your text is never "
                 "overwritten, and a blank one may be filled by that same "
-                "command."
+                "command. "
+                "`children_axis_tag` is the SOURCE catalogue's identifier "
+                "for that same axis (not a translation key) — it is how a "
+                "client tells that this level and a feature elsewhere ask "
+                "one question. `children_expand_by` names one of this "
+                "category's features whose values ARE its children: the "
+                "reads answer with those values, each addressing a filter on "
+                "this category, and no rows are created. A category with "
+                "real children cannot carry it."
             ),
         }),
         ("Feature Editor", {"fields": ("draft",), "description": "Manage features for this category"}),
@@ -301,3 +318,21 @@ class CategorySlugAliasAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(CategoryLink)
+class CategoryLinkAdmin(admin.ModelAdmin):
+    """Pointers drawn among a category's children, leading elsewhere.
+
+    An operator's own link is authored here and carries
+    ``external_source = "storefront"``, which is what makes a catalogue
+    reload leave it alone; a link an importer created carries that
+    importer's name and is rewritten on every load of its fixtures.
+    """
+
+    list_display = ("source", "target", "order", "label", "external_source")
+    list_filter = ("external_source",)
+    search_fields = (
+        "source__slug", "source__name", "target__slug", "target__name",
+    )
+    raw_id_fields = ("source", "target")

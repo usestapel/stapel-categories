@@ -49,7 +49,8 @@ COMMITTED = DOCS / "llms.txt"
 # rendered file past the generator's default 4000-token budget — the same
 # deliberate exception stapel-forms (5000), stapel-recordings (5000) and
 # stapel-workspaces (4500) already take (see the Makefile `contract` target).
-LLMS_TXT_BUDGET = 5000
+# 5500 since 0.22.0, for the links fixture builder that joined the surface.
+LLMS_TXT_BUDGET = 5500
 
 
 @pytest.fixture(scope="module")

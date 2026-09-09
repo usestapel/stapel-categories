@@ -1,5 +1,123 @@
 # Changelog
 
+## [0.22.0] — 2026-09-10
+
+### Added — a level a catalogue can describe without inventing a second tree
+
+Minor: two additive columns on `Category`, one new table, both public reads
+extended, `docs/schema.json` moves. Every default is the empty string, so a
+catalogue that says nothing behaves exactly as it did under 0.21.7.
+
+A real catalogue's browse structure is not the tree its publishing form
+walks. Three shapes kept arriving that the schema had no honest place for: a
+branch whose children are the four hundred values of one of its own fields; a
+node that must appear under a second root without becoming a second row; and
+a level that IS a field, splitting the tree in one corner of the catalogue
+while the same field rides a leaf as an ordinary feature two branches over.
+Each of them has an obvious wrong answer — materialise the values as rows,
+duplicate the node, add a "kind" column — and each wrong answer ends in the
+same place: two rows that can disagree about one subject.
+
+**`Category.children_axis_tag`** (`CharField(64)`, blank). The external tag
+of the field a branch splits on, beside the human caption
+`children_axis_label` that has been there since 0.19. It is not a translation
+key: it is the source catalogue's own identifier, and it exists so a client
+can tell that this level and a feature elsewhere in the tree ask one
+question — the storefront draws one chip row for both, and without the tag
+there is nowhere to record the connection. Read-only on `CategorySerializer`
+and in `/tree/`, writable on `CategoryStaffSerializer`.
+
+**`Category.children_expand_by`** (`CharField(100)`, blank). The slug of one
+of this node's own features whose closed value set IS its children. Set it
+and `GET /tree/` and `GET /categories/{id}/children/` answer with **virtual**
+children — `virtual: true`, a display `name`, the option `value`, and a
+`{feature_slug: value}` `filter` pair the client turns into its existing
+filter URL on this same category. No `id`, no `slug`, and **nothing written
+to the table**: the values keep one home, in the field's option set, instead
+of a second one in a row named after each. There is deliberately no `href`:
+the address is the storefront's own filter route, which this module does not
+know.
+
+Values come from an inline option set, or — for a referential type
+(`ref_select` and friends) — from the registered vocabulary resolver, IF it
+offers the optional reader `terms(vocabulary, level) -> [(code, label)]`.
+stapel-attributes' `VocabularyResolver` protocol is four questions about ONE
+code and deliberately cannot list a level, so a resolver without that reader
+yields no virtual children rather than a guess.
+
+Two refusals, one function (`branching.expansion_error`), two callers: the
+staff write answers 400, and the `stapel_categories.E001` system check
+reports them over the whole table (a Warning, not an Error — a broken
+expansion is one empty page, and refusing to boot a service over one mistyped
+slug in a three-thousand-row catalogue trades that page for an outage).
+The refusals are: a feature the category does not have or whose type has no
+closed value set, and a node that has real children *and* expands them.
+Either a branch or an expansion, never both.
+
+**`CategoryLink`** — `source`/`target` FKs to `Category` (`links` /
+`linked_from`), `order`, `label`, `external_source`, unique on
+`(source, target)`. A pointer drawn among the source's children, at the index
+`order` names — mixed in with the real ones, not appended after them — with
+the target's own slug, address and breadcrumbs behind it. `linked: true`
+marks it; `label` (a translation key, like `name`) overrides the displayed
+name, and an empty one falls back to the target's. A curated group or a
+cross-root section is this table; it needs no second node and no `kind`
+column. A pointer whose target the reader cannot see is not drawn, and its
+own subtree is not expanded in `/tree/` — it is a destination.
+
+Staff API: `GET|POST /categories/{id}/links/` and
+`DELETE /categories/{id}/links/{target_id}/`. A link write saves its source
+category, which is what moves the tree-cache fingerprint — otherwise a new
+pointer would appear only when a five-minute timeout ran out.
+
+### Added — links in the catalogue fixtures, with the reload discipline
+
+`export_catalog` writes a third file, `links.json`, and `load_catalog` reads
+it. It is optional: a directory without one says nothing about links and
+touches none — silence is not an instruction to delete.
+
+A link record carries the name of whoever created it, and **a load owns
+exactly the `external_source` values its own file names**: it deletes and
+recreates those and never looks at another author's. An operator's links
+(`storefront`, authored in the admin) therefore survive every catalogue
+re-import, and two importers feeding one tree cannot delete each other's.
+This is the discipline `children_as` already follows, one table over — a
+fixture never overwrites what somebody else authored. The report says so out
+loud: `links: created N, replaced N, kept (other authors) N`.
+
+Both ends of a link resolve by `external_id` first (it survives a source-side
+rename the file's own slug column may already have moved) and by `slug`
+otherwise. An end this catalogue does not have is an ERROR on a real run and
+a note on a dry run, where the missing row may be one the same load creates.
+
+Links live in their own file because an edge belongs to two category records:
+writing it into either would move that record's content hash whenever the
+other end moved. So no sidecar version changed, and a fixture set written
+before this release loads unchanged. `children_axis_tag` and
+`children_expand_by` join `categories.json` under the existing "written only
+when set" rule, for the same reason: no hash on disk moves.
+
+The one thing this scheme cannot express is "the last link of source X is
+gone" — with no record naming X, the file no longer owns X. A producer that
+emits its whole set every run never meets it; an operator removing the last
+one does it where it was authored.
+
+### Changed
+
+- `docs/llms.txt` budget 5000 → 5500 (Makefile and `tests/test_contract.py`):
+  the links fixture builder is a 23rd surface entry and the rendered file came
+  out 63 tokens over. Raised deliberately rather than trimming an `intent`
+  line to fit — a cut context file reads exactly like a complete one.
+- `PUBLIC_CATEGORY_KEYS` grows by `children_axis_tag` and
+  `children_expand_by`. Both describe the shape of the public tree the same
+  reader can already walk, and a client cannot draw an expanded branch
+  without knowing which filter its values address.
+
+### Migration
+
+`0011_category_links_and_expansion` — expand-only: two blank-able columns and
+one new table. Nothing is dropped and no existing row changes meaning.
+
 ## [0.21.7] — 2026-09-08
 
 ### Fixed — the Spanish catalogue quotes the slug, like the Russian one does

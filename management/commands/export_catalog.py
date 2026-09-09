@@ -100,6 +100,10 @@ class Command(BaseCommand):
                 return
 
         features, categories, state = cf.build_catalog(include_test=include_test)
+        # Links ride in their own file (cf.LINKS_FILE): an edge belongs to
+        # two category records and would move a hash on whichever one it
+        # was written into.
+        links = cf.build_links(include_test=include_test)
 
         orphans = cf.find_orphan_overrides(include_test=include_test)
         if orphans:
@@ -112,15 +116,18 @@ class Command(BaseCommand):
 
         if dry_run:
             self._report_dry_run(features, categories, state, prev_state, out_dir)
+            self.stdout.write(f"[dry-run] links: {len(links)} total")
             return
 
         os.makedirs(out_dir, exist_ok=True)
         self._write(os.path.join(out_dir, cf.FEATURES_FILE), cf.canonical_json(features))
         self._write(os.path.join(out_dir, cf.CATEGORIES_FILE), cf.canonical_json(categories))
+        self._write(os.path.join(out_dir, cf.LINKS_FILE), cf.canonical_json(links))
         self._write(state_path, cf.canonical_json(state))
 
         self.stdout.write(self.style.SUCCESS(
-            f"Exported {len(categories)} categories and {len(features)} features to {out_dir}"
+            f"Exported {len(categories)} categories, {len(features)} features "
+            f"and {len(links)} links to {out_dir}"
         ))
 
     # -- helpers -----------------------------------------------------------

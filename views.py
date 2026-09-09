@@ -14,6 +14,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
+    PolymorphicProxySerializer,
     extend_schema,
     extend_schema_view,
     inline_serializer,
@@ -61,13 +62,22 @@ from .feature_editor import (
     apply_feature_editor_changes,
     build_editor_state,
 )
-from .models import Category, Feature, resolve_children_as, retired_slug_target
+from .models import (
+    Category,
+    CategoryLink,
+    Feature,
+    resolve_children_as,
+    retired_slug_target,
+)
 from .serializers import (
     CategoryBulkCommandSerializer,
     CategoryBulkSerializer,
+    CategoryLinkedChildSerializer,
+    CategoryLinkSerializer,
     CategorySerializer,
     CategoryStaffSerializer,
     CategoryTreeNodeSerializer,
+    CategoryVirtualChildSerializer,
     FeatureBulkSerializer,
     FeatureCompactSerializer,
     FeatureConfigSchemaField,
@@ -215,6 +225,47 @@ def with_live_children(queryset):
             to_attr="_live_children",
         )
     )
+
+
+def child_entries(category, real_children) -> list:
+    """The level below *category*: real children, pointers and values.
+
+    ONE assembly, called by ``children`` and — through the flat form — by
+    the tree endpoint, so the two cannot disagree about what a child list
+    is. See :mod:`stapel_categories.branching` for the two additions and why
+    neither is a row.
+
+    ``real_children`` is the caller's own queryset (already visibility-
+    filtered and ordered), so this adds two queries at most: the links of
+    this one category, and their targets.
+    """
+    from .branching import insert_links, link_name, links_by_source, virtual_children
+
+    if category.children_expand_by:
+        # Either a branch or an expansion, never both (branching.expansion_error),
+        # so a non-empty real child list here means a mis-authored row —
+        # the values win, because that is what the node claims to be.
+        entries = virtual_children(category)
+    else:
+        entries = list(CategorySerializer(real_children, many=True).data)
+
+    links = links_by_source([category.pk]).get(category.pk, [])
+    if not links:
+        return entries
+
+    targets = with_live_children(
+        visible_categories()
+        .filter(pk__in={link.target_id for link in links})
+        .prefetch_related("features")
+    )
+    rendered = {
+        row.pk: CategoryLinkedChildSerializer(row).data for row in targets
+    }
+
+    def render(link):
+        return {**rendered[link.target_id], "name": link_name(link), "linked": True}
+
+    return insert_links(entries, links, render)
 
 
 @extend_schema(tags=["Categories"])
@@ -544,8 +595,27 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         return Response(ValidationBatchResultSerializer(result).data)  # noqa: R001
 
     @extend_schema(
-        description="Get all non-deleted children of this category, sorted by tn_priority descending.",
-        responses={200: CategorySerializer(many=True)},
+        description=(
+            "The level below this category, in the order a storefront draws "
+            "it. Three kinds of entry, and a client that renders the first "
+            "renders the others with no new code: a real child; a POINTER "
+            "into another branch (`linked: true`, every other key the "
+            "target's); and, on a category with `children_expand_by`, a "
+            "VIRTUAL value (`virtual: true`, no id and no slug — a `filter` "
+            "pair the client turns into its own filter URL on THIS category)."
+        ),
+        responses={
+            200: PolymorphicProxySerializer(
+                component_name="CategoryChild",
+                serializers=[
+                    CategorySerializer,
+                    CategoryLinkedChildSerializer,
+                    CategoryVirtualChildSerializer,
+                ],
+                resource_type_field_name=None,
+                many=True,
+            )
+        },
         parameters=[],
     )
     @action(detail=True, methods=["get"], url_path="children", pagination_class=None)
@@ -558,11 +628,74 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
             .prefetch_related("features")
             .order_by("-tn_priority", "id")
         )
-        response = Response(CategorySerializer(children, many=True).data)  # noqa: R001
+        response = Response(child_entries(category, children))  # noqa: R001
         response["Cache-Control"] = (
             f"public, max-age={categories_settings.TREE_CACHE_TIMEOUT}"
         )
         return response
+
+    @extend_schema(
+        methods=["GET"],
+        description=(
+            "The pointers drawn among this category's children. Staff only: "
+            "the public reads serve the ASSEMBLED child list, and the table "
+            "behind it is operator bookkeeping."
+        ),
+        responses={200: CategoryLinkSerializer(many=True)},
+        parameters=[],
+    )
+    @extend_schema(
+        methods=["POST"],
+        description=(
+            "Create a pointer from this category to another. `order` is its "
+            "position among the children; `external_source` says who "
+            "authored it — an operator's own links use `storefront` and "
+            "survive every catalogue reload."
+        ),
+        request=CategoryLinkSerializer,
+        responses={201: CategoryLinkSerializer},
+        parameters=[],
+    )
+    @action(
+        detail=True, methods=["get", "post"], url_path="links",
+        permission_classes=[IsStaffUser], pagination_class=None,
+    )
+    def links(self, request, pk=None):  # noqa: R007
+        """List or create the pointers this category draws among its children."""
+        category = self.get_object()
+        if request.method == "POST":
+            serializer = CategoryLinkSerializer(
+                data=request.data, context={"source": category}
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save(source=category)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        rows = CategoryLink.objects.filter(source=category).select_related("target")
+        return Response(CategoryLinkSerializer(rows, many=True).data)
+
+    @extend_schema(
+        description=(
+            "Delete the pointer from this category to `target_pk`. Deleting "
+            "a pointer deletes nothing else: the target keeps its own place "
+            "in the tree."
+        ),
+        responses={204: None, 404: OpenApiTypes.OBJECT},
+        parameters=[],
+    )
+    @action(
+        detail=True, methods=["delete"],
+        url_path=r"links/(?P<target_pk>[^/.]+)",
+        permission_classes=[IsStaffUser],
+    )
+    def delete_link(self, request, pk=None, target_pk=None):  # noqa: R007
+        """Remove one pointer, by the id of the category it leads to."""
+        category = self.get_object()
+        deleted, _ = CategoryLink.objects.filter(
+            source=category, target_id=target_pk
+        ).delete()
+        if not deleted:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         description=(
@@ -1032,6 +1165,46 @@ def _tree_depth_param(raw) -> int:
     return max(1, min(depth, TREE_MAX_DEPTH))
 
 
+#: Columns one flat tree read needs — the node payload plus the two
+#: structure columns the nesting is done from.
+_TREE_ROW_FIELDS = (
+    "id", "slug", "name", "catalog_icon",
+    "children_as", "children_as_derived",
+    "children_axis_label", "children_axis_tag", "children_expand_by",
+    "tn_level", "tn_parent_id", "tn_ancestors_pks",
+)
+
+
+def _tree_node(row: dict, child_count: int) -> dict:
+    """One tree node from one flat row — no queries, no per-row work."""
+    ancestors = [pk for pk in (row["tn_ancestors_pks"] or "").split(",") if pk]
+    return {
+        "id": row["id"],
+        "slug": row["slug"],
+        # The stored value, exactly as every other public read serves it
+        # — this module ships translation KEYS and the client resolves
+        # them; translating here would make one read speak differently.
+        "name": row["name"],
+        # The `category` parameter of a search query is this exact string.
+        "path": "/".join([*ancestors, str(row["id"])]),
+        "catalog_icon": row["catalog_icon"],
+        "children_as": resolve_children_as(
+            row["children_as"], row["children_as_derived"], bool(child_count)
+        ),
+        # The stored key, like `name` above — a caption for the chip row
+        # the level below is drawn as, "" when nobody named the axis.
+        "children_axis_label": row["children_axis_label"],
+        # The source catalogue's own tag for that same axis, so a client can
+        # tell that this level and a feature elsewhere are one question.
+        "children_axis_tag": row["children_axis_tag"],
+        # How many children this node HAS, not how many this read sent:
+        # at the depth cap `children` is empty and this is what tells a
+        # menu there is another level to ask for.
+        "children_count": child_count,
+        "children": [],
+    }
+
+
 def build_category_tree(depth: int) -> list[dict]:
     """The visible catalogue, nested, down to *depth* levels.
 
@@ -1060,15 +1233,13 @@ def build_category_tree(depth: int) -> list[dict]:
     """
     from django.db.models import Count
 
+    from .branching import insert_links, link_name, links_by_source, virtual_children
+
     rows = list(
         visible_categories()
         .filter(tn_level__lte=depth)
         .order_by("-tn_priority", "id")
-        .values(
-            "id", "slug", "name", "catalog_icon",
-            "children_as", "children_as_derived", "children_axis_label",
-            "tn_parent_id", "tn_ancestors_pks",
-        )
+        .values(*_TREE_ROW_FIELDS)
     )
     live_children = {
         row["tn_parent_id"]: row["n"]
@@ -1078,33 +1249,10 @@ def build_category_tree(depth: int) -> list[dict]:
         .annotate(n=Count("pk"))
     }
 
-    nodes: dict[int, dict] = {}
-    for row in rows:
-        ancestors = [pk for pk in (row["tn_ancestors_pks"] or "").split(",") if pk]
-        nodes[row["id"]] = {
-            "id": row["id"],
-            "slug": row["slug"],
-            # The stored value, exactly as every other public read serves it
-            # — this module ships translation KEYS and the client resolves
-            # them; translating here would make one read speak differently.
-            "name": row["name"],
-            # The `category` parameter of a search query is this exact string.
-            "path": "/".join([*ancestors, str(row["id"])]),
-            "catalog_icon": row["catalog_icon"],
-            "children_as": resolve_children_as(
-                row["children_as"],
-                row["children_as_derived"],
-                bool(live_children.get(row["id"], 0)),
-            ),
-            # The stored key, like `name` above — a caption for the chip row
-            # the level below is drawn as, "" when nobody named the axis.
-            "children_axis_label": row["children_axis_label"],
-            # How many children this node HAS, not how many this read sent:
-            # at the depth cap `children` is empty and this is what tells a
-            # menu there is another level to ask for.
-            "children_count": live_children.get(row["id"], 0),
-            "children": [],
-        }
+    raw: dict[int, dict] = {row["id"]: row for row in rows}
+    nodes: dict[int, dict] = {
+        row["id"]: _tree_node(row, live_children.get(row["id"], 0)) for row in rows
+    }
 
     roots: list[dict] = []
     for row in rows:
@@ -1114,6 +1262,64 @@ def build_category_tree(depth: int) -> list[dict]:
             roots.append(node)
         elif parent is not None:
             parent["children"].append(node)
+
+    # A branch whose children are the values of one of its features. The
+    # values are terminal — no level below them — so they are assembled here
+    # rather than in the parenting loop above, and only where the depth cap
+    # leaves room for the level they occupy. `children_count` is set either
+    # way: like a real branch's, it says what the node HAS, not what this
+    # read sent.
+    for row in rows:
+        if not row["children_expand_by"]:
+            continue
+        node = nodes[row["id"]]
+        values = virtual_children(Category.objects.get(pk=row["id"]))
+        node["children_count"] = len(values)
+        node["children_as"] = resolve_children_as(
+            row["children_as"], row["children_as_derived"], bool(values)
+        )
+        if row["tn_level"] < depth:
+            node["children"] = values
+
+    # Pointers into other branches, drawn among the children they were
+    # positioned in. A pointer's own `children` stay empty: it is a
+    # destination, and the client asks the target for its level.
+    links = links_by_source(nodes.keys())
+    if links:
+        missing = {
+            link.target_id
+            for source_links in links.values()
+            for link in source_links
+            if link.target_id not in nodes
+        }
+        for row in visible_categories().filter(pk__in=missing).values(
+            *_TREE_ROW_FIELDS
+        ):
+            raw[row["id"]] = row
+            nodes[row["id"]] = _tree_node(row, live_children.get(row["id"], 0))
+        for source_id, source_links in links.items():
+            node = nodes[source_id]
+            node["children"] = insert_links(
+                node["children"],
+                source_links,
+                lambda link: {
+                    **nodes[link.target_id],
+                    "name": link_name(link),
+                    "children": [],
+                    "linked": True,
+                },
+            )
+            # A pointer is an entry of this level, so it counts as one: a
+            # menu that reads `children_count` to decide whether to draw the
+            # level would otherwise skip a node whose only entries are
+            # pointers, and `children_as` would say "no children" over a
+            # list that has some.
+            node["children_count"] += len(source_links)
+            node["children_as"] = resolve_children_as(
+                raw[source_id]["children_as"],
+                raw[source_id]["children_as_derived"],
+                bool(node["children_count"]),
+            )
     return roots
 
 

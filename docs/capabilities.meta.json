@@ -77,6 +77,10 @@
       "kind": "factory",
       "intent": "Snapshot the live Category/Feature/CategoryFeature tables into the natural-key fixture shape (features/categories/sync-state sidecar) — call this for any export/dump/diff tooling that needs the catalog as portable JSON, instead of re-deriving the is_test exclusion, soft-delete filtering and nearest-exported-ancestor parent_slug resolution by hand."
     },
+    "build_links": {
+      "kind": "factory",
+      "intent": "Snapshot the CategoryLink table into the links.json fixture shape — one record per pointer, both ends addressed by slug with the external ids alongside. Call it from export/diff tooling that needs the catalogue's cross-links as portable JSON; links live in their own file because an edge belongs to two category records and writing it into either would move that record's content hash whenever the other end moved."
+    },
     "find_orphan_overrides": {
       "kind": "predicate",
       "intent": "Detect override Feature rows (tn_parent set) linked to zero live categories — the check an ops/audit job should branch on to flag leaked override rows before they accumulate. Read-only: it reports, it does not clean up (catalog_load's own cleanup runs during a load, not from here)."
