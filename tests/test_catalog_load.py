@@ -2167,3 +2167,230 @@ class UnsaidKeyTests(_CatalogTestCase):
             moved = Category.objects.get(slug="clothing")
             self.assertEqual(moved.children_axis_label, "categories.axis.audience")
             self.assertFalse(Category.objects.filter(slug="apparel").exists())
+
+
+# ---------------------------------------------------------------------------
+# --keep-slugs: content now, addresses later (0.22.1)
+# ---------------------------------------------------------------------------
+
+
+class KeepSlugsTests(_CatalogTestCase):
+    """A re-keyed catalogue loads its CONTENT without moving live ADDRESSES.
+
+    The source started deriving every slug from the chained node path, so a
+    re-import matched 3423 of 3444 rows by ``external_id`` and planned a slug
+    move on each — 3423 public addresses, and every other field the fixture
+    carried was stuck behind that decision. ``--keep-slugs`` splits the two:
+    the row keeps the slug it is published under and takes everything else,
+    and the rename it did not perform is counted and named.
+    """
+
+    def _seed_imported(self):
+        self.phones = Category.objects.create(
+            name="Phones", slug="phones", external_id="129639",
+            external_source="catalog-a",
+        )
+        self.used = Category.objects.create(
+            name="Used phones", slug="used-phones", tn_parent=self.phones,
+            external_id="129640", external_source="catalog-a",
+            children_axis_label="categories.axis.condition",
+        )
+
+    def _rekey(self, out):
+        """The fixture the source now emits: chained slugs, new content."""
+        records = _read_json(out, cf.CATEGORIES_FILE)
+        for rec in records:
+            if rec["external_id"] == "129639":
+                rec["slug"] = "transport-phones"
+                rec["name"] = "Mobile phones"
+            elif rec["external_id"] == "129640":
+                rec["slug"] = "transport-phones-used"
+                rec["parent_slug"] = "transport-phones"
+                rec["name"] = "Used mobile phones"
+                rec["children_axis_label"] = "categories.axis.grade"
+        _write_json(out, cf.CATEGORIES_FILE, records)
+        return records
+
+    def _load(self, out, **kwargs):
+        kwargs.setdefault("on_conflict", cl.ON_CONFLICT_FIXTURE)
+        kwargs.setdefault("keep_slugs", True)
+        return cl.load_catalog(out, **kwargs)
+
+    # -- the hold -----------------------------------------------------------
+
+    def test_a_held_rename_keeps_the_live_slug_and_applies_every_other_field(self):
+        self._seed_imported()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            self._rekey(out)
+
+            report = self._load(out)
+
+            self.assertFalse(report.failed, [(i.kind, i.key, i.detail) for i in report.categories])
+            # Addresses stand — same rows, same slugs, no duplicates.
+            self.assertEqual(Category.objects.count(), 2)
+            self.assertFalse(Category.objects.filter(slug="transport-phones").exists())
+            parent = Category.objects.get(pk=self.phones.pk)
+            child = Category.objects.get(pk=self.used.pk)
+            self.assertEqual(parent.slug, "phones")
+            self.assertEqual(child.slug, "used-phones")
+            # …and every other field of both records was applied.
+            self.assertEqual(parent.name, "Mobile phones")
+            self.assertEqual(child.name, "Used mobile phones")
+            self.assertEqual(child.children_axis_label, "categories.axis.grade")
+            self.assertEqual(child.tn_parent_id, parent.pk)
+            # Reported as updates, never as renames and never as add + remove.
+            kinds = {it.key: it.kind for it in report.categories}
+            self.assertEqual(kinds["phones"], cl.UPDATED)
+            self.assertEqual(kinds["used-phones"], cl.UPDATED)
+            self.assertEqual(report.renames, 0)
+            self.assertEqual(
+                [it.kind for it in report.categories
+                 if it.kind in (cl.CREATED, cl.DELETED)], []
+            )
+
+    def test_the_report_counts_and_lists_every_held_rename(self):
+        self._seed_imported()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            self._rekey(out)
+
+            report = self._load(out, dry_run=True)
+
+            self.assertEqual(
+                [(h.live_slug, h.fixture_slug) for h in report.held_renames],
+                [("phones", "transport-phones"), ("used-phones", "transport-phones-used")],
+            )
+            self.assertEqual(report.renames, 0)
+
+            buf = io.StringIO()
+            call_command(
+                "load_catalog", dir=out, dry_run=True, keep_slugs=True,
+                on_conflict=cl.ON_CONFLICT_FIXTURE, stdout=buf,
+            )
+            text = buf.getvalue()
+            self.assertIn("slug renames HELD (--keep-slugs): 2", text)
+            self.assertIn(
+                "phones ← transport-phones (external_id '129639', source 'catalog-a')",
+                text,
+            )
+            self.assertIn(
+                "used-phones ← transport-phones-used "
+                "(external_id '129640', source 'catalog-a')",
+                text,
+            )
+            self.assertNotIn("of which renamed", text)
+
+    def test_a_rename_the_fixture_does_not_ask_for_is_not_held(self):
+        """Only a row whose fixture slug MOVED is held — the rest is untouched."""
+        self._seed_imported()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+
+            report = self._load(out, dry_run=True)
+
+            self.assertEqual(report.held_renames, [])
+
+    # -- the sidecar --------------------------------------------------------
+
+    def test_the_sidecar_does_not_record_a_held_rename_as_applied(self):
+        """The decision stays open: the next run without the switch re-plans it."""
+        self._seed_imported()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            self._rekey(out)
+            self._load(out)
+
+            # The content sync WAS recorded — a second held run is a no-op…
+            again = self._load(out)
+            self.assertEqual(
+                [it.kind for it in again.categories if it.kind != cl.SKIPPED], []
+            )
+            self.assertEqual(len(again.held_renames), 2)
+
+            # …and the rename was NOT: dropping the switch plans it again.
+            plan = cl.load_catalog(
+                out, dry_run=True, on_conflict=cl.ON_CONFLICT_FIXTURE,
+            )
+            item = next(it for it in plan.categories if it.key == "transport-phones")
+            self.assertTrue(item.renamed)
+            self.assertEqual(item.kind, cl.UPDATED)
+            self.assertIn("slug 'phones' → 'transport-phones'", item.detail)
+            self.assertEqual(plan.renames, 2)
+
+    # -- the links ----------------------------------------------------------
+
+    def test_a_link_addressed_by_a_fixture_slug_resolves_under_the_switch(self):
+        from stapel_categories.models import CategoryLink
+
+        self._seed_imported()
+        services = Category.objects.create(name="Services", slug="services")
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            self._rekey(out)
+            # An end addressed by slug alone, and by the slug the FIXTURE uses.
+            _write_json(out, cf.LINKS_FILE, [{
+                "source": "services", "target": "transport-phones-used",
+                "order": 0, "label": "", "external_source": "importer",
+            }])
+
+            report = self._load(out)
+
+            self.assertFalse(report.failed, [(i.kind, i.key, i.detail) for i in report.categories])
+            self.assertEqual(report.links["created"], 1)
+            self.assertTrue(CategoryLink.objects.filter(
+                source=services, target_id=self.used.pk, external_source="importer",
+            ).exists())
+
+    # -- what the switch does NOT cover -------------------------------------
+
+    def test_a_feature_rename_still_needs_rename_features(self):
+        """Feature slugs are the key listings file answers under — not addresses."""
+        self.seed_catalog()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            features = _read_json(out, cf.FEATURES_FILE)
+            for rec in features:
+                if rec["slug"] == "size":
+                    rec["slug"] = "dimension"
+            _write_json(out, cf.FEATURES_FILE, features)
+            cats = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in cats:
+                for entry in rec.get("features") or ():
+                    if entry.get("slug") == "size":
+                        entry["slug"] = "dimension"
+            _write_json(out, cf.CATEGORIES_FILE, cats)
+
+            report = self._load(out)
+
+            self.assertEqual(report.feature_renames, {"size": "dimension"})
+            self.assertFalse(report.feature_renames_applied)
+            self.assertTrue(Feature.objects.filter(slug="size", deleted=False).exists())
+            self.assertFalse(Feature.objects.filter(slug="dimension").exists())
+            self.assertEqual(report.held_renames, [])
+
+    def test_two_records_landing_on_one_live_slug_are_refused_not_guessed(self):
+        """The slug a hold keeps can be another record's fixture slug."""
+        self._seed_imported()
+        with tempfile.TemporaryDirectory() as out:
+            _export(out)
+            records = _read_json(out, cf.CATEGORIES_FILE)
+            for rec in records:
+                if rec["external_id"] == "129639":
+                    rec["slug"] = "transport-phones"   # holds, lands on 'phones'
+                elif rec["external_id"] == "129640":
+                    rec["parent_slug"] = "transport-phones"
+            # …and a hand-seeded record claiming the very slug it keeps.
+            records.append({"slug": "phones", "name": "Phone accessories"})
+            _write_json(out, cf.CATEGORIES_FILE, records)
+
+            report = self._load(out)
+
+            self.assertTrue(report.failed)
+            kinds = {it.key: it.kind for it in report.categories}
+            self.assertEqual(kinds["phones"], cl.ERROR)
+            self.assertEqual(kinds["transport-phones"], cl.ERROR)
+            self.assertEqual(report.held_renames, [])
+            # Neither record was written; the live row still stands untouched.
+            self.assertEqual(Category.objects.get(pk=self.phones.pk).name, "Phones")
+            self.assertEqual(Category.objects.count(), 2)

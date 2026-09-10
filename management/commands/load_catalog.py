@@ -15,13 +15,16 @@ Usage::
     python manage.py load_catalog --dry-run            # classify + report, no writes
     python manage.py load_catalog --on-conflict fixture-wins
     python manage.py load_catalog --deletions hard     # real DELETE (default: soft)
+    python manage.py load_catalog --keep-slugs         # content now, addresses later
     python manage.py load_catalog --seed-if-empty      # bootstrap idiom, no-op if populated
 
 Records are matched by **source identity first** — a fixture row carrying
 ``external_id`` finds its live row by ``(external_source, external_id)``, and
 only a row without one falls back to the slug. A source-side rename therefore
 updates in place and is reported as ``» slug 'a' → 'b' (external_id 'X')``,
-distinct from the ``+``/``-`` of an add or a removal.
+distinct from the ``+``/``-`` of an add or a removal. ``--keep-slugs`` performs
+no such rename: the live slug stands, every other field is applied, and the
+move is reported under ``slug renames HELD``.
 
 Exit code is non-zero when any record conflicted (default per-record abort) or
 failed validation — CI can gate on it. Non-conflicting records ARE applied.
@@ -122,6 +125,21 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--keep-slugs",
+            action="store_true",
+            help=(
+                "Load the CONTENT of a re-keyed catalogue without moving the "
+                "live ADDRESSES: a CATEGORY matched by external_id whose "
+                "fixture slug differs keeps its live slug and takes every "
+                "other field. The renames are counted and named under "
+                "'slug renames HELD', never as 'renamed', and are not recorded "
+                "as applied — the next run without this flag plans them again. "
+                "FEATURE slugs are NOT covered: a feature slug is the key every "
+                "listing files its answer under, and its rename has "
+                "--rename-features."
+            ),
+        )
+        parser.add_argument(
             "--no-hook",
             action="store_true",
             help=(
@@ -183,6 +201,7 @@ class Command(BaseCommand):
                 rename_features=options["rename_features"],
                 call_hook=not options["no_hook"],
                 clear_axis_role=options["clear_axis_role"],
+                keep_slugs=options["keep_slugs"],
             )
         except ValueError as exc:  # incompatible sidecar version
             raise CommandError(str(exc))
@@ -229,6 +248,7 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING(line))
                 else:
                     self.stdout.write(line)
+        self._print_held_renames(report, prefix)
         if report.links:
             # `kept` is the number this line exists for: the pointers this
             # load left alone because somebody else authored them.
@@ -276,6 +296,22 @@ class Command(BaseCommand):
         self._print_axis_roles(report, prefix)
         if report.dry_run:
             self.stdout.write("[dry-run] no changes were written.")
+
+    def _print_held_renames(self, report: cl.Report, prefix: str) -> None:
+        """The addresses this load did NOT move (--keep-slugs).
+
+        A category slug is a public address, and moving three thousand of them
+        is a decision of its own — one that was blocking every other field the
+        same fixture carried. The switch separates them, so what it held is
+        named here, row by row, and never inside the ``renamed`` count.
+        """
+        if not report.held_renames:
+            return
+        self.stdout.write(self.style.WARNING(
+            f"{prefix}slug renames HELD (--keep-slugs): {len(report.held_renames)}"
+        ))
+        for held in report.held_renames:
+            self.stdout.write(self.style.WARNING(f"    {held.line()}"))
 
     def _print_axis_roles(self, report: cl.Report, prefix: str) -> None:
         """Which feature of each leaf is the make, the model, the year.

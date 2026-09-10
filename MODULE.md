@@ -536,6 +536,29 @@ listings stand behind this catalogue. Anything short of a one-to-one identity
 match is reported and applied as neither: a wrong rename writes sellers'
 answers into the wrong field.
 
+**A slug is an address: `--keep-slugs` (0.22.1).** When a producer changes how
+it derives slugs, every record in the file is re-keyed at once — one live
+catalogue's re-import matched 3423 of 3444 rows by `external_id` and planned a
+slug move on each, `updated 3437 … (of which renamed 3423)`. Moving 3423 public
+addresses is the owner's decision; the 506 axis labels, the authored
+`children_as` and the new links in the same file are not, and they were stuck
+behind it. `--keep-slugs` loads the content without moving the addresses: a
+CATEGORY matched by `(external_source, external_id)` whose fixture slug differs
+keeps its live slug and takes every other field. The fixture is re-keyed onto
+the live slugs before anything is planned (`parent_slug` edges included), so
+the diff, the sidecar and the tree stay keyed as the DB already is. Rows
+matched by slug are unaffected. What was held is named under its own heading —
+`slug renames HELD (--keep-slugs): N`, one `live ← fixture (external_id …)` per
+row — and never counted as `renamed`; a `links.json` end addressed by a fixture
+slug alone is translated through the same identity match, and two records
+landing on one live slug are refused per record rather than guessed. A held
+rename is **not** recorded as applied: the sidecar records the content sync
+that happened, and the next run without the switch plans the rename again. So
+"content now, addresses later" is one flag, and the address move stays a
+separate deliberate run. FEATURE slugs are not covered — a feature slug is the
+key every listing files its answer under, and its rename has
+`--rename-features`.
+
 **The load CONVERGES (0.20.2).** The sidecar records, per natural key, the
 PAIR of hashes the last successful sync established — the fixture hash that
 was applied and the DB hash that apply produced — and the diff asks *which
@@ -634,7 +657,9 @@ something other than `load_catalog` (e.g. an editor action).
   this import does not move (identity wins the match, so the *rename* is what
   gives way — the other row is never clobbered), and a cycle of renames. A
   chain (`a→b` while `b→c`) is not a refusal: the holder is sequenced first
-  and both land in one run.
+  and both land in one run. `--keep-slugs` (0.22.1) performs none of them: the
+  live slug stands, every other field is applied, and the rename is reported
+  as HELD.
 - **`is_test` is an export filter, transitively.** A test category or feature,
   and any `CategoryFeature` link touching one, are excluded. `is_test` is
   admin-editable and filterable but is **not** in the public API serializers or

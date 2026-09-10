@@ -184,6 +184,23 @@ class Item:
 
 
 @dataclass
+class HeldRename:
+    """A category slug rename ``--keep-slugs`` DID NOT perform.
+
+    The row was matched by source identity, its fixture slug differs from the
+    live one, and the live one stands. Every other field of the record was
+    applied; the address was not moved, and the decision to move it is still
+    open on the next run.
+    """
+    live_slug: str
+    fixture_slug: str
+    identity: tuple
+
+    def line(self) -> str:
+        return f"{self.live_slug} ← {self.fixture_slug} ({_fmt_identity(self.identity)})"
+
+
+@dataclass
 class Report:
     dry_run: bool = False
     features: List[Item] = field(default_factory=list)
@@ -208,6 +225,12 @@ class Report:
     #: it replaces was silent: a reload answered ``children_axis_label: ''``
     #: for every derived chip row and said nothing about having done it.
     kept_unsaid: Dict[str, int] = field(default_factory=dict)
+    #: Category slug renames this load was asked for and HELD (--keep-slugs),
+    #: live slug first. A slug is a public address; the switch loads the
+    #: content of a re-keyed catalogue while the addresses stand, so what it
+    #: did not move is named here — never counted as ``renamed``, which is the
+    #: count of renames that happened.
+    held_renames: List[HeldRename] = field(default_factory=list)
     #: ``{old feature slug: new}`` this load detected — whether or not it was
     #: allowed to perform them (``feature_renames_applied`` says which).
     feature_renames: Dict[str, str] = field(default_factory=dict)
@@ -721,6 +744,12 @@ class _Identities:
     renames: Dict[str, str] = field(default_factory=dict)
     order_after: Dict[str, str] = field(default_factory=dict)
     problems: Dict[str, str] = field(default_factory=dict)
+    #: ``--keep-slugs``: fixture slug -> the live slug that stands instead,
+    #: for every rename this load was asked for and holds. Filled INSTEAD of
+    #: ``renames``, so nothing downstream re-keys anything and no slug moves.
+    held: Dict[str, str] = field(default_factory=dict)
+    #: The source identity each hold was matched on, for the report.
+    held_identity: Dict[str, tuple] = field(default_factory=dict)
     #: Fixture key -> message, for a slug-matched row whose stored identity the
     #: fixture overwrites. Applied (the fixture is canon for its slug), but
     #: never silently: re-pointing a row at another source node is exactly the
@@ -738,6 +767,13 @@ class _Identities:
             if new == fixture_slug:
                 return old
         return None
+
+    def held_renames(self) -> List[HeldRename]:
+        """Every held rename, live slug first, in live-slug order."""
+        return [
+            HeldRename(live, fixture, self.held_identity[fixture])
+            for fixture, live in sorted(self.held.items(), key=lambda kv: kv[1])
+        ]
 
 
 def _live_categories() -> List[_LiveRow]:
@@ -759,8 +795,16 @@ def _live_categories() -> List[_LiveRow]:
     return rows
 
 
-def _resolve_identities(fix_cat: Dict[str, dict]) -> _Identities:
-    """Resolve every fixture row to a live row and detect what blocks it."""
+def _resolve_identities(fix_cat: Dict[str, dict], *, keep_slugs: bool = False) -> _Identities:
+    """Resolve every fixture row to a live row and detect what blocks it.
+
+    ``keep_slugs`` records a matched row whose slug moved as a HOLD instead of
+    a rename: the live slug stands, the record is re-keyed onto it
+    (:func:`_hold_slugs`), and everything downstream — the 3-way diff, the
+    sidecar, the tree edges — is keyed the way the DB already is. Nothing then
+    blocks or sequences anything, so the target-slug and cycle analysis below
+    is empty by construction.
+    """
     out = _Identities()
     rows = _live_categories()
     by_slug = {r.slug: r for r in rows}
@@ -802,7 +846,14 @@ def _resolve_identities(fix_cat: Dict[str, dict]) -> _Identities:
             continue
         row = candidates[0]
         if row.slug != slug:
-            out.renames[row.slug] = slug
+            if keep_slugs:
+                out.held[slug] = row.slug
+                out.held_identity[slug] = ident
+            else:
+                out.renames[row.slug] = slug
+
+    if out.held:
+        _refuse_held_collisions(out, fix_cat)
 
     # A rename can only land if its target slug is free by the time it runs.
     movers = set(out.renames)
@@ -830,6 +881,57 @@ def _resolve_identities(fix_cat: Dict[str, dict]) -> _Identities:
             "(two categories swapping slugs) — no order frees both slugs; "
             "resolve one of them by hand, then re-run"
         ))
+    return out
+
+
+def _refuse_held_collisions(out: _Identities, fix_cat: Dict[str, dict]) -> None:
+    """Refuse a hold that would land two fixture records on one live slug.
+
+    The live slug a hold keeps can be the fixture slug another record already
+    claims. Both then describe the same key, and picking one would write a
+    source node's content into another node's row — so neither is written and
+    both keys carry the reason (the live slug too, or the row nothing is left
+    pointing at would read as a removal and be deleted).
+    """
+    landing: Dict[str, List[str]] = {}
+    for key in fix_cat:
+        landing.setdefault(out.held.get(key, key), []).append(key)
+    for live, keys in landing.items():
+        if len(keys) < 2:
+            continue
+        names = ", ".join(sorted(f"'{k}'" for k in keys))
+        message = (
+            f"--keep-slugs would land {len(keys)} fixture records ({names}) on "
+            f"live slug '{live}': the slug this row keeps is the fixture slug of "
+            "another record — resolve it in the source, or load without "
+            "--keep-slugs"
+        )
+        for key in keys:
+            out.held.pop(key, None)
+            out.held_identity.pop(key, None)
+            out.problems.setdefault(key, message)
+        out.problems.setdefault(live, message)
+
+
+def _hold_slugs(fix_cat: Dict[str, dict], idents: _Identities) -> Dict[str, dict]:
+    """Re-key the fixture onto the LIVE slug of every held rename.
+
+    A held record moves to the slug its row already carries, and so does every
+    ``parent_slug`` naming one — the plan below is then keyed exactly as the DB
+    and the sidecar are, and the rename simply does not happen. No other field
+    is touched, so the record still carries the whole content the fixture
+    states.
+    """
+    out: Dict[str, dict] = {}
+    for key, record in fix_cat.items():
+        live = idents.held.get(key, key)
+        parent = record.get("parent_slug")
+        held_parent = idents.held.get(parent) if parent else None
+        if live != key or held_parent:
+            record = {**record, "slug": live}
+            if held_parent:
+                record["parent_slug"] = held_parent
+        out[live] = record
     return out
 
 
@@ -1781,20 +1883,29 @@ def _resolve_link_endpoint(slug: str, external_id: str):
     return None
 
 
-def _plan_links(fix_links: list):
+def _plan_links(fix_links: list, held: Optional[Dict[str, str]] = None):
     """``(resolved, errors, owned_sources)`` for the stated link records.
 
     ``resolved`` is ``[(source, target, record)]`` with live rows on both
     ends; ``errors`` are :class:`Item` s for the records that name something
     this catalogue does not have.
+
+    ``held`` (``--keep-slugs``) translates an end addressed by a fixture slug
+    the live row does not carry onto the slug it does. The map is built from
+    the ``external_id`` match that established the hold, so an end whose
+    fixture row states no id is not in it and stays unresolved, as before.
     """
     resolved, errors = [], []
     owned = {rec["external_source"] for rec in fix_links}
     seen = set()
+
+    def end(slug: str) -> str:
+        return held.get(slug, slug) if held else slug
+
     for rec in fix_links:
         key = f"{rec['source'] or rec['source_external_id']}"
-        source = _resolve_link_endpoint(rec["source"], rec["source_external_id"])
-        target = _resolve_link_endpoint(rec["target"], rec["target_external_id"])
+        source = _resolve_link_endpoint(end(rec["source"]), rec["source_external_id"])
+        target = _resolve_link_endpoint(end(rec["target"]), rec["target_external_id"])
         if source is None or target is None:
             missing = "source" if source is None else "target"
             errors.append(Item(ERROR, key, (
@@ -1989,6 +2100,7 @@ def load_catalog(
     rename_features: bool = False,
     call_hook: bool = True,
     clear_axis_role: bool = False,
+    keep_slugs: bool = False,
 ):
     """Reconcile the fixtures in ``directory`` into the live catalog.
 
@@ -2010,6 +2122,15 @@ def load_catalog(
     a no-op, and an ABSENT key always is: a role is authored by a human as
     often as by a fixture, and a loader that blanks the column on every record
     that never mentions it wipes the decision the operator just made.
+
+    ``keep_slugs`` loads the CONTENT of a re-keyed catalogue without moving the
+    live ADDRESSES: a CATEGORY matched by source identity whose fixture slug
+    differs keeps the slug it is published under and takes every other field.
+    The renames it holds are counted and named (``Report.held_renames``) and
+    are not recorded as applied, so the decision is still open — the next run
+    without the switch plans them again. Feature slugs are not covered: their
+    rename is a data migration, not an address, and it has
+    ``rename_features``.
     """
     from .models import Category, Feature
 
@@ -2059,6 +2180,7 @@ def load_catalog(
             on_conflict=on_conflict, deletions=deletions, apply=False,
             apply_renames=apply_renames, rename_features=rename_features,
             clear_axis_role=clear_axis_role, fix_links=fix_links,
+            keep_slugs=keep_slugs,
         )
         return report
 
@@ -2076,6 +2198,7 @@ def load_catalog(
             on_conflict=on_conflict, deletions=deletions, apply=True,
             apply_renames=apply_renames, rename_features=rename_features,
             clear_axis_role=clear_axis_role, fix_links=fix_links,
+            keep_slugs=keep_slugs,
         )
 
     # The sidecar reflects the applied state — written after commit.
@@ -2095,6 +2218,7 @@ def _run_plan(
     report, fix_feat, fix_cat, base_feat, base_cat, *, on_conflict, deletions, apply,
     apply_renames: bool = False, rename_features: bool = False,
     clear_axis_role: bool = False, fix_links: Optional[list] = None,
+    keep_slugs: bool = False,
 ):
     """Classify and (optionally) apply, in referential order.
 
@@ -2119,7 +2243,12 @@ def _run_plan(
     # in the sidecar base) under its OLD slug. Re-keying those two onto the new
     # slug is what turns "delete a + create b" into "update a in place" — for
     # the plan the operator reads AND for the writes that follow.
-    idents = _resolve_identities(fix_cat)
+    idents = _resolve_identities(fix_cat, keep_slugs=keep_slugs)
+    # …or, with --keep-slugs, the fixture re-keyed onto the live slugs instead:
+    # no slug moves, and the maps below are already keyed the way they will be.
+    if idents.held:
+        fix_cat = _hold_slugs(fix_cat, idents)
+        report.held_renames = idents.held_renames()
     db_cat = _remap_by_identity(db_cat, idents)
     base_cat = _remap_by_identity(base_cat, idents)
     # The live values an unsaid key keeps — re-keyed onto the renames with
@@ -2211,7 +2340,7 @@ def _run_plan(
         # after every category upsert and after the deletes that may have
         # removed an end. Only the sources this file names are rewritten.
         if fix_links is not None:
-            resolved, link_errors, owned = _plan_links(fix_links)
+            resolved, link_errors, owned = _plan_links(fix_links, idents.held)
             for item in link_errors:
                 report.add("categories", item)
             report.links = _apply_links(fix_links, resolved, owned)
@@ -2266,7 +2395,7 @@ def _run_plan(
     # are reported without failing the run: a dry run that refuses over a
     # row it has not written yet is a gate measuring the wrong tree.
     if fix_links is not None:
-        resolved, link_errors, owned = _plan_links(fix_links)
+        resolved, link_errors, owned = _plan_links(fix_links, idents.held)
         from .models import CategoryLink
 
         for item in link_errors:

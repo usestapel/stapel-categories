@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.22.1] — 2026-09-10
+
+### Added — `--keep-slugs`: the content now, the addresses later
+
+Patch: one optional switch on `load_catalog`, off by default. A load that does
+not pass it behaves exactly as it did under 0.22.0.
+
+A live catalogue's producer started deriving every category slug from the
+chained parent path. The re-import matched 3423 of 3444 rows by `external_id`
+— correctly, they ARE the same nodes — and planned a slug move on each of
+them: `updated 3437 … (of which renamed 3423)`. A category slug is a public
+address, so that is 3423 addresses moving in one run, and it is the owner's
+decision, not the loader's. Meanwhile everything else the same fixture carried
+— 506 axis labels, 13 authored `children_as`, the whole new links file — was
+stuck behind that decision, because the loader matches the row by identity and
+then writes the slug as one more field.
+
+`--keep-slugs` splits the two. A CATEGORY row matched by
+`(external_source, external_id)` whose fixture slug differs from its live slug
+keeps the live slug and takes every other field. Under the hood the fixture is
+re-keyed onto the live slugs before anything is planned — `parent_slug` edges
+included — so the 3-way diff, the sidecar and the tree are keyed exactly as the
+DB already is and no slug moves anywhere. Rows matched by slug (no external id)
+are unaffected: they have no second key to be held by.
+
+What it held is named, never counted as `renamed`:
+
+```
+slug renames HELD (--keep-slugs): 3423
+    phones ← transport-phones (external_id '129639', source 'catalog-a')
+    …
+```
+
+The dry run prints the same section. A held rename is **not** recorded as
+applied — the sidecar records the content sync that DID happen, and the next
+run without the switch plans the rename again, as an ordinary
+`» slug 'a' → 'b'` update. So the operator's one-line answer to "content now,
+addresses later" is `load_catalog --keep-slugs`, and the address move stays a
+separate, later, deliberate run.
+
+Two edges the switch does not paper over:
+
+* `links.json` ends addressed by slug alone are translated onto the live slug
+  through the same `external_id` match that established the hold, so a link
+  naming a fixture slug still resolves. An end whose fixture row states no id
+  is unresolved exactly as before — a hold cannot invent an identity.
+* Two fixture records landing on one live slug (the slug a hold keeps is
+  another record's fixture slug) are refused per record, both of them, with the
+  reason — including the live key, so the row nothing points at is never read
+  as a removal and deleted.
+
+FEATURE slugs are deliberately **not** covered. A feature slug is the key every
+listing files its answer under, not an address; holding one silently is the
+2026-09-05 incident from the other side. Its rename keeps `--rename-features`
+and its hook.
+
 ## [0.22.0] — 2026-09-10
 
 ### Added — a level a catalogue can describe without inventing a second tree
