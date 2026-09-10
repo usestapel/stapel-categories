@@ -38,7 +38,9 @@ catalogue) writes them.
 
 A producer that repoints a feature at a different vocabulary changes what the
 field ASKS, and every stored answer keys into the old one. `load_catalog`
-refuses a `config.type` / `optionsRef` move on a matched feature, names it
+refuses a `config.type` / `optionsRef` move on a matched feature — a root in
+`features.json` or a per-category override entry inside `categories.json`,
+which is where a real catalogue usually keeps it — names it
 (`feature identity changes REFUSED: N`) and exits non-zero;
 `--allow-feature-identity-change` performs it once the answers have been moved.
 

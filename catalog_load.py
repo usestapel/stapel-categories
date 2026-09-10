@@ -2139,8 +2139,12 @@ def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions
 # in the report distinguished it from a description typo.
 #
 # So a feature's IDENTITY — what question it asks — is ``config.type`` plus the
-# ``optionsRef`` it reads its terms from. A matched row whose identity the
-# FIXTURE moves is refused, named, and counted in ``Report.failed``;
+# ``optionsRef`` it reads its terms from. A row whose identity the FIXTURE moves
+# is refused, named, and counted in ``Report.failed`` — a ROOT in features.json
+# and a per-category OVERRIDE entry in categories.json alike, because a real
+# catalogue keeps the question on the override (the client's car brand sits two
+# levels under a root on a different vocabulary, so a swap there never touches
+# features.json at all);
 # ``--allow-feature-identity-change`` performs it and lists it as applied. It
 # is the ``--rename-features`` discipline one field over: the schema half of a
 # two-sided migration is not made silently because the other half is invisible
@@ -2200,6 +2204,59 @@ def _guard_feature_identity(report, feat_plan, db_feat_by_slug, *, allow: bool) 
         # Short here on purpose: the report's own REFUSED section carries the
         # reason and the way out, and this line stands next to 3000 others.
         planned.note = f"{detail} — refused, not written"
+
+
+def _guard_override_identity(report, fix_cat, db_cat, db_feat, *, allow: bool):
+    """The same refusal for the per-category OVERRIDE rows.
+
+    Where the client's catalogue keeps the question: the root sits on one
+    vocabulary and the row a leaf actually uses is an override two levels down
+    on another, so a swap that never touches ``features.json`` still moves what
+    every listing in that leaf answered.
+
+    A refused entry is REVERTED to what the category asks today — the live
+    entry, or a bare reference when the category has no override yet — so the
+    rest of the record still applies and the sidecar records a state nobody
+    disputes. The raw fixture is re-read on every run, so the change is offered
+    again until somebody decides. Returns the (possibly rewritten) fixture.
+    """
+    out = {}
+    for slug, record in fix_cat.items():
+        live_record = db_cat.get(slug)
+        if live_record is None:  # a category this load creates asks nothing yet
+            out[slug] = record
+            continue
+        live_entries = {
+            entry.get("slug"): entry for entry in live_record.get("features") or ()
+        }
+        entries, reverted = [], False
+        for entry in record.get("features") or ():
+            key = entry.get("slug") or ""
+            live_entry = live_entries.get(key)
+            if not key or live_entry is None or not _is_inline(entry):
+                entries.append(entry)  # a bare reference follows its root
+                continue
+            live_config = (
+                live_entry.get("config") if _is_inline(live_entry)
+                else (db_feat.get(key) or {}).get("config")
+            )
+            detail = _identity_change(live_config, entry.get("config"))
+            if not detail:
+                entries.append(entry)
+                continue
+            report.feature_identity_changes.append(
+                FeatureIdentityChange(f"{slug}/{key}", detail, applied=allow)
+            )
+            if allow:
+                entries.append(entry)
+                continue
+            report.add("categories", Item(
+                IDENTITY_BLOCKED, f"{slug}/{key}", f"{detail} — refused, not written",
+            ))
+            entries.append(live_entry)
+            reverted = True
+        out[slug] = {**record, "features": entries} if reverted else record
+    return out
 
 
 def _changed_feature_fields(fixture: dict, live: dict) -> List[str]:
@@ -2273,11 +2330,12 @@ def load_catalog(
     ``rename_features``.
 
     ``allow_feature_identity_change`` performs the other class of change this
-    loader refuses by default: a matched feature whose ``config.type`` or
+    loader refuses by default: a feature whose ``config.type`` or
     ``optionsRef`` (vocabulary or level) moves — the question the field asks,
     and the key every stored answer is filed under (see "Feature identity").
-    Without it such a record is refused, named, and counted in
-    ``Report.failed``.
+    Both levels are covered: a root feature, and a per-category override entry,
+    which is where a real catalogue usually keeps the question. Without it such
+    a change is refused, named, and counted in ``Report.failed``.
     """
     from .models import Category, Feature
 
@@ -2409,9 +2467,13 @@ def _run_plan(
     # slug is the key every listing files its answer under, so moving it here
     # and nowhere else strands them all. Detected first, because a blocked
     # rename changes what the whole plan below is planning.
+    # The live category records, keyed the way the fixture is (a source-side
+    # rename moved the slug; --keep-slugs did not). Read twice below: for the
+    # feature renames, and for the override each category asks its question
+    # through.
+    db_cat_view = _remap_by_identity(db_cat_by_slug, idents)
     renames = _detect_feature_renames(
-        fix_feat, fix_cat, db_feat_by_slug,
-        _remap_by_identity(db_cat_by_slug, idents),
+        fix_feat, fix_cat, db_feat_by_slug, db_cat_view,
     )
     report.feature_renames = dict(renames.pairs)
     report.feature_renames_by_category = {
@@ -2444,6 +2506,14 @@ def _run_plan(
     # which is what the categories must be planned and validated against.
     _guard_feature_identity(
         report, feat_plan, db_feat_by_slug, allow=allow_feature_identity_change,
+    )
+    # …and the same question asked one level down, on the per-category
+    # override rows. Before the category plan is built, because a refused
+    # entry is reverted to what the category asks today — the record is
+    # planned, hashed and applied without it.
+    fix_cat = _guard_override_identity(
+        report, fix_cat, db_cat_view, db_feat_by_slug,
+        allow=allow_feature_identity_change,
     )
     cat_view = _fixture_hash_view(_root_names_after(fix_feat, feat_plan), db_optional)
     cat_plan = _plan_side(

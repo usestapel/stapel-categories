@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.22.3] — 2026-09-10
+
+### Fixed — the identity guard now covers the row the leaf actually uses
+
+Patch: 0.22.2's refusal, extended one level down. A fixture that changes no
+question behaves exactly as it did under 0.22.2.
+
+0.22.2 refused a `config.type` / `optionsRef` move on a ROOT feature. On the
+client's catalogue that is not where the question lives: the car brand is a
+per-category OVERRIDE (`make_ref_select` rows at depth 2 under the cars leaves,
+on the importer's own vocabulary) while the root sits at depth 1 on another one.
+A swap of those override rows never touches `features.json` at all — it rides
+the category record's feature list — so the root guard would have watched the
+wrong door while every car listing's brand answer was re-keyed.
+
+So the same refusal, same heading, one line per `(category, feature)`:
+
+```
+categories: skipped 2, feature identity change REFUSED 1
+    ! used/make  (vocabulary 'phones' → 'cars', level 'Model' → 'Make' — refused, not written)
+feature identity changes REFUSED: 1
+    used/make: vocabulary 'phones' → 'cars', level 'Model' → 'Make'
+  Every listing answers under the live question. Move the stored answers first,
+  then re-run with --allow-feature-identity-change; or fix the fixture.
+```
+
+A refused entry is **reverted to what the category asks today** before the
+category is planned — the live entry, or a bare reference where the category
+has no override yet — so the rest of the record still applies (a renamed
+category still gets its name) and the sidecar records a state nobody disputes.
+The raw fixture is re-read on every run, so the change is offered again until
+somebody decides; it can never be absorbed by a base advancing over it.
+
+The comparison is against what the category asks NOW: the live override's
+config, or the live ROOT's config where the category holds a bare reference —
+adding an override that merely narrows the option set is not an identity
+change, and one that repoints the vocabulary is. `--allow-feature-identity-change`
+covers both levels, and lists what it applied.
+
 ## [0.22.2] — 2026-09-10
 
 ### Added — what a field ASKS is not one more field of it

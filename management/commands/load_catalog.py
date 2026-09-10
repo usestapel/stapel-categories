@@ -27,9 +27,10 @@ distinct from the ``+``/``-`` of an add or a removal. ``--keep-slugs`` performs
 no such rename: the live slug stands, every other field is applied, and the
 move is reported under ``slug renames HELD``.
 
-A matched FEATURE whose ``config.type`` or ``optionsRef`` the fixture moves is
-REFUSED: what a field asks is the key every stored answer is filed under, so
-the swap is a data migration (``--allow-feature-identity-change`` performs it).
+A FEATURE whose ``config.type`` or ``optionsRef`` the fixture moves is REFUSED —
+a root, and a per-category override entry alike: what a field asks is the key
+every stored answer is filed under, so the swap is a data migration
+(``--allow-feature-identity-change`` performs it).
 
 Exit code is non-zero when any record conflicted (default per-record abort),
 failed validation, or asked for a refused feature-identity change — CI can gate
@@ -152,7 +153,8 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Apply a change to what a feature ASKS: its config.type, or the "
-                "optionsRef vocabulary/level it reads its terms from. Without "
+                "optionsRef vocabulary/level it reads its terms from — on a "
+                "root feature and on a per-category override alike. Without "
                 "this flag such a record is REFUSED and named, and the run exits "
                 "non-zero — every stored answer keys into the live question, so "
                 "a swap empties the facet, the AI fill and the links that read "

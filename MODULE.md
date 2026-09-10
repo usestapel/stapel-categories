@@ -547,7 +547,14 @@ FIXTURE moves is now refused — never written, named under
 `feature identity changes REFUSED: N` (one `slug: vocabulary 'a' → 'b', level
 'x' → 'y'` per feature) and counted in `Report.failed`, so the run exits
 non-zero. `--allow-feature-identity-change` performs it and lists it under
-`… APPLIED`. Narrow on purpose: the comparison is against the LIVE row, and a
+`… APPLIED`. **Per-category OVERRIDE rows are covered too (0.22.3)** — that is
+where a real catalogue keeps the question (the client's car brand is an
+override two levels under the root, on another vocabulary), and a swap there
+never touches `features.json`. Same heading, one `category/feature` line each;
+a refused entry is reverted to what the category asks today (the live entry, or
+a bare reference where there is no override yet) before the record is planned,
+so the rest of it still applies and the sidecar records a state nobody
+disputes. Narrow on purpose: the comparison is against the LIVE row, and a
 DB-side drift the fixture never moved (`db_only` under `fixture-wins`) is NOT
 refused — that path exists to restore canon (0.18.0). A `--dry-run` feature
 line now also names the field set it would write (`~ make (config.optionsRef,

@@ -232,3 +232,132 @@ class DryRunFieldTests(_IdentityCase):
         )
 
         self.assertIn("~ make  (description)", buf.getvalue())
+
+
+class _OverrideCase(_CatalogTestCase):
+    """The client's shape: the question lives on the per-category OVERRIDE.
+
+    The root sits on one vocabulary level and the row the leaf actually uses
+    is an override two levels down on another — so a swap that never touches
+    ``features.json`` still moves what every listing in that leaf answered.
+    """
+
+    def setUp(self):
+        super().setUp()
+        register_vocabulary_resolver(_TwoVocabularyResolver())
+        self.addCleanup(register_vocabulary_resolver, None)
+        self.root = Feature.objects.create(
+            name="Make", slug="make", config=_ref(VOCABULARY, "Vendor"),
+        )
+        self.cars = Category.objects.create(name="Cars", slug="cars")
+        CategoryFeature.objects.create(category=self.cars, feature=self.root, order=0)
+        self.used = Category.objects.create(name="Used", slug="used", tn_parent=self.cars)
+        self.override = Feature.objects.create(
+            tn_parent=self.root, name="Make", slug="make",
+            config=_ref(VOCABULARY, "Model"),
+        )
+        link = self.used.category_features.get(feature=self.root)
+        link.feature = self.override
+        link.save()
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.directory = self._dir.name
+        _export(self.directory)
+
+    def edit_entry(self, category="used", slug="make", **changes):
+        records = _read_json(self.directory, cf.CATEGORIES_FILE)
+        for record in records:
+            if record["slug"] != category:
+                continue
+            for entry in record.get("features") or ():
+                if entry.get("slug") == slug:
+                    entry.update(changes)
+        _write_json(self.directory, cf.CATEGORIES_FILE, records)
+
+    def load(self, **kwargs):
+        kwargs.setdefault("on_conflict", cl.ON_CONFLICT_FIXTURE)
+        return cl.load_catalog(self.directory, **kwargs)
+
+    def live_override(self) -> Feature:
+        return Feature.objects.get(pk=self.override.pk)
+
+
+class OverrideRefusalTests(_OverrideCase):
+    def test_an_override_swap_is_refused_and_the_live_row_is_untouched(self):
+        self.edit_entry(config=_ref(OTHER, "Make"))
+
+        report = self.load()
+
+        self.assertTrue(report.failed)
+        self.assertEqual(len(report.feature_identity_changes), 1)
+        change = report.feature_identity_changes[0]
+        self.assertEqual(change.key, "used/make")
+        self.assertFalse(change.applied)
+        self.assertEqual(
+            change.detail, "vocabulary 'phones' → 'cars', level 'Model' → 'Make'"
+        )
+        live = self.live_override()
+        self.assertEqual(live.config["optionsRef"]["vocabulary"], VOCABULARY)
+        self.assertEqual(live.config["optionsRef"]["level"], "Model")
+
+    def test_the_rest_of_the_record_still_applies(self):
+        """Only the entry is reverted — the category takes everything else."""
+        self.edit_entry(config=_ref(OTHER, "Make"))
+        records = _read_json(self.directory, cf.CATEGORIES_FILE)
+        for record in records:
+            if record["slug"] == "used":
+                record["name"] = "Used cars"
+        _write_json(self.directory, cf.CATEGORIES_FILE, records)
+
+        self.load()
+
+        self.assertEqual(Category.objects.get(pk=self.used.pk).name, "Used cars")
+        self.assertEqual(
+            self.live_override().config["optionsRef"]["vocabulary"], VOCABULARY
+        )
+
+    def test_the_refusal_is_offered_again_on_the_next_run(self):
+        """The sidecar is not allowed to absorb a decision nobody made."""
+        self.edit_entry(config=_ref(OTHER, "Make"))
+        self.load()
+
+        again = self.load(dry_run=True)
+
+        self.assertEqual(len(again.feature_identity_changes), 1)
+        self.assertEqual(again.feature_identity_changes[0].key, "used/make")
+
+    def test_a_description_change_on_the_same_vocabulary_is_a_plain_update(self):
+        self.edit_entry(description="feature.make.help")
+
+        report = self.load()
+
+        self.assertFalse(report.failed, [(i.kind, i.key, i.detail) for i in report.categories])
+        self.assertEqual(report.feature_identity_changes, [])
+        self.assertEqual(self.live_override().description, "feature.make.help")
+
+    def test_the_command_names_the_refused_override(self):
+        self.edit_entry(config=_ref(OTHER, "Make"))
+
+        buf = io.StringIO()
+        with self.assertRaises(CommandError):
+            call_command(
+                "load_catalog", dir=self.directory,
+                on_conflict=cl.ON_CONFLICT_FIXTURE, stdout=buf,
+            )
+
+        text = buf.getvalue()
+        self.assertIn("feature identity changes REFUSED: 1", text)
+        self.assertIn(
+            "used/make: vocabulary 'phones' → 'cars', level 'Model' → 'Make'", text
+        )
+
+    def test_the_escape_applies_the_override_swap(self):
+        self.edit_entry(config=_ref(OTHER, "Make"))
+
+        report = self.load(allow_feature_identity_change=True)
+
+        self.assertFalse(report.failed, [(i.kind, i.key, i.detail) for i in report.categories])
+        self.assertTrue(report.feature_identity_changes[0].applied)
+        live = self.live_override()
+        self.assertEqual(live.config["optionsRef"]["vocabulary"], OTHER)
+        self.assertEqual(live.config["optionsRef"]["level"], "Make")
