@@ -16,6 +16,7 @@ Usage::
     python manage.py load_catalog --on-conflict fixture-wins
     python manage.py load_catalog --deletions hard     # real DELETE (default: soft)
     python manage.py load_catalog --keep-slugs         # content now, addresses later
+    python manage.py load_catalog --allow-feature-identity-change  # move a field's question
     python manage.py load_catalog --seed-if-empty      # bootstrap idiom, no-op if populated
 
 Records are matched by **source identity first** — a fixture row carrying
@@ -26,8 +27,13 @@ distinct from the ``+``/``-`` of an add or a removal. ``--keep-slugs`` performs
 no such rename: the live slug stands, every other field is applied, and the
 move is reported under ``slug renames HELD``.
 
-Exit code is non-zero when any record conflicted (default per-record abort) or
-failed validation — CI can gate on it. Non-conflicting records ARE applied.
+A matched FEATURE whose ``config.type`` or ``optionsRef`` the fixture moves is
+REFUSED: what a field asks is the key every stored answer is filed under, so
+the swap is a data migration (``--allow-feature-identity-change`` performs it).
+
+Exit code is non-zero when any record conflicted (default per-record abort),
+failed validation, or asked for a refused feature-identity change — CI can gate
+on it. Non-conflicting records ARE applied.
 """
 import os
 
@@ -40,8 +46,8 @@ from stapel_categories import catalog_load as cl
 _KIND_ORDER = (
     cl.CREATED, cl.UPDATED, cl.DELETED, cl.SKIPPED,
     cl.CONFLICT, cl.DB_ONLY, cl.DB_NEW, cl.DB_NEW_IN_CANON,
-    cl.NAME_COLLISION, cl.RESIDUAL, cl.RENAME_BLOCKED, cl.LINK_UNRESOLVED,
-    cl.ERROR,
+    cl.NAME_COLLISION, cl.RESIDUAL, cl.RENAME_BLOCKED, cl.IDENTITY_BLOCKED,
+    cl.LINK_UNRESOLVED, cl.ERROR,
 )
 _KIND_LABEL = {
     cl.CREATED: "created",
@@ -55,6 +61,7 @@ _KIND_LABEL = {
     cl.NAME_COLLISION: "sibling name collision",
     cl.RESIDUAL: "applied but not equal to canon",
     cl.RENAME_BLOCKED: "feature rename BLOCKED",
+    cl.IDENTITY_BLOCKED: "feature identity change REFUSED",
     cl.LINK_UNRESOLVED: "link end not in this catalogue",
     cl.ERROR: "ERROR",
 }
@@ -70,6 +77,7 @@ _KIND_MARK = {
     cl.NAME_COLLISION: "?",
     cl.RESIDUAL: "≈",
     cl.RENAME_BLOCKED: "»",
+    cl.IDENTITY_BLOCKED: "!",
     cl.LINK_UNRESOLVED: "?",
     cl.ERROR: "E",
 }
@@ -140,6 +148,19 @@ class Command(BaseCommand):
             ),
         )
         parser.add_argument(
+            "--allow-feature-identity-change",
+            action="store_true",
+            help=(
+                "Apply a change to what a feature ASKS: its config.type, or the "
+                "optionsRef vocabulary/level it reads its terms from. Without "
+                "this flag such a record is REFUSED and named, and the run exits "
+                "non-zero — every stored answer keys into the live question, so "
+                "a swap empties the facet, the AI fill and the links that read "
+                "it, and under a plain `~` line it looks exactly like a "
+                "description typo. Pass it once the answers have been moved."
+            ),
+        )
+        parser.add_argument(
             "--no-hook",
             action="store_true",
             help=(
@@ -202,6 +223,7 @@ class Command(BaseCommand):
                 call_hook=not options["no_hook"],
                 clear_axis_role=options["clear_axis_role"],
                 keep_slugs=options["keep_slugs"],
+                allow_feature_identity_change=options["allow_feature_identity_change"],
             )
         except ValueError as exc:  # incompatible sidecar version
             raise CommandError(str(exc))
@@ -210,7 +232,8 @@ class Command(BaseCommand):
 
         if report.failed:
             raise CommandError(
-                f"{report.conflicts} conflict(s), {report.errors} error(s) — "
+                f"{report.conflicts} conflict(s), {report.errors} error(s), "
+                f"{report.identity_refusals} refused feature identity change(s) — "
                 "see the report above. Non-conflicting records were applied"
                 + (" (dry run: nothing was written)." if report.dry_run else ".")
             )
@@ -239,7 +262,7 @@ class Command(BaseCommand):
                 line = f"    {mark} {it.key}"
                 if it.detail:
                     line += f"  ({it.detail})"
-                if it.kind in (cl.CONFLICT, cl.ERROR):
+                if it.kind in (cl.CONFLICT, cl.ERROR, cl.IDENTITY_BLOCKED):
                     self.stdout.write(self.style.ERROR(line))
                 elif it.kind in (
                     cl.DB_ONLY, cl.DB_NEW, cl.DB_NEW_IN_CANON, cl.NAME_COLLISION,
@@ -248,6 +271,7 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING(line))
                 else:
                     self.stdout.write(line)
+        self._print_identity_changes(report, prefix)
         self._print_held_renames(report, prefix)
         if report.links:
             # `kept` is the number this line exists for: the pointers this
@@ -296,6 +320,38 @@ class Command(BaseCommand):
         self._print_axis_roles(report, prefix)
         if report.dry_run:
             self.stdout.write("[dry-run] no changes were written.")
+
+    def _print_identity_changes(self, report: cl.Report, prefix: str) -> None:
+        """The line the 2026-09-10 plan never printed.
+
+        ``features: updated 2`` / ``~ make`` was the whole report for a
+        fixture about to move a live feature onto another vocabulary. What a
+        field ASKS is not one more field of it: every stored answer keys into
+        the current question, so the swap is a migration and it gets a heading
+        of its own — refused by default, and named either way.
+        """
+        if not report.feature_identity_changes:
+            return
+        refused = [c for c in report.feature_identity_changes if not c.applied]
+        applied = [c for c in report.feature_identity_changes if c.applied]
+        if refused:
+            self.stdout.write(self.style.ERROR(
+                f"{prefix}feature identity changes REFUSED: {len(refused)}"
+            ))
+            for change in refused:
+                self.stdout.write(self.style.ERROR(f"    {change.line()}"))
+            self.stdout.write(self.style.ERROR(
+                "  Every listing answers under the live question. Move the "
+                "stored answers first, then re-run with "
+                "--allow-feature-identity-change; or fix the fixture."
+            ))
+        if applied:
+            self.stdout.write(self.style.WARNING(
+                f"{prefix}feature identity changes APPLIED "
+                f"(--allow-feature-identity-change): {len(applied)}"
+            ))
+            for change in applied:
+                self.stdout.write(self.style.WARNING(f"    {change.line()}"))
 
     def _print_held_renames(self, report: cl.Report, prefix: str) -> None:
         """The addresses this load did NOT move (--keep-slugs).

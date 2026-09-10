@@ -116,6 +116,13 @@ RESIDUAL = "residual"
 # 2026-09-05 incident this kind exists to make impossible to repeat silently.
 # See the "Feature renames" section below.
 RENAME_BLOCKED = "rename_blocked"
+# A matched FEATURE whose config would stop asking the question it asks now:
+# a different ``config.type``, or a different ``optionsRef`` vocabulary/level.
+# Every stored answer keys into the CURRENT one, so a swap empties the facet,
+# the AI fill and the links that read it — and under the old report a swap and
+# a description typo were the same ``~`` line. Refused unless the operator says
+# otherwise (``--allow-feature-identity-change``). See "Feature identity".
+IDENTITY_BLOCKED = "identity_blocked"
 # A link record whose source or target this catalogue does not have. An
 # ERROR on a real run (the pointer is simply not created); a NOTE on a dry
 # run, where the missing end may be a category the same load would create.
@@ -201,6 +208,22 @@ class HeldRename:
 
 
 @dataclass
+class FeatureIdentityChange:
+    """A feature the fixture would point at a different question.
+
+    ``detail`` names each half that moves — ``config.type``, the ``optionsRef``
+    vocabulary, its level — old → new, because that is what an operator has to
+    read before deciding, and what the ``~`` line never said.
+    """
+    key: str
+    detail: str
+    applied: bool = False
+
+    def line(self) -> str:
+        return f"{self.key}: {self.detail}"
+
+
+@dataclass
 class Report:
     dry_run: bool = False
     features: List[Item] = field(default_factory=list)
@@ -231,6 +254,11 @@ class Report:
     #: did not move is named here — never counted as ``renamed``, which is the
     #: count of renames that happened.
     held_renames: List[HeldRename] = field(default_factory=list)
+    #: Features whose ``config.type`` / ``optionsRef`` the fixture moves, each
+    #: saying whether it was APPLIED (``--allow-feature-identity-change``) or
+    #: refused. A refusal counts toward :attr:`failed` — the swap is a data
+    #: migration, and a load that performed it silently emptied a live facet.
+    feature_identity_changes: List[FeatureIdentityChange] = field(default_factory=list)
     #: ``{old feature slug: new}`` this load detected — whether or not it was
     #: allowed to perform them (``feature_renames_applied`` says which).
     feature_renames: Dict[str, str] = field(default_factory=dict)
@@ -277,9 +305,18 @@ class Report:
         return self.count(ERROR)
 
     @property
+    def identity_refusals(self) -> int:
+        return sum(1 for c in self.feature_identity_changes if not c.applied)
+
+    @property
     def failed(self) -> bool:
-        """A load "failed" (non-zero exit) if any conflict or bad record."""
-        return self.conflicts > 0 or self.errors > 0
+        """A load "failed" (non-zero exit) if any conflict or bad record.
+
+        A refused feature-identity change counts: the fixture asked for a
+        migration this load will not make by itself, and a green exit over it
+        is how the swap reaches production behind a ``~`` line.
+        """
+        return self.conflicts > 0 or self.errors > 0 or self.identity_refusals > 0
 
     @property
     def residuals(self) -> int:
@@ -2029,6 +2066,11 @@ class _Planned:
     #: The hash of the fixture side as this plan read it — half of the pair a
     #: successful apply writes back to the sidecar (see _new_base).
     fixture_hash: Optional[str] = None
+    #: The raw 3-way class this decision came from ("" for a record decided
+    #: before the diff). Kept because WHICH SIDE MOVED outlives the policy that
+    #: resolved it: reverting a DB-side drift is not the fixture asking for a
+    #: new value, and the feature-identity guard has to tell the two apart.
+    raw: str = ""
 
 
 def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions,
@@ -2081,8 +2123,105 @@ def _plan_side(fix: dict, base: dict, db_hashes: dict, *, on_conflict, deletions
             note = idents.rename_detail(key, fix[key])
             renamed = idents.renamed_from(key) is not None
         planned.append(_Planned(key, decision, fix.get(key), note=note,
-                                renamed=renamed, fixture_hash=f_hash))
+                                renamed=renamed, fixture_hash=f_hash, raw=raw))
     return planned
+
+
+# ---------------------------------------------------------------------------
+# Feature identity — the question a field asks
+# ---------------------------------------------------------------------------
+#
+# The stand, 2026-09-10. A dry run said ``features: updated 2`` and listed
+# ``~ make`` and ``~ make_ref_select``. Behind those two lines the fixture was
+# about to move the live ``make`` feature from one vocabulary to another. Every
+# car listing's brand answer keys into the OLD vocabulary, so the load would
+# have emptied the brand facet, the AI fill and the brand links — and nothing
+# in the report distinguished it from a description typo.
+#
+# So a feature's IDENTITY — what question it asks — is ``config.type`` plus the
+# ``optionsRef`` it reads its terms from. A matched row whose identity the
+# FIXTURE moves is refused, named, and counted in ``Report.failed``;
+# ``--allow-feature-identity-change`` performs it and lists it as applied. It
+# is the ``--rename-features`` discipline one field over: the schema half of a
+# two-sided migration is not made silently because the other half is invisible
+# from here.
+#
+# Deliberately narrow in two ways. The comparison is against the LIVE row, so a
+# fixture that merely restates what is already there is not a change. And a
+# DB-side drift the fixture never moved (``_DB_ONLY`` under ``fixture-wins``)
+# is NOT refused: that path exists to restore canon over an edit made
+# elsewhere, and refusing it would strand every category record whose override
+# the drifted root makes unwritable (0.18.0).
+
+
+def _identity_fields(config: dict) -> tuple:
+    """``(type, vocabulary, level)`` — the question this config asks."""
+    from .branching import _options_ref  # reads both config shapes
+
+    config = config if isinstance(config, dict) else {}
+    vocabulary, level = _options_ref(config) or ("", "")
+    return str(config.get("type") or ""), vocabulary, level
+
+
+def _identity_change(live_config: dict, fixture_config: dict) -> str:
+    """What moves between two configs, or ``""`` when they ask the same thing."""
+    before, after = _identity_fields(live_config), _identity_fields(fixture_config)
+    if before == after:
+        return ""
+    labels = ("config.type", "vocabulary", "level")
+    return ", ".join(
+        f"{label} '{old}' → '{new}'"
+        for label, old, new in zip(labels, before, after) if old != new
+    )
+
+
+def _guard_feature_identity(report, feat_plan, db_feat_by_slug, *, allow: bool) -> None:
+    """Refuse (or record) every planned write that moves a feature's identity.
+
+    Mutates the plan: a refused record becomes a note, so it is never written
+    and its sidecar base is left where it was — the fixture keeps offering the
+    change on every run until somebody decides.
+    """
+    for planned in feat_plan:
+        if planned.decision.op != "upsert" or planned.raw == _DB_ONLY:
+            continue
+        live = db_feat_by_slug.get(planned.key)
+        if live is None or not planned.record:
+            continue  # a create has no live question to move
+        detail = _identity_change(live.get("config"), planned.record.get("config"))
+        if not detail:
+            continue
+        report.feature_identity_changes.append(
+            FeatureIdentityChange(planned.key, detail, applied=allow)
+        )
+        if allow:
+            continue
+        planned.decision = Decision("note", IDENTITY_BLOCKED)
+        # Short here on purpose: the report's own REFUSED section carries the
+        # reason and the way out, and this line stands next to 3000 others.
+        planned.note = f"{detail} — refused, not written"
+
+
+def _changed_feature_fields(fixture: dict, live: dict) -> List[str]:
+    """The record keys a feature upsert would write, ``config`` broken out.
+
+    What ``~ make`` never said. Both sides are the export shape (the fixture
+    one via :func:`_normalize_feature_record`), so the answer is exactly what
+    made the record plan.
+    """
+    out: List[str] = []
+    for key in sorted(set(fixture) | set(live)):
+        theirs, ours = fixture.get(key), live.get(key)
+        if theirs == ours:
+            continue
+        if key == "config" and isinstance(theirs, dict) and isinstance(ours, dict):
+            out.extend(
+                f"config.{sub}" for sub in sorted(set(theirs) | set(ours))
+                if theirs.get(sub) != ours.get(sub)
+            )
+            continue
+        out.append(key)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -2101,6 +2240,7 @@ def load_catalog(
     call_hook: bool = True,
     clear_axis_role: bool = False,
     keep_slugs: bool = False,
+    allow_feature_identity_change: bool = False,
 ):
     """Reconcile the fixtures in ``directory`` into the live catalog.
 
@@ -2131,6 +2271,13 @@ def load_catalog(
     without the switch plans them again. Feature slugs are not covered: their
     rename is a data migration, not an address, and it has
     ``rename_features``.
+
+    ``allow_feature_identity_change`` performs the other class of change this
+    loader refuses by default: a matched feature whose ``config.type`` or
+    ``optionsRef`` (vocabulary or level) moves — the question the field asks,
+    and the key every stored answer is filed under (see "Feature identity").
+    Without it such a record is refused, named, and counted in
+    ``Report.failed``.
     """
     from .models import Category, Feature
 
@@ -2181,6 +2328,7 @@ def load_catalog(
             apply_renames=apply_renames, rename_features=rename_features,
             clear_axis_role=clear_axis_role, fix_links=fix_links,
             keep_slugs=keep_slugs,
+            allow_feature_identity_change=allow_feature_identity_change,
         )
         return report
 
@@ -2199,6 +2347,7 @@ def load_catalog(
             apply_renames=apply_renames, rename_features=rename_features,
             clear_axis_role=clear_axis_role, fix_links=fix_links,
             keep_slugs=keep_slugs,
+            allow_feature_identity_change=allow_feature_identity_change,
         )
 
     # The sidecar reflects the applied state — written after commit.
@@ -2218,7 +2367,7 @@ def _run_plan(
     report, fix_feat, fix_cat, base_feat, base_cat, *, on_conflict, deletions, apply,
     apply_renames: bool = False, rename_features: bool = False,
     clear_axis_role: bool = False, fix_links: Optional[list] = None,
-    keep_slugs: bool = False,
+    keep_slugs: bool = False, allow_feature_identity_change: bool = False,
 ):
     """Classify and (optionally) apply, in referential order.
 
@@ -2289,6 +2438,12 @@ def _run_plan(
     feat_plan = _plan_side(
         fix_feat, base_feat, db_feat, on_conflict=on_conflict, deletions=deletions,
         blocked=blocked,
+    )
+    # …and the writes among them that would move a feature's identity. Before
+    # the category view is built: a refused root keeps its LIVE type and name,
+    # which is what the categories must be planned and validated against.
+    _guard_feature_identity(
+        report, feat_plan, db_feat_by_slug, allow=allow_feature_identity_change,
     )
     cat_view = _fixture_hash_view(_root_names_after(fix_feat, feat_plan), db_optional)
     cat_plan = _plan_side(
@@ -2386,9 +2541,15 @@ def _run_plan(
             "categories": _new_base(base_cat, cat_plan, db_after["categories"], report, "categories"),
         }
 
-    # dry run: just report intended outcomes
+    # dry run: just report intended outcomes — and for a FEATURE, WHICH fields
+    # the write would touch. A count is not a report: `~ make` is how a
+    # description typo and a vocabulary swap both looked.
     for side, plan in (("features", feat_plan), ("categories", cat_plan)):
         for p in plan:
+            if side == "features" and not p.note and p.decision.op == "upsert":
+                live = db_feat_by_slug.get(p.key)
+                if live is not None and p.record:
+                    p.note = ", ".join(_changed_feature_fields(p.record, live))
             report.add(side, _item(p))
     # What the link phase WOULD do, over the tree as it stands. A dangling
     # end may well be a category this very load would create, so the errors

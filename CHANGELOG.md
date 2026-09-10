@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.22.2] — 2026-09-10
+
+### Added — what a field ASKS is not one more field of it
+
+Patch: one guard on `load_catalog` with an explicit escape, plus a dry run that
+names the fields it is about to write. A fixture that changes no feature's
+question behaves exactly as it did under 0.22.1.
+
+On the stand, a `--dry-run --keep-slugs` plan said `features: updated 2` and
+listed `~ make`, `~ make_ref_select`. Behind those two lines the fixture was
+about to point the live `make` feature at a different vocabulary, flip
+`mandatory` and inject `rules`. Every car listing's brand answer keys into the
+OLD vocabulary, so the load would have emptied the brand facet, the AI fill and
+the brand links — and a `~` line is how a description typo and a vocabulary
+swap both looked.
+
+A feature's **identity** is now a thing the loader knows: `config.type` plus
+the `optionsRef` it reads its terms from (vocabulary and level). A matched
+feature whose identity the FIXTURE moves is **refused** — not written, named
+under its own heading, and counted in `Report.failed`, so the run exits
+non-zero:
+
+```
+features: feature identity change REFUSED 1
+    ! make  (vocabulary 'phones' → 'cars', level 'Vendor' → 'Make' — refused, not written)
+feature identity changes REFUSED: 1
+    make: vocabulary 'phones' → 'cars', level 'Vendor' → 'Make'
+  Every listing answers under the live question. Move the stored answers first,
+  then re-run with --allow-feature-identity-change; or fix the fixture.
+```
+
+`--allow-feature-identity-change` performs it and lists what it did under
+`feature identity changes APPLIED (--allow-feature-identity-change): N`. It is
+the `--rename-features` discipline one field over: the schema half of a
+two-sided migration is not made silently because the other half is invisible
+from here.
+
+Deliberately narrow in two ways. The comparison is against the LIVE row, so a
+fixture that restates what is already there is not a change. And a DB-side
+drift the fixture never moved (`db_only` under `fixture-wins`) is **not**
+refused: that path exists to restore canon over an edit made elsewhere, and
+refusing it would strand every category record whose override the drifted root
+makes unwritable (0.18.0). `_Planned` now carries the raw 3-way class so the
+guard can tell which side moved, whatever policy resolved it.
+
+### Changed — a dry run names the field set, not just the count
+
+A feature `~` line in a `--dry-run` plan now names what the write would touch,
+`config` broken out by sub-key:
+
+```
+    ~ make  (config.optionsRef, mandatory, name)
+```
+
+Both sides are the export shape, so the answer is exactly what made the record
+plan. Cheap, and it is the difference between a report and a count.
+
 ## [0.22.1] — 2026-09-10
 
 ### Added — `--keep-slugs`: the content now, the addresses later

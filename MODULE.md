@@ -536,6 +536,23 @@ listings stand behind this catalogue. Anything short of a one-to-one identity
 match is reported and applied as neither: a wrong rename writes sellers'
 answers into the wrong field.
 
+**A feature's IDENTITY is refused by default (0.22.2).** What a field ASKS —
+its `config.type` and the `optionsRef` (vocabulary + level) it reads its terms
+from — is not one more field of it: every stored answer keys into the current
+question, so moving it empties the facet, the AI fill and the links that read
+it. A stand plan said `features: updated 2` / `~ make` for a fixture about to
+move a live feature onto another vocabulary; a `~` line is how a description
+typo and a vocabulary swap both looked. A matched feature whose identity the
+FIXTURE moves is now refused — never written, named under
+`feature identity changes REFUSED: N` (one `slug: vocabulary 'a' → 'b', level
+'x' → 'y'` per feature) and counted in `Report.failed`, so the run exits
+non-zero. `--allow-feature-identity-change` performs it and lists it under
+`… APPLIED`. Narrow on purpose: the comparison is against the LIVE row, and a
+DB-side drift the fixture never moved (`db_only` under `fixture-wins`) is NOT
+refused — that path exists to restore canon (0.18.0). A `--dry-run` feature
+line now also names the field set it would write (`~ make (config.optionsRef,
+mandatory, name)`), `config` broken out by sub-key: a count is not a report.
+
 **A slug is an address: `--keep-slugs` (0.22.1).** When a producer changes how
 it derives slugs, every record in the file is re-keyed at once — one live
 catalogue's re-import matched 3423 of 3444 rows by `external_id` and planned a
