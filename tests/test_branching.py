@@ -239,10 +239,40 @@ class TestExpansionValidation:
         parent.children_expand_by = "brand"
         parent.save()
 
-        warnings = check_children_expand_by(None)
+        warnings = check_children_expand_by(None, databases=["default"])
 
         assert {w.id for w in warnings} == {"stapel_categories.E001"}
         assert len(warnings) == 2
+
+    def test_no_database_declared_means_no_read(self, expanded):
+        """``run_checks()`` passes ``databases=None`` — and gets no query.
+
+        The tag is not the guard: the registry runs a database-tagged check
+        whatever the caller declares. A plain ``manage.py check`` — and every
+        downstream composite's boot-gate test, which is the same call — says
+        "no database expected here", and 0.22.3 queried anyway. Under
+        pytest-django that surfaces as ``RuntimeError``, which is not a
+        ``django.db.Error``, so it escaped the check and failed the run.
+
+        Asserted by connection count rather than by the empty list alone: an
+        implementation that queried and then threw the findings away would
+        satisfy the list and reproduce the failure.
+        """
+        from django.core.checks import run_checks
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+
+        from stapel_categories.checks import check_children_expand_by
+
+        expanded.children_expand_by = "colour"
+        expanded.save()
+
+        with CaptureQueriesContext(connection) as captured:
+            assert check_children_expand_by(None) == []
+            assert check_children_expand_by(None, databases=[]) == []
+            # The whole registry, the way `manage.py check` calls it.
+            assert not [f for f in run_checks() if f.id == "stapel_categories.E001"]
+        assert list(captured) == []
 
     def test_the_staff_write_refuses_it(self, staff_client, expanded):
         response = staff_client.patch(

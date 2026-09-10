@@ -11,7 +11,7 @@ EXPAND_BY_ID = "stapel_categories.E001"
 
 
 @checks.register(checks.Tags.database)
-def check_children_expand_by(app_configs, **kwargs):
+def check_children_expand_by(app_configs, databases=None, **kwargs):
     """Every ``children_expand_by`` names a feature that can be enumerated.
 
     W-level, not E: the catalogue still serves. A node whose expansion is
@@ -20,14 +20,19 @@ def check_children_expand_by(app_configs, **kwargs):
     mis-typed slug in a three-thousand-row catalogue trades an empty page for
     an outage.
 
-    Registered under ``Tags.database`` because it reads the table: the check
-    framework runs database-tagged checks only where a database is expected,
-    and the read is guarded anyway — this runs before ``migrate`` too, when
-    the column it filters on does not exist yet.
+    Registered under ``Tags.database`` because it reads the table. The tag is
+    not the guard: the registry runs every check and passes ``databases=``;
+    ``None`` means no database is expected (plain ``manage.py check``, a
+    composite's boot-gate test) and the check must not read. The
+    ``DatabaseError`` guard covers the other case: a database is declared
+    but the column does not exist yet because this runs before ``migrate``.
     """
     from django.db import Error as DatabaseError
 
     from .branching import expansion_errors
+
+    if not databases:
+        return []
 
     try:
         found = expansion_errors()

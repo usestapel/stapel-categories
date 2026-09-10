@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.22.4] — 2026-09-10
+
+### Fixed — `stapel_categories.E001` no longer reads the database when none is declared
+
+`check_children_expand_by` now reads the `databases=` argument the check
+registry passes and returns nothing when it is empty. 0.22.3 queried
+unconditionally, so a plain `manage.py check` — and every downstream
+composite's boot-gate test — failed on a table read the caller had not
+declared. The read still happens under `migrate`, `check --database` and the
+deployment checks.
+
 ## [0.22.3] — 2026-09-10
 
 ### Fixed — the identity guard now covers the row the leaf actually uses
