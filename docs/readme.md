@@ -178,6 +178,28 @@ django-admin set_axis_role --slug proizvoditel --slug marka --role make
 django-admin set_axis_role --slug body_type --clear
 ```
 
+The table also carries a short list of **product-specific** full slugs —
+`cool_table_brand`, `hearing_aid_brand`, `equipment_brand` — because a leaf
+whose product has a name of its own tends to spell the axis with it. They are
+adjudicated one at a time, never matched by a `_brand` suffix: the same corpus
+spells a ride service's driver car `car_make`, a part number `vendor_code` and
+a year `year_make_of_car`, and `NEVER_A_MAKE` keeps those counter-examples as
+data. Each sits in the last precedence tier, so a leaf carrying both a
+compound and a canonical `make` keeps answering with the canonical one.
+
+`load_catalog` re-derives after every apply, but a derivation that only ever
+happens inside a catalogue load cannot be inspected, so the same decision is
+available on its own — dry by default, counted by slug and by role:
+
+```bash
+django-admin derive_axis_roles               # report only
+django-admin derive_axis_roles --changed     # only the rows that would move
+django-admin derive_axis_roles --apply       # write `axis_role_derived`
+```
+
+It writes exactly one column. The authored `axis_role` is never read, written
+or overwritten by it.
+
 An authored role travels in the catalogue fixture, so it survives an image
 rebuild; the derived cache does not — a load re-derives it.
 
