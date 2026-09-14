@@ -272,7 +272,18 @@ class TestExpansionValidation:
             assert check_children_expand_by(None, databases=[]) == []
             # The whole registry, the way `manage.py check` calls it.
             assert not [f for f in run_checks() if f.id == "stapel_categories.E001"]
-        assert list(captured) == []
+        # Transaction control is the harness's, not the check's: the test
+        # transaction emits SAVEPOINT/RELEASE around the block on some
+        # Django/Python combinations and not others, and counting those would
+        # make this gate a statement about the runner. What it must stay a
+        # statement about is that the CHECK issued no read.
+        reads = [
+            q for q in captured
+            if not q["sql"].strip().upper().startswith(
+                ("SAVEPOINT", "RELEASE", "ROLLBACK")
+            )
+        ]
+        assert reads == []
 
     def test_the_staff_write_refuses_it(self, staff_client, expanded):
         response = staff_client.patch(

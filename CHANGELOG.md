@@ -1,8 +1,12 @@
 # Changelog
 
-## [0.23.0] — 2026-09-14
+## [0.23.1] — 2026-09-14
 
 ### Added — the make axis on 46 more leaves, and a command that shows its work
+
+(0.23.0 was tagged and never published: its CI gate caught the regenerated
+contract missing from the version commit, and the publish refused. 0.23.1 is
+that same change with `docs/` regenerated.)
 
 A leaf whose product has a name of its own spells the manufacturer axis with
 it: «Холодильные столы» carries `cool_table_brand`, «Слуховые аппараты»
@@ -41,6 +45,14 @@ never read, written or overwritten — the command writes exactly one column,
 
 The report and the write now share one `plan_axis_roles()`, so a dry run's
 counts cannot drift from what `--apply` would do.
+
+### Fixed — the no-read gate stopped counting the harness's savepoints
+
+`test_no_database_declared_means_no_read` compared the whole captured query
+list against `[]`. On Python 3.14 the test transaction emits SAVEPOINT/RELEASE
+around the block, so the gate went red on transaction control the check did
+not issue. It now filters those out and still asserts the check read nothing —
+the property it exists for.
 
 ## [0.22.4] — 2026-09-10
 

@@ -1790,18 +1790,7 @@
         "type": "string",
         "description": "* `keep` - keep\n* `add` - add\n* `edit` - edit\n* `inherit` - inherit\n* `remove` - remove\n* `create` - create\n* `replace` - replace"
       },
-      "AxisRoleAuthoredE96Enum": {
-        "enum": [
-          "make",
-          "model",
-          "generation",
-          "year",
-          "mileage"
-        ],
-        "type": "string",
-        "description": "* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
-      },
-      "AxisRoleEnum": {
+      "AxisRoleDerivedEnum": {
         "enum": [
           "make",
           "model",
@@ -2803,7 +2792,7 @@
             "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. Authored value first, then the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleEnum"
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
               },
               {
                 "$ref": "#/components/schemas/NullEnum"
@@ -2814,7 +2803,7 @@
             "description": "The authoring column: blank leaves the role to `load_catalog`'s slug-table derivation, a value pins it. `axis_role` above is the RESOLVED read.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleAuthoredE96Enum"
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -3039,7 +3028,7 @@
             "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleEnum"
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -3047,9 +3036,13 @@
             ]
           },
           "axis_role_derived": {
-            "type": "string",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              }
+            ],
             "readOnly": true,
-            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value."
+            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
           },
           "translate": {
             "allOf": [
@@ -3156,7 +3149,7 @@
             "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. It is what a storefront reads to build a «more of this make» link, or an AI descent to fill make before model, instead of matching slugs against a table of its own.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleEnum"
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
               },
               {
                 "$ref": "#/components/schemas/NullEnum"
@@ -3423,7 +3416,7 @@
             "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleEnum"
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -3431,9 +3424,13 @@
             ]
           },
           "axis_role_derived": {
-            "type": "string",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              }
+            ],
             "readOnly": true,
-            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value."
+            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
           },
           "translate": {
             "allOf": [
@@ -3880,7 +3877,7 @@
             "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. It is what a storefront reads to build a «more of this make» link, or an AI descent to fill make before model, instead of matching slugs against a table of its own.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleEnum"
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
               },
               {
                 "$ref": "#/components/schemas/NullEnum"
@@ -4814,7 +4811,7 @@
             "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleEnum"
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -4822,9 +4819,13 @@
             ]
           },
           "axis_role_derived": {
-            "type": "string",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+              }
+            ],
             "readOnly": true,
-            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value."
+            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
           },
           "translate": {
             "allOf": [
