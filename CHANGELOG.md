@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.23.0] — 2026-09-14
+
+### Added — the make axis on 46 more leaves, and a command that shows its work
+
+A leaf whose product has a name of its own spells the manufacturer axis with
+it: «Холодильные столы» carries `cool_table_brand`, «Слуховые аппараты»
+carries `hearing_aid_brand`, the riding-gear leaves carry `equipment_brand`.
+The base-word table could not see any of them, so 49 leaves held a
+manufacturer axis that `axis_role` never labelled and no storefront band
+could mount on. Measured on a live catalogue: 913 categories named a make,
+959 do now, none lost, no new ambiguity.
+
+`COMPOUND_MAKE_SLUGS` is the 40 slugs, **adjudicated one at a time and never
+matched by shape**. A rule like "ends in `_brand`" is wrong on this corpus in
+both directions, and `NEVER_A_MAKE` keeps the counter-examples as data so the
+next reader sees why it was not done:
+
+- not the maker of the thing for sale — `car_make` on «По городу» and «Между
+  городами» is the DRIVER's car, the three car-brand fields on «Вакансии» are
+  a job ad's subject matter, and `original_vendor` «Производитель оригинала»
+  names the make a replica COPIES;
+- not a make at all — `year_make_of_car` is a YEAR, `chassis_and_body_same_brand`
+  is a BOOLEAN, `vendor_code` is a part NUMBER;
+- a component's maker — `brand_processor`, `engine_brand`, `make_chassis`,
+  `case_vendor` name a PART, on leaves that already answer with their own make.
+
+Each compound sits in the last precedence tier, so a leaf carrying both a
+compound and a canonical `make` keeps answering with the canonical one.
+
+### Added — `manage.py derive_axis_roles`
+
+`load_catalog` already re-derives at the end of every run, so this is not how
+the column normally gets filled. It exists because a derivation that only ever
+happens inside a catalogue load cannot be INSPECTED. Dry by default, `--apply`
+writes, `--changed` narrows to the rows that move; the report counts by slug
+and by resulting role and lists any ambiguity. The authored `axis_role` is
+never read, written or overwritten — the command writes exactly one column,
+`axis_role_derived`.
+
+The report and the write now share one `plan_axis_roles()`, so a dry run's
+counts cannot drift from what `--apply` would do.
+
 ## [0.22.4] — 2026-09-10
 
 ### Fixed — `stapel_categories.E001` no longer reads the database when none is declared

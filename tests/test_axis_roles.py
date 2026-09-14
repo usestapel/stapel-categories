@@ -18,15 +18,21 @@ import tempfile
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from stapel_attributes.axis import AXIS_ROLES, by_axis_role
 from stapel_categories import catalog_fixtures as cf
 from stapel_categories import catalog_load as cl
 from stapel_categories.axis_roles import (
+    _LAST_TIER,
     AXIS_ROLE_BY_SLUG,
     AXIS_ROLE_TIER_BY_SLUG,
+    BASE_AXIS_ROLE_BY_SLUG,
+    COMPOUND_MAKE_SLUGS,
+    NEVER_A_MAKE,
     derive_axis_roles,
     find_ambiguities,
+    plan_axis_roles,
     precedence_for_slug,
     role_for_slug,
 )
@@ -122,7 +128,13 @@ class TestPrecedence:
     def test_every_table_word_has_a_tier(self):
         # A spelling added to the rule table with no tier would silently land
         # in the last one — findable here, not in a storefront's link.
-        assert set(AXIS_ROLE_BY_SLUG) == set(AXIS_ROLE_TIER_BY_SLUG)
+        # BASE words only: a compound in COMPOUND_MAKE_SLUGS is meant to
+        # have no tier of its own — see the next test.
+        assert set(BASE_AXIS_ROLE_BY_SLUG) == set(AXIS_ROLE_TIER_BY_SLUG)
+
+    def test_every_compound_sits_in_the_last_tier(self):
+        for slug in COMPOUND_MAKE_SLUGS:
+            assert precedence_for_slug(slug) == (_LAST_TIER, 0), slug
 
     @pytest.mark.parametrize("stronger, weaker", [
         ("make", "make_ref_select"),
@@ -696,3 +708,155 @@ class TestCatalogHealth:
         call_command("catalog_health", stdout=out)
 
         assert "0 axis-role ambiguities" in out.getvalue()
+
+
+class TestTheProductSpecificAllowlist:
+    """Compound spellings — ``cool_table_brand``, ``equipment_brand``.
+
+    Adjudicated one slug at a time, against a live catalogue. The point of
+    every test here is the SHAPE RULE that was not written: nothing in this
+    module matches on a ``_brand`` suffix, because the corpus has slugs that
+    carry it and are not a make, and slugs that are a make and do not.
+    """
+
+    @pytest.mark.parametrize("slug", COMPOUND_MAKE_SLUGS)
+    def test_every_adjudicated_slug_derives_a_make(self, slug):
+        assert role_for_slug(slug) == "make"
+
+    @pytest.mark.parametrize("slug", NEVER_A_MAKE)
+    def test_a_refused_slug_derives_nothing(self, slug):
+        # A wrongly stamped make sends a buyer to a facet nobody clicked.
+        assert role_for_slug(slug) is None
+
+    @pytest.mark.parametrize("slug, name", [
+        ("capacity", "Производительность"),   # performance, not a maker
+        ("vendor_code", "Номер"),             # a part number
+        ("color_name", "Цвет от производителя"),  # a colour
+        ("year_make_of_car", "Год выпуска"),  # a year
+        ("chassis_and_body_same_brand", "У шасси и кузова одинаковая марка?"),
+        ("original_vendor", "Производитель оригинала"),  # what a replica copies
+        ("marking", "Маркировка"),
+        ("marketplaces", "Маркетплейсы и доски объявлений"),
+    ])
+    def test_the_name_is_never_read(self, slug, name):
+        """Each of these has 'brand'/'make'/'vendor' in the slug or the NAME.
+
+        A regex over either field tags all eight. The table reads neither: it
+        is a lookup of the whole slug, so the only way in is to be listed.
+        """
+        leaf("nekotoraya-kategoriya", slug)
+        Feature.objects.filter(slug=slug).update(name=name)
+
+        decided, _ = derive_axis_roles(apply=True)
+
+        assert slug not in decided
+        assert Feature.objects.get(slug=slug).resolved_axis_role is None
+
+    def test_a_product_leaf_gets_its_band(self):
+        # «Холодильные столы» spells the axis with its own product's name and
+        # carries nothing the base-word table can see.
+        category = leaf("holodilnye-stoly", "cool_table_brand", "color")
+
+        derive_axis_roles(apply=True)
+
+        assert Feature.objects.get(slug="cool_table_brand").resolved_axis_role == "make"
+        # The lookup the storefront's `promoteFacet` actually performs.
+        defs = Category.objects.get(pk=category.pk).feature_defs()
+        assert by_axis_role(defs)["make"]["slug"] == "cool_table_brand"
+
+    def test_a_compound_never_outranks_the_canonical_make(self):
+        # The compound sits in the last tier, so a leaf carrying both keeps
+        # answering with the catalogue's own make.
+        leaf("gruzoviki", "make_ref_select", "engine_brand", "make_chassis")
+
+        decided, ambiguities = derive_axis_roles(apply=True)
+
+        assert ambiguities == []
+        assert decided["make_ref_select"] == "make"
+        assert Feature.objects.get(slug="engine_brand").resolved_axis_role is None
+
+    def test_an_authored_role_survives_the_new_table(self):
+        leaf("vakansii", "car_make")
+        Feature.objects.filter(slug="car_make").update(axis_role="make")
+
+        derive_axis_roles(apply=True)
+
+        row = Feature.objects.get(slug="car_make")
+        assert row.axis_role == "make"       # untouched
+        assert row.axis_role_derived == ""   # the table still refuses it
+        assert row.resolved_axis_role == "make"
+
+    def test_a_second_run_is_a_no_op(self):
+        leaf("holodilnye-stoly", "cool_table_brand")
+        derive_axis_roles(apply=True)
+
+        plan = plan_axis_roles()
+
+        assert plan.changes == 0
+        assert plan.writes == {}
+
+    def test_no_slug_is_both_allowed_and_refused(self):
+        assert not set(COMPOUND_MAKE_SLUGS) & set(NEVER_A_MAKE)
+
+
+class TestTheDeriveCommand:
+    def test_a_dry_run_reports_and_writes_nothing(self):
+        cars_leaf()
+        out = io.StringIO()
+
+        call_command("derive_axis_roles", "--dry-run", stdout=out)
+
+        assert "make_ref_select" in out.getvalue()
+        assert "would change" in out.getvalue()
+        assert Feature.objects.get(slug="make_ref_select").axis_role_derived == ""
+
+    def test_the_default_is_dry(self):
+        cars_leaf()
+
+        call_command("derive_axis_roles", stdout=io.StringIO())
+
+        assert Feature.objects.get(slug="make_ref_select").axis_role_derived == ""
+
+    def test_it_counts_by_slug_and_by_role(self):
+        cars_leaf()
+        out = io.StringIO()
+
+        call_command("derive_axis_roles", "--dry-run", stdout=out)
+        text = out.getvalue()
+
+        assert "by slug" in text and "by role" in text
+        # four axes on the cars leaf, one row each
+        for role in ("make", "model", "year", "mileage"):
+            assert role in text
+
+    def test_apply_writes_the_derivation_column_only(self):
+        cars_leaf()
+
+        call_command("derive_axis_roles", "--apply", stdout=io.StringIO())
+
+        row = Feature.objects.get(slug="make_ref_select")
+        assert row.axis_role_derived == "make"
+        assert row.axis_role == ""
+
+    def test_a_second_apply_writes_nothing(self):
+        cars_leaf()
+        call_command("derive_axis_roles", "--apply", stdout=io.StringIO())
+        out = io.StringIO()
+
+        call_command("derive_axis_roles", "--apply", stdout=out)
+
+        assert "settled" in out.getvalue()
+
+    def test_the_two_flags_are_refused_together(self):
+        with pytest.raises(CommandError):
+            call_command("derive_axis_roles", "--apply", "--dry-run")
+
+    def test_it_never_overwrites_an_authored_role(self):
+        cars_leaf()
+        Feature.objects.filter(slug="color").update(axis_role="make")
+
+        call_command("derive_axis_roles", "--apply", stdout=io.StringIO())
+
+        row = Feature.objects.get(slug="color")
+        assert row.axis_role == "make"
+        assert row.axis_role_derived == ""

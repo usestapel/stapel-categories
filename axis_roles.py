@@ -82,7 +82,7 @@ from stapel_attributes.axis import GENERATION, MAKE, MILEAGE, MODEL, YEAR
 #: import corpus of a large classified catalogue this fleet mapped, and
 #: ``god_vypuska``/``kilometrage`` are the transliterated and English
 #: spellings a Russian-language catalogue arrives with.
-AXIS_ROLE_BY_SLUG: Dict[str, str] = {
+BASE_AXIS_ROLE_BY_SLUG: Dict[str, str] = {
     # make — the manufacturer axis
     "brand": MAKE,
     "make": MAKE,
@@ -99,6 +99,114 @@ AXIS_ROLE_BY_SLUG: Dict[str, str] = {
     "mileage": MILEAGE,
     "kilometrage": MILEAGE,
 }
+
+#: Product-specific spellings of the make axis: FULL slugs, not base words.
+#:
+#: A leaf whose product has a name of its own tends to spell the axis with it
+#: — «Холодильные столы» carries ``cool_table_brand``, «Слуховые аппараты»
+#: carries ``hearing_aid_brand``. The base-word table above cannot see these,
+#: and on a live catalogue that left 49 leaves with a manufacturer axis and no
+#: role: refrigeration, gates, scales, POS hardware, riding gear, wheelchairs.
+#:
+#: **Adjudicated one by one, never matched by shape.** A rule like "ends in
+#: ``_brand``" is the same mistake as a regex over names, and it is wrong on
+#: this very corpus in two directions:
+#:
+#: * it tags what is not a product's own maker — ``car_make`` on «По городу»
+#:   and «Между городами» (the DRIVER's car in a ride service), the three
+#:   car-brand fields on «Вакансии» (a job ad's subject matter), and
+#:   ``original_vendor`` «Производитель оригинала» on 117 leaves, which names
+#:   the make a replica COPIES rather than the make of the item for sale;
+#: * it tags what is not a make at all — ``year_make_of_car`` is a YEAR
+#:   («Год выпуска»), ``chassis_and_body_same_brand`` is a BOOLEAN («У шасси и
+#:   кузова одинаковая марка?»), ``vendor_code`` is a part NUMBER.
+#:
+#: Component makers are left out for a different reason: ``brand_processor``,
+#: ``engine_brand``, ``make_chassis``, ``case_vendor`` name a PART of the
+#: thing, and every leaf carrying one already answers the base-word table with
+#: the make of the thing itself. Tagging the part would put a second candidate
+#: on a leaf that is not confused.
+#:
+#: Each of these sits in the last precedence tier by default, so a leaf that
+#: also carries a canonical ``make`` or ``brand`` is unaffected.
+COMPOUND_MAKE_SLUGS: Tuple[str, ...] = (
+    "airfreshener_brand",
+    "alarm_brand",
+    "brand_charging",
+    "brand_gas_pump",
+    "brand_string",
+    "brewery_brand",
+    "cash_box_brand",
+    "cash_software_brand",
+    "chest_brand",
+    "coffee_machine_brand",
+    "compressor_brand",
+    "converter_brand",
+    "cool_cab_brand",
+    "cool_case_brand",
+    "cool_room_brand",
+    "cool_slide_brand",
+    "cool_table_brand",
+    "cooler_brand",
+    "dryer_brand",
+    "equipment_brand",
+    "ext_umbrella_brand",
+    "frames_brand",
+    "freezer_brand",
+    "gate_automation_brand",
+    "generator_brand",
+    "hearing_aid_brand",
+    "ice_gen_brand",
+    "lightning_brand",
+    "monitor_brand",
+    "monoblock_brand",
+    "profile_brand",
+    "rim_brand",
+    "roof_rack_brand",
+    "scales_brand",
+    "shower_enclosure_brand",
+    "sleeve_brand",
+    "sliding_gates_brand",
+    "swing_gates_brand",
+    "vending_brand",
+    "wheelchair_brand",
+)
+
+#: The lookup :func:`role_for_slug` performs: the base words, plus the
+#: product-specific full slugs. Kept apart above so the tier invariant stays a
+#: statement about BASE words — a compound deliberately has no tier of its own
+#: and takes :data:`_LAST_TIER`, which is what keeps it from ever outranking
+#: the canonical spelling on a leaf that carries both.
+AXIS_ROLE_BY_SLUG: Dict[str, str] = dict(BASE_AXIS_ROLE_BY_SLUG)
+AXIS_ROLE_BY_SLUG.update({slug: MAKE for slug in COMPOUND_MAKE_SLUGS})
+
+#: Slugs a shape rule would sweep in and this module deliberately refuses —
+#: kept as data so a test can hold the line, and so the next person to reach
+#: for ``endswith("_brand")`` reads why it was not done.
+NEVER_A_MAKE: Tuple[str, ...] = (
+    # not the maker of the thing for sale
+    "car_make",
+    "car_brand_drivers",
+    "car_repair_brand_specialization",
+    "machine_brand",
+    "original_vendor",
+    # not a make at all
+    "year_make_of_car",
+    "chassis_and_body_same_brand",
+    "vendor_code",
+    "vendor_code_int",
+    # a component's maker, on leaves that already answer with their own
+    "body_builder_brand",
+    "brand_motherboard",
+    "brand_processor",
+    "brand_videocard",
+    "case_vendor",
+    "engine_brand",
+    "engine_make",
+    "make_chassis",
+    "make_kmu",
+    "make_semi_trailer_coupling",
+)
 
 #: Precedence TIER of each base word within its own role — lower wins. It is
 #: read only when one category offers several candidates for one role, and it
@@ -320,6 +428,63 @@ def find_ambiguities() -> List[Ambiguity]:
     return resolve_axis_roles()[1]
 
 
+class Plan(object):
+    """What a derivation would do, before anything is written.
+
+    Built once by :func:`plan_axis_roles` and read by BOTH the writer and the
+    report, so a ``--dry-run`` count can never be a second, drifting copy of
+    the arithmetic that runs under ``--apply``.
+
+    * ``decided`` — ``{slug: role}``, the spellings this catalogue derives
+      SOMEWHERE. Not every row under the slug carries it.
+    * ``writes`` — ``{role or "": [feature pk]}``, only the rows whose stored
+      value would CHANGE. Empty on a settled catalogue: that is what makes a
+      re-run a no-op.
+    * ``rows_by_slug`` — ``{(slug, role or ""): rows}`` over every live
+      feature, the report's own tally.
+    * ``ambiguities`` — what the resolution refused to answer.
+    """
+
+    __slots__ = ("decided", "writes", "rows_by_slug", "ambiguities")
+
+    def __init__(self, decided, writes, rows_by_slug, ambiguities):
+        self.decided = decided
+        self.writes = writes
+        self.rows_by_slug = rows_by_slug
+        self.ambiguities = ambiguities
+
+    @property
+    def changes(self) -> int:
+        """How many feature rows this plan would touch."""
+        return sum(len(pks) for pks in self.writes.values())
+
+
+def plan_axis_roles() -> Plan:
+    """Decide ``axis_role_derived`` for every live feature, writing nothing."""
+    from .models import Feature
+
+    resolved, ambiguities = resolve_axis_roles()
+
+    decided: Dict[str, str] = {}
+    rows = Feature.objects.filter(deleted=False, is_test=False).values_list(
+        "pk", "slug", "axis_role_derived"
+    )
+    writes: Dict[str, List[int]] = defaultdict(list)
+    rows_by_slug: Dict[Tuple[str, str], int] = defaultdict(int)
+    for pk, slug, current in rows:
+        # A row no category links is decided by its slug alone: there is no
+        # schema it could contradict.
+        role = resolved[pk] if pk in resolved else role_for_slug(slug)
+        role = role or ""
+        if role:
+            decided[slug] = role
+        rows_by_slug[(slug, role)] += 1
+        if current != role:
+            writes[role].append(pk)
+
+    return Plan(decided, writes, rows_by_slug, ambiguities)
+
+
 def derive_axis_roles(apply: bool = False) -> Tuple[Dict[str, str], List[Ambiguity]]:
     """Decide ``axis_role_derived`` for every live feature.
 
@@ -333,25 +498,10 @@ def derive_axis_roles(apply: bool = False) -> Tuple[Dict[str, str], List[Ambigui
     """
     from .models import Feature
 
-    resolved, ambiguities = resolve_axis_roles()
-
-    decided: Dict[str, str] = {}
-    rows = Feature.objects.filter(deleted=False, is_test=False).values_list(
-        "pk", "slug", "axis_role_derived"
-    )
-    writes: Dict[str, List[int]] = defaultdict(list)
-    for pk, slug, current in rows:
-        # A row no category links is decided by its slug alone: there is no
-        # schema it could contradict.
-        role = resolved[pk] if pk in resolved else role_for_slug(slug)
-        role = role or ""
-        if role:
-            decided[slug] = role
-        if current != role:
-            writes[role].append(pk)
+    plan = plan_axis_roles()
 
     if apply:
-        for role, pks in writes.items():
+        for role, pks in plan.writes.items():
             Feature.objects.filter(pk__in=pks).update(axis_role_derived=role)
 
-    return decided, ambiguities
+    return plan.decided, plan.ambiguities
