@@ -48,11 +48,13 @@ counts cannot drift from what `--apply` would do.
 
 ### Fixed — the no-read gate stopped counting the harness's savepoints
 
-`test_no_database_declared_means_no_read` compared the whole captured query
-list against `[]`. On Python 3.14 the test transaction emits SAVEPOINT/RELEASE
-around the block, so the gate went red on transaction control the check did
-not issue. It now filters those out and still asserts the check read nothing —
-the property it exists for.
+`test_no_database_declared_means_no_read` wrapped its query capture around a
+`run_checks()` call — the WHOLE registry — and compared the result against
+`[]`. That made it a claim about every installed app's checks, and on Python
+3.14 it went red on a SAVEPOINT and a SELECT this module never issued. The
+capture now spans only the two `check_children_expand_by` calls, which is the
+property the test exists for; `run_checks()` still runs, and is still asserted
+to produce no `stapel_categories.E001` finding.
 
 ## [0.22.4] — 2026-09-10
 
