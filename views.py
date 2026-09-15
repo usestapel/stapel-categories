@@ -62,6 +62,7 @@ from .feature_editor import (
     apply_feature_editor_changes,
     build_editor_state,
 )
+from . import bounds
 from .models import (
     Category,
     CategoryLink,
@@ -413,12 +414,12 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
                     parent = None
 
             defaults = {
-                "name": item.get("name", ""),
+                "name": bounds.fit(Category, "name", item.get("name", "")),
                 "slug": item.get("slug", ""),
                 "tn_parent": parent,
                 "tn_priority": item.get("tn_priority", 0),
-                "catalog_icon": item.get("catalog_icon") or "",
-                "carousel_icon": item.get("carousel_icon") or "",
+                "catalog_icon": bounds.fit(Category, "catalog_icon", item.get("catalog_icon") or ""),
+                "carousel_icon": bounds.fit(Category, "carousel_icon", item.get("carousel_icon") or ""),
                 "carousel_enabled": item.get("carousel_enabled", False),
                 "active": item.get("active", True),
                 "translatable": item.get("translatable", True),
@@ -898,8 +899,8 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
                             continue
 
                     category = Category.objects.create(
-                        name=cmd["name"],
-                        slug=cmd["slug"],
+                        name=cmd["name"],  # noqa: BND002 - CategoryCommandSerializer bounds name/slug from the model, so DRF refuses over-long values with a 400 before this runs
+                        slug=cmd["slug"],  # noqa: BND002 - CategoryCommandSerializer bounds name/slug from the model, so DRF refuses over-long values with a 400 before this runs
                         translatable=cmd.get("translatable", True),
                         tn_parent=parent,
                         tn_priority=cmd.get("priority", 0),
@@ -910,9 +911,9 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
                     try:
                         category = Category.objects.get(pk=category_id)
                         if "name" in cmd:
-                            category.name = cmd["name"]
+                            category.name = cmd["name"]  # noqa: BND002 - CategoryCommandSerializer bounds name/slug from the model, so DRF refuses over-long values with a 400 before this runs
                         if "slug" in cmd:
-                            category.slug = cmd["slug"]
+                            category.slug = cmd["slug"]  # noqa: BND002 - CategoryCommandSerializer bounds name/slug from the model, so DRF refuses over-long values with a 400 before this runs
                         if "translatable" in cmd:
                             category.translatable = cmd["translatable"]
                         category.save()
@@ -1042,16 +1043,16 @@ class FeatureViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
                     parent = None
 
             defaults = {
-                "name": item.get("name", ""),
+                "name": bounds.fit(Feature, "name", item.get("name", "")),
                 "slug": item.get("slug", ""),
                 "tn_parent": parent,
                 "tn_priority": item.get("tn_priority", 0),
-                "comment": item.get("comment", ""),
-                "icon": item.get("icon") or "",
+                "comment": bounds.fit(Feature, "comment", item.get("comment", "")),
+                "icon": bounds.fit(Feature, "icon", item.get("icon") or ""),
                 "mandatory": item.get("mandatory", False),
                 "show_as_badge": item.get("show_as_badge", False),
                 "show_at_title": item.get("show_at_title", False),
-                "translate": item.get("translate", "all"),
+                "translate": bounds.choice_or_default(Feature, "translate", item.get("translate", "all")),
                 "config": item.get("config", {}),
             }
 

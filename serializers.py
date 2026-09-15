@@ -793,8 +793,25 @@ class CategoryCommandSerializer(serializers.Serializer):
 
     id = serializers.IntegerField(required=False, allow_null=True, help_text="Category ID (null for add command)")
     command = serializers.ChoiceField(choices=CATEGORY_COMMANDS, help_text="Command to execute")
-    name = serializers.CharField(required=False, allow_blank=True, help_text="Category name (for add/edit)")
-    slug = serializers.CharField(required=False, allow_blank=True, help_text="Category slug (for add/edit)")
+    # max_length READ OFF THE MODEL, not restated. A bare CharField() over a
+    # 255-character column is not a bound: DRF accepts any length, the view
+    # writes it, and Postgres answers StringDataRightTruncation — a 500 for
+    # what should be a 400 the caller can read and fix. Deriving it here also
+    # means the refusal follows the column if the column ever moves.
+    #
+    # A REFUSAL and not a truncation, deliberately: `slug` is the identity
+    # this catalogue is addressed by and `name` is what a person reads, so
+    # quietly storing the front of either is worse than saying no.
+    name = serializers.CharField(
+        required=False, allow_blank=True,
+        max_length=Category._meta.get_field("name").max_length,
+        help_text="Category name (for add/edit)",
+    )
+    slug = serializers.CharField(
+        required=False, allow_blank=True,
+        max_length=Category._meta.get_field("slug").max_length,
+        help_text="Category slug (for add/edit)",
+    )
     translatable = serializers.BooleanField(required=False, default=True, help_text="If True, name is translation key")
     parent_id = serializers.IntegerField(required=False, allow_null=True, help_text="Parent category ID (for add)")
     priority = serializers.IntegerField(required=False, help_text="Tree node priority (for add/reorder)")

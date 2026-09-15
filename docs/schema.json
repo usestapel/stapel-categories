@@ -2093,11 +2093,13 @@
           },
           "name": {
             "type": "string",
-            "description": "Category name (for add/edit)"
+            "description": "Category name (for add/edit)",
+            "maxLength": 255
           },
           "slug": {
             "type": "string",
-            "description": "Category slug (for add/edit)"
+            "description": "Category slug (for add/edit)",
+            "maxLength": 255
           },
           "translatable": {
             "type": "boolean",

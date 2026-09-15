@@ -5,6 +5,7 @@ from typing import Dict, Iterable, List, Optional, Set
 
 from django.db import transaction
 
+from . import bounds
 from .models import Category, CategoryFeature, Feature
 from .serializers import FeatureSerializer
 
@@ -424,23 +425,23 @@ def apply_feature_editor_changes(
             if feature_id:
                 feature_obj = Feature.objects.create(
                     tn_parent_id=feature_id,  # Old feature becomes parent
-                    name=payload.get("name", ""),
+                    name=bounds.fit(Feature, "name", payload.get("name", "")),
                     slug=slug,
-                    icon=payload.get("icon") or "",
-                    comment=payload.get("comment", ""),
+                    icon=bounds.fit(Feature, "icon", payload.get("icon") or ""),
+                    comment=bounds.fit(Feature, "comment", payload.get("comment", "")),
                     config=payload.get("config", {}) or {},
                     mandatory=payload.get("mandatory", False),
                     show_as_badge=payload.get("show_as_badge", False),
                     show_at_title=payload.get("show_at_title", False),
-                    visibility=payload.get("visibility", "public"),
-                    axis_role=payload.get("axis_role_authored", "") or "",
-                    translate=payload.get("translate", "all"),
+                    visibility=bounds.choice_or_default(Feature, "visibility", payload.get("visibility", "public")),
+                    axis_role=bounds.choice_or_default(Feature, "axis_role", payload.get("axis_role_authored", "") or ""),
+                    translate=bounds.choice_or_default(Feature, "translate", payload.get("translate", "all")),
                     rules=payload.get("rules") or [],
                     description=payload.get("description", ""),
-                    example=payload.get("example", ""),
+                    example=bounds.fit(Feature, "example", payload.get("example", "")),
                     default=payload.get("default"),
                     hints=payload.get("hints") or [],
-                    group=payload.get("group", ""),
+                    group=bounds.fit(Feature, "group", payload.get("group", "")),
                     tn_priority=payload.get("tn_priority", 0),
                 )
                 final_features.append(feature_obj)
@@ -454,23 +455,23 @@ def apply_feature_editor_changes(
             # Create new root Feature (tn_parent=null)
             feature_obj = Feature.objects.create(
                 tn_parent=None,
-                name=payload.get("name", ""),
+                name=bounds.fit(Feature, "name", payload.get("name", "")),
                 slug=slug,
-                icon=payload.get("icon") or "",
-                comment=payload.get("comment", ""),
+                icon=bounds.fit(Feature, "icon", payload.get("icon") or ""),
+                comment=bounds.fit(Feature, "comment", payload.get("comment", "")),
                 config=payload.get("config", {}) or {},
                 mandatory=payload.get("mandatory", False),
                 show_as_badge=payload.get("show_as_badge", False),
                 show_at_title=payload.get("show_at_title", False),
-                visibility=payload.get("visibility", "public"),
-                axis_role=payload.get("axis_role_authored", "") or "",
-                translate=payload.get("translate", "all"),
+                visibility=bounds.choice_or_default(Feature, "visibility", payload.get("visibility", "public")),
+                axis_role=bounds.choice_or_default(Feature, "axis_role", payload.get("axis_role_authored", "") or ""),
+                translate=bounds.choice_or_default(Feature, "translate", payload.get("translate", "all")),
                 rules=payload.get("rules") or [],
                 description=payload.get("description", ""),
-                example=payload.get("example", ""),
+                example=bounds.fit(Feature, "example", payload.get("example", "")),
                 default=payload.get("default"),
                 hints=payload.get("hints") or [],
-                group=payload.get("group", ""),
+                group=bounds.fit(Feature, "group", payload.get("group", "")),
                 tn_priority=payload.get("tn_priority", 0),
             )
             final_features.append(feature_obj)

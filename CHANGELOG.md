@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.23.2] — 2026-09-16
+
+### Fixed — editor input no longer reaches a bounded column unbounded
+
+Found by `stapel-bounds-lint` (BND001/BND002/BND003): 24 sites where a
+client-supplied string was written straight into a `CharField`. Django
+validates `max_length` in **forms**, never on a write, so a column bound
+declared in a model is not a bound enforced on the path that writes it —
+Postgres raises `StringDataRightTruncation`, the transaction rolls back, and a
+catalogue edit answers 500.
+
+The narrow columns are the dangerous ones and they are not the obvious ones.
+`name` is 200 and nobody types 200 characters by accident; `visibility` and
+`translate` are **10** and `axis_role` is **16**, so one mistyped value in an
+editor payload was enough.
+
+Three different remedies, because the columns are three different kinds of
+thing — `bounds.py` says which and why:
+
+- **Prose** (`name`, `comment`, `icon`, `example`, `group`, the catalog and
+  carousel icons) is **fitted**: cut, with the cut marked, so a reader can tell
+  a whole value from the front of a longer one. 16 sites in `feature_editor.py`
+  plus the two bulk-import paths.
+- **Vocabularies** (`visibility`, `translate`, `axis_role`) fall back to the
+  field's own default. A value outside the vocabulary is not made to fit by
+  cutting — `"publiccccccc"[:10]` is not a visibility, and a truncated
+  `"restricted"` is not one either. This also catches the merely-*wrong* value
+  the column could have held, which cutting never would.
+- **Identity** (`name` and `slug` on the category command endpoint) is
+  **refused, not truncated**: `CategoryCommandSerializer` now derives its
+  `max_length` from the model, so DRF answers a readable **400** instead of the
+  view answering 500. `slug` is what the catalogue is addressed by, and quietly
+  storing the front of one would silently address a different row.
+
+Every limit is read off the field and none is restated, because a limit typed
+twice makes the next `max_length` change a silent data-loss bug: the column
+grows and the truncation does not, or it shrinks and the truncation does not.
+
+Contract change is additive — `maxLength: 255` appears on the command
+serializer's `name` and `slug`. Released as a patch deliberately: the only
+behaviour change is a 500 becoming a 400 on input that never worked.
+
 ## [0.23.1] — 2026-09-14
 
 ### Added — the make axis on 46 more leaves, and a command that shows its work
