@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.23.4] — 2026-09-17
+
+### The declared floor was lower than what this library's own suite asserts
+
+`pyproject.toml` declared `stapel-core>=0.60.8`, and
+`tests/test_public_read.py::test_anonymous_write_is_refused_in_the_fleet_envelope`
+asserts that an anonymous write is refused in the fleet envelope
+(`localizable_error`/`error`/`params`), not in DRF's bare `{"detail": ...}`.
+
+Nothing in this module builds that response. The refusal comes from DRF's
+permission layer, and the only seam that dresses it is
+`REST_FRAMEWORK["EXCEPTION_HANDLER"]` — which this harness has carried since
+0.21.6. But the tier of `stapel_exception_handler` that dresses the
+exceptions **no view raises** — an authenticator's `NotAuthenticated`, a
+permission class's `PermissionDenied`, `get_object_or_404`'s `Http404`,
+dispatch's `MethodNotAllowed`, a throttle's `Throttled` — is core **0.61.0**'s
+Tier 4. On 0.60.8 the handler runs its validation tiers and then falls
+through to DRF's own, which answers exactly the shape the test forbids.
+
+So the test was right about the behaviour and the floor was wrong about the
+requirement. A resolver that honoured the declared floor picked 0.60.8 and
+the suite went red on a lie the library had told about itself.
+
+### Changed
+
+- **`stapel-core>=0.60.8` → `>=0.61.0`.** The reason is recorded at the
+  dependency, beside the pre-existing 0.60.8 reason, because the two are
+  different decisions that happen to point at the same line.
+
+Verified at both ends of the declared range: the full suite is green against
+`stapel-core==0.61.0` (the floor exactly, so the floor is not higher than it
+needs to be) and against 0.76.0. Nothing else in this library was relying on
+the older shape — the bare `{"detail": ...}` appears nowhere in this package
+outside the comments that describe it, and no view, serializer or test reads
+a `detail` key off a refusal.
+
 ## [0.23.3] — 2026-09-16
 
 ### Fixed — two declarations that described a body this library never sent

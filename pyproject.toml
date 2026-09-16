@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.23.3"
+version = "0.23.4"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -38,7 +38,18 @@ dependencies = [
     # wheel ships, however complete it was, and those codes rendered their
     # English floor on an otherwise translated screen.
     # `tests/test_error_i18n.py` is the gate.
-    "stapel-core>=0.60.8,<1.0",
+    #
+    # Raised to >=0.61.0 as of 0.23.4. `tests/test_public_read.py::
+    # test_anonymous_write_is_refused_in_the_fleet_envelope` asserts that an
+    # anonymous write is refused in the fleet envelope, and the tier that
+    # dresses the refusals NO VIEW RAISES — an authenticator's
+    # `NotAuthenticated`, a permission class's `PermissionDenied`, a 404 from
+    # `get_object_or_404`, a 405 from dispatch, a 429 from a throttle — is
+    # core 0.61.0's Tier 4. On 0.60.8 the handler still falls through to DRF's
+    # own, which answers the bare `{"detail": ...}` this test exists to
+    # forbid. The floor was a statement about what this library requires, and
+    # it was lower than what this library's own suite asserts.
+    "stapel-core>=0.61.0,<1.0",
     # Floor: 0.5.0 brings the rule grammar + evaluator (parse_rules,
     # rule_warnings, evaluate_rules), the FeatureDef v2 fields this module
     # stores, validate_configs_structured(known_slugs=...) and
