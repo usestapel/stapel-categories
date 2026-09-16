@@ -980,20 +980,28 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         description="Get feature details with tree structure info.",
         responses={200: FeatureSerializer},
     ),
+    # The RESPONSE of a write is the write serializer, not the read one.
+    # `get_serializer_class` returns FeatureCreateUpdateSerializer for create,
+    # update and partial_update, and DRF renders the response with whatever
+    # that returns - so declaring FeatureSerializer here described a body these
+    # three have never sent. The visible divergence was `axis_role`: the write
+    # serializer ships the raw column, so the wire carries "" where the read
+    # serializer's declared union is make|model|generation|year|mileage|null,
+    # and a generated client got a value outside its own enum.
     create=extend_schema(
         description="Create a new feature with polymorphic config.",
         request=FeatureCreateUpdateSerializer,
-        responses={201: FeatureSerializer},
+        responses={201: FeatureCreateUpdateSerializer},
     ),
     update=extend_schema(
         description="Update an existing feature with polymorphic config.",
         request=FeatureCreateUpdateSerializer,
-        responses={200: FeatureSerializer},
+        responses={200: FeatureCreateUpdateSerializer},
     ),
     partial_update=extend_schema(
         description="Partially update a feature.",
         request=FeatureCreateUpdateSerializer,
-        responses={200: FeatureSerializer},
+        responses={200: FeatureCreateUpdateSerializer},
     ),
 )
 @extend_schema(tags=["Features"])

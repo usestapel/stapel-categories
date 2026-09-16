@@ -1346,7 +1346,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Feature"
+                  "$ref": "#/components/schemas/FeatureCreateUpdate"
                 }
               }
             },
@@ -1438,7 +1438,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Feature"
+                  "$ref": "#/components/schemas/FeatureCreateUpdate"
                 }
               }
             },
@@ -1492,7 +1492,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Feature"
+                  "$ref": "#/components/schemas/FeatureCreateUpdate"
                 }
               }
             },
@@ -3283,6 +3283,10 @@
           "config": {
             "$ref": "#/components/schemas/FeatureConfig"
           },
+          "axis_role_derived": {
+            "type": "string",
+            "readOnly": true
+          },
           "revision": {
             "type": "integer",
             "readOnly": true
@@ -3424,15 +3428,6 @@
                 "$ref": "#/components/schemas/BlankEnum"
               }
             ]
-          },
-          "axis_role_derived": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
-              }
-            ],
-            "readOnly": true,
-            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
           },
           "translate": {
             "allOf": [
@@ -3912,14 +3907,12 @@
           },
           "divergent": {
             "type": "boolean",
-            "readOnly": true,
             "description": "Present and true when the children of this `chips` parent do not agree on the feature; the config shown is the widest of theirs. Absent means the children agree."
           }
         },
         "required": [
           "axis_role",
           "config",
-          "divergent",
           "id",
           "name"
         ]
@@ -4678,6 +4671,10 @@
           "config": {
             "$ref": "#/components/schemas/FeatureConfig"
           },
+          "axis_role_derived": {
+            "type": "string",
+            "readOnly": true
+          },
           "revision": {
             "type": "integer",
             "readOnly": true
@@ -4819,15 +4816,6 @@
                 "$ref": "#/components/schemas/BlankEnum"
               }
             ]
-          },
-          "axis_role_derived": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
-              }
-            ],
-            "readOnly": true,
-            "description": "Cache of `load_catalog`'s slug-table derivation. Read only when `axis_role` is blank; never overwrites an authored value.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
           },
           "translate": {
             "allOf": [

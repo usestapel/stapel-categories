@@ -177,8 +177,22 @@ class FeatureEffectiveSerializer(FeatureCompactSerializer):
     before this existed.
     """
 
+    # NOT `read_only=True`, and that is a schema decision rather than a
+    # behaviour one. drf-spectacular computes
+    # `required = field.required or schema["readOnly"]`, so a read-only field
+    # lands in `required` however `required=False` is declared - and this key
+    # is deliberately ABSENT whenever it would be false (see the docstring: a
+    # leaf and a `tiles` parent answer byte-for-byte what they answered before
+    # this field existed). The contract therefore demanded a key the wire is
+    # designed not to send, on every ordinary category.
+    #
+    # Dropping `read_only` costs nothing here: this serializer is response-only
+    # (views.py builds it with `serializer(features, many=True)` and never with
+    # `data=`), so there is no input for a writable field to accept. The
+    # alternative was the global COMPONENT_NO_READ_ONLY_REQUIRED, which would
+    # change required-ness for every read-only field in every component in the
+    # estate in order to fix one.
     divergent = serializers.BooleanField(
-        read_only=True,
         required=False,
         help_text=(
             "Present and true when the children of this `chips` parent do "
@@ -212,6 +226,18 @@ class FeatureCreateUpdateSerializer(serializers.ModelSerializer):
     """Serializer for creating/updating features with polymorphic config."""
 
     config = FeatureConfigSchemaField(required=False, default=dict)
+
+    # Declared exactly as FeatureSerializer declares it, and for the reason the
+    # wire gate found: under `fields = "__all__"` this maps to a ChoiceField
+    # whose enum is AxisRole's five values, while the column is
+    # `blank=True, default=""` and `editable=False` - so the body carries "",
+    # a value outside the declared enum, on every feature that is not an axis.
+    # A generated client got a string its own union does not contain.
+    #
+    # A plain string rather than the enum plus "": the read serializer already
+    # says CharField here, and two serializers describing one column two ways
+    # is how this diverged in the first place.
+    axis_role_derived = serializers.CharField(read_only=True)
 
     class Meta:
         model = Feature

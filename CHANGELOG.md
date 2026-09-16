@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.23.3] — 2026-09-16
+
+### Fixed — two declarations that described a body this library never sent
+
+Found by `tests/test_contract_wire.py`, added in the same release: it performs
+every operation the committed `docs/schema.json` declares and validates the
+body it gets back. It found four families; these are the two this library
+owns. The other two are `stapel-core`'s and are fixed in **core 0.71.0** — they
+stay recorded here as strict xfails until this library's core pin moves.
+
+**`GET /categories/{id}/features/` demanded a key the wire is designed not to
+send.** `FeatureEffective.divergent` was in `required` on every ordinary
+category, because drf-spectacular computes `required = field.required or
+schema["readOnly"]` — so a read-only field is required however `required=False`
+is declared — while `to_representation` deliberately pops the key whenever it
+would be false, so that a leaf and a `tiles` parent answer byte-for-byte what
+they answered before the field existed. The wire was right and the contract was
+wrong. The field drops `read_only`, which costs nothing: this serializer is
+response-only, built with `serializer(features, many=True)` and never with
+`data=`. The alternative was the global `COMPONENT_NO_READ_ONLY_REQUIRED`,
+which would change required-ness for every read-only field in every component
+in the estate in order to fix one.
+
+**`POST /features/`, `PUT` and `PATCH /features/{id}/` declared the read
+serializer and answered the write one.** `get_serializer_class` returns
+`FeatureCreateUpdateSerializer` for those three actions and DRF renders the
+response with whatever it returns, so the declared `Feature` described a body
+they have never sent. They now declare `FeatureCreateUpdate`.
+
+That surfaced a second divergence underneath: `axis_role_derived` under
+`fields = "__all__"` maps to a `ChoiceField` whose enum is `AxisRole`'s five
+values, while the column is `blank=True, default=""` and `editable=False` — so
+the body carries `""`, a value outside the declared enum, on every feature that
+is not an axis. It is now declared a plain string, exactly as `FeatureSerializer`
+already declared it: two serializers describing one column two different ways
+is how this diverged in the first place.
+
+
 ## [0.23.2] — 2026-09-16
 
 ### Fixed — editor input no longer reaches a bounded column unbounded

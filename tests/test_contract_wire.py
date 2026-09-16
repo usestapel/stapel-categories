@@ -639,11 +639,6 @@ def _features_data_json(call):
 #: its owner. ``strict=True``: a fixed entry fails until it is deleted, so a
 #: finding can be neither forgotten nor quietly kept.
 KNOWN_MISMATCHES = {
-    ("GET", V1 + "/categories/{id}/features/"):
-        "declares FeatureEffective, whose read-only `divergent` lands in "
-        "`required`, while FeatureEffectiveSerializer.to_representation pops "
-        "the key whenever it is falsy (stapel-categories, serializers.py:193). "
-        "Every row of every ordinary category is missing a required property.",
     ("POST", V1 + "/categories/bulk_add/"):
         "declares BulkUpdateResponse.updated_ids as UUID strings and answers "
         "integer pks (views.py:432). The claim is upstream: stapel-core's "
@@ -661,23 +656,6 @@ KNOWN_MISMATCHES = {
     ("GET", V1 + "/features/data.json/"):
         "same upstream claim as the categories twin: one Feature object "
         "declared, an array of them sent — owner stapel-core.",
-    ("POST", V1 + "/features/"):
-        "declares Feature and answers FeatureCreateUpdate: "
-        "FeatureViewSet.get_serializer_class returns the write serializer for "
-        "create/update/partial_update (views.py:1005), while the "
-        "@extend_schema_view block above the class declares FeatureSerializer "
-        "for the response. The divergence shows on `axis_role` — the write "
-        "serializer ships the raw column, so the wire carries \"\" where the "
-        "declared union is make|model|generation|year|mileage|null — owner "
-        "stapel-categories.",
-    ("PUT", V1 + "/features/{id}/"):
-        "same declared-vs-actual serializer swap as POST /features/: "
-        "`axis_role` arrives as \"\", outside the declared union — owner "
-        "stapel-categories.",
-    ("PATCH", V1 + "/features/{id}/"):
-        "same declared-vs-actual serializer swap as POST /features/: "
-        "`axis_role` arrives as \"\", outside the declared union — owner "
-        "stapel-categories.",
 }
 
 
