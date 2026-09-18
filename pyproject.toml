@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.23.4"
+version = "0.23.5"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -49,7 +49,7 @@ dependencies = [
     # own, which answers the bare `{"detail": ...}` this test exists to
     # forbid. The floor was a statement about what this library requires, and
     # it was lower than what this library's own suite asserts.
-    "stapel-core>=0.61.0,<1.0",
+    "stapel-core>=0.84.0,<1.0",
     # Floor: 0.5.0 brings the rule grammar + evaluator (parse_rules,
     # rule_warnings, evaluate_rules), the FeatureDef v2 fields this module
     # stores, validate_configs_structured(known_slugs=...) and

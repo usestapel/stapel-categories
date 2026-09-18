@@ -1115,26 +1115,8 @@
     },
     "/categories/api/v1/categories/data.json/": {
       "get": {
-        "operationId": "categories_api_v1_categories_data.json_retrieve",
-        "description": "Get all data as a cacheable JSON array.\n\nThe `revision` parameter is required for cache busting - clients should use the current\nmax revision from `/revision` endpoint. Response includes Cache-Control header for 30 days.\n\n**Usage:**\n1. Call `/revision` to get current max revision\n2. Call `/data.json?revision={max_revision}` to get all data\n3. Cache the response locally - it won't change until revision changes\n\n\n**Permissions:** `ReadOnlyOrStaff`",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "revision",
-            "schema": {
-              "type": "integer"
-            },
-            "description": "Current revision number (for cache busting). Get from /revision endpoint.",
-            "required": true,
-            "examples": {
-              "CurrentRevision": {
-                "value": 1,
-                "summary": "Current revision",
-                "description": "Use the value from /revision endpoint"
-              }
-            }
-          }
-        ],
+        "operationId": "categories_api_v1_categories_data.json_list",
+        "description": "Return all items as a JSON array with long cache headers.\n\n**Permissions:** `ReadOnlyOrStaff`",
         "tags": [
           "Categories"
         ],
@@ -1148,7 +1130,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Category"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Category"
+                  }
                 }
               }
             },
@@ -1654,26 +1639,8 @@
     },
     "/categories/api/v1/features/data.json/": {
       "get": {
-        "operationId": "categories_api_v1_features_data.json_retrieve",
-        "description": "Get all data as a cacheable JSON array.\n\nThe `revision` parameter is required for cache busting - clients should use the current\nmax revision from `/revision` endpoint. Response includes Cache-Control header for 30 days.\n\n**Usage:**\n1. Call `/revision` to get current max revision\n2. Call `/data.json?revision={max_revision}` to get all data\n3. Cache the response locally - it won't change until revision changes\n\n\n**Permissions:** `ReadOnlyOrStaff`",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "revision",
-            "schema": {
-              "type": "integer"
-            },
-            "description": "Current revision number (for cache busting). Get from /revision endpoint.",
-            "required": true,
-            "examples": {
-              "CurrentRevision": {
-                "value": 1,
-                "summary": "Current revision",
-                "description": "Use the value from /revision endpoint"
-              }
-            }
-          }
-        ],
+        "operationId": "categories_api_v1_features_data.json_list",
+        "description": "Return all items as a JSON array with long cache headers.\n\n**Permissions:** `ReadOnlyOrStaff`",
         "tags": [
           "Features"
         ],
@@ -1687,7 +1654,10 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Feature"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Feature"
+                  }
                 }
               }
             },
@@ -1842,10 +1812,17 @@
           "updated_ids": {
             "type": "array",
             "items": {
-              "type": "string",
-              "format": "uuid"
+              "oneOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              ]
             },
-            "description": "List of created/updated object IDs"
+            "description": "List of created/updated object IDs (each a pk: integer or uuid)"
           }
         },
         "required": [

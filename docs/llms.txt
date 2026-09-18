@@ -1,4 +1,4 @@
-# stapel-categories 0.23.4
+# stapel-categories 0.23.5
 
 Category tree with typed features: a hierarchical category tree (django-treenode) and a parallel feature tree whose typed config is validated by stapel-attributes, an ordered category<->feature M2M, feature inheritance, and a feature-editor lifecycle (keep/add/edit/inherit/remove/create/replace) with optimistic-concurrency apply over a category subtree. Each node also declares how its CHILDREN are presented (`children_as`: `tiles` for real subcategories, `chips` for a partition of one attribute template), authored or derived by the `derive_children_as` command, and the whole visible tree is readable nested in one cached call (`GET /categories/api/v1/tree/?depth=N`).
 
@@ -96,7 +96,7 @@ Paths are relative to `/categories/api/v1/`.
 - GET /categories/carousel/ — categories_api_v1_categories_carousel_list
 - GET /categories/{id}/children/ — categories_api_v1_categories_children_list
 - POST /categories/ — categories_api_v1_categories_create
-- GET /categories/data.json/ — categories_api_v1_categories_data.json_retrieve
+- GET /categories/data.json/ — categories_api_v1_categories_data.json_list
 - GET /categories/{id}/deleted-children/ — categories_api_v1_categories_deleted_children_list
 - DELETE /categories/{id}/ — categories_api_v1_categories_destroy
 - GET /categories/{id}/features/ — categories_api_v1_categories_features_list
@@ -122,7 +122,7 @@ Paths are relative to `/categories/api/v1/`.
 - POST /features/bulk_add/ — categories_api_v1_features_bulk_add_create
 - POST /features/{id}/convert-type/ — categories_api_v1_features_convert_type_create
 - POST /features/ — categories_api_v1_features_create
-- GET /features/data.json/ — categories_api_v1_features_data.json_retrieve
+- GET /features/data.json/ — categories_api_v1_features_data.json_list
 - DELETE /features/{id}/ — categories_api_v1_features_destroy
 - GET /features/ — categories_api_v1_features_list
 - PATCH /features/{id}/ — categories_api_v1_features_partial_update

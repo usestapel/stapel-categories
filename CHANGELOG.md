@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.23.5] — 2026-09-18
+
+### The four wire mismatches are closed upstream
+
+`tests/test_contract_wire.py` drives every operation the contract declares and
+validates the body against the schema it was promised. Four of them were red
+against a claim this module does not own:
+
+- `GET /categories/data.json/` and `GET /features/data.json/` declared ONE
+  object and answered an ARRAY of them, because `RevisionViewSetMixin.data_json`
+  annotated `parameters` and never `responses`;
+- `POST /categories/bulk_add/` and `POST /features/bulk_add/` declared
+  `BulkUpdateResponse.updated_ids` as UUID strings and answered integer pks.
+
+stapel-core 0.71.0 fixes both at the source: `data_json` declares the array it
+sends, and `updated_ids` is a pk union. The contract in `docs/` is re-emitted
+against core 0.84.0, `KNOWN_MISMATCHES` is now empty, and all 38 driven
+operations answer the body they declare.
+
+### Changed
+
+- **`stapel-core>=0.61.0` → `>=0.84.0`.** The emitted contract is the floor:
+  on an older core the document this wheel ships describes bodies the views do
+  not send.
+- `docs/schema.json`, `docs/llms.txt`, `docs/capabilities.json` and `README.md`
+  re-emitted. `data.json` now declares an array and carries the operation id
+  `..._data.json_list`; `BulkUpdateResponse.updated_ids` is an integer-or-uuid
+  union.
+
 ## [0.23.4] — 2026-09-17
 
 ### The declared floor was lower than what this library's own suite asserts

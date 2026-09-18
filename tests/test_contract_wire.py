@@ -34,35 +34,14 @@ prefix and one segment short — so no path in the committed document resolves
 under it.
 
 What it found on its first run: 34 of 34 operations driven, 8 red, in four
-families. All eight are recorded in ``KNOWN_MISMATCHES`` and left exactly as
-they are — this is a gate, not a fix.
-
-* ``GET /categories/{id}/features/`` declares ``FeatureEffective``, whose
-  ``divergent`` is REQUIRED, and the wire never sends the key.
-  ``FeatureEffectiveSerializer.to_representation`` pops ``divergent`` when it
-  is falsy (serializers.py:193-197), which is every feature on an ordinary
-  category and every feature on a `chips` parent whose children agree; the
-  field is ``read_only``, and drf-spectacular puts every read-only field in
-  ``required``. A generated client that reads ``row.divergent`` as a boolean
-  gets ``undefined`` on every row this endpoint has ever served.
-* ``GET /categories/data.json/`` and ``GET /features/data.json/`` declare ONE
-  object and answer an ARRAY of them — the stapel-alerts defect, verbatim.
-  ``RevisionViewSetMixin.data_json`` annotates ``parameters`` and no
-  ``responses``, so the generator infers the viewset's serializer singular
-  while the view sends ``serializer(queryset, many=True).data``.
-* ``POST /categories/bulk_add/`` and ``POST /features/bulk_add/`` declare
-  ``BulkUpdateResponse.updated_ids`` as an array of UUID STRINGS and answer
-  an array of INTEGERS. The claim is upstream — stapel-core's
-  ``BulkUpdateResponseSerializer.updated_ids`` is
-  ``ListField(child=UUIDField())`` — while both views append ``obj.pk`` of a
-  ``BigAutoField`` model (views.py:432, views.py:1063). Every consumer of
-  either endpoint is typed for strings and handed numbers.
-* ``POST /features/``, ``PUT`` and ``PATCH /features/{id}/`` declare
-  ``Feature`` and answer ``FeatureCreateUpdate``: ``get_serializer_class``
-  returns the write serializer for those three actions, and the response is
-  whatever it renders. The divergence the wire shows is ``axis_role``, which
-  the write serializer ships as the raw column — ``""`` — where the declared
-  union is ``make|model|generation|year|mileage|null``.
+families — a required ``divergent`` the wire never sends, ``data.json``
+declaring one object and answering an array, ``updated_ids`` declared as
+UUID strings and answered as integer pks, and the feature write serializer
+answering where ``Feature`` was declared. All four are closed: the last two
+by stapel-core 0.71.0, which makes ``RevisionViewSetMixin.data_json``
+declare the array it sends and ``BulkUpdateResponse.updated_ids`` a pk
+union. ``KNOWN_MISMATCHES`` is empty, and every driven operation answers
+the body the contract declares.
 """
 import copy
 import json
@@ -639,25 +618,7 @@ def _features_data_json(call):
 #: Operations whose declared body the wire does not send, with the defect and
 #: its owner. ``strict=True``: a fixed entry fails until it is deleted, so a
 #: finding can be neither forgotten nor quietly kept.
-KNOWN_MISMATCHES = {
-    ("POST", V1 + "/categories/bulk_add/"):
-        "declares BulkUpdateResponse.updated_ids as UUID strings and answers "
-        "integer pks (views.py:432). The claim is upstream: stapel-core's "
-        "BulkUpdateResponseSerializer.updated_ids is "
-        "ListField(child=UUIDField()) — owner stapel-core.",
-    ("POST", V1 + "/features/bulk_add/"):
-        "same upstream claim as the categories twin: UUID strings declared, "
-        "integer pks sent (views.py:1063) — owner stapel-core.",
-    ("GET", V1 + "/categories/data.json/"):
-        "declares ONE Category object and answers an ARRAY of them. "
-        "RevisionViewSetMixin.data_json annotates only `parameters`, never "
-        "`responses`, so drf-spectacular infers the viewset's serializer in "
-        "its singular form while the body is `serializer(queryset, "
-        "many=True).data` — owner stapel-core.",
-    ("GET", V1 + "/features/data.json/"):
-        "same upstream claim as the categories twin: one Feature object "
-        "declared, an array of them sent — owner stapel-core.",
-}
+KNOWN_MISMATCHES: dict[tuple[str, str], str] = {}
 
 
 def test_the_contract_declares_something_to_check():
