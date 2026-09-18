@@ -161,20 +161,26 @@ class FeatureCompactSerializer(serializers.ModelSerializer):
 
 
 class FeatureEffectiveSerializer(FeatureCompactSerializer):
-    """A compact feature as it reads in an EFFECTIVE (intersected) schema.
+    """A compact feature as it reads in an EFFECTIVE (merged) schema.
 
-    One key more than the compact form, and only where it is true: a
-    `chips` parent's schema is the intersection of its children's, and a
-    feature whose children disagree about its config, its requiredness or
-    its rules carries ``divergent: true`` so a client can hide the control
-    until a chip is picked instead of showing one that means something
-    different per chip. The config beside it is already the widest the
-    children accept, so a client that shows it anyway refuses nothing a
-    child would take.
+    Three keys more than the compact form, and only where they apply. A
+    `chips` parent's schema is the UNION of its children's:
 
-    Absent means false — the key is dropped rather than sent as ``false``,
-    so a leaf and a `tiles` parent answer byte-for-byte what they answered
-    before this existed.
+    * a feature whose carrying children disagree about its config, its
+      requiredness or its rules carries ``divergent: true`` so a client can
+      hide the control until a chip is picked instead of showing one that
+      means something different per chip. The config beside it is already the
+      widest those children accept, so a client that shows it anyway refuses
+      nothing a child would take;
+    * a feature only SOME children carry carries ``partial: true`` and
+      ``carried_by`` naming their slugs. Its config is merged from those
+      children alone. A client may filter the whole partition by it, or offer
+      it only under the chips that have it — but it no longer disappears from
+      the parent while the leaf beside it keeps it.
+
+    Absent means false — the keys are dropped rather than sent as ``false``
+    and an empty list, so a leaf and a `tiles` parent answer byte-for-byte
+    what they answered before these existed.
     """
 
     # NOT `read_only=True`, and that is a schema decision rather than a
@@ -195,19 +201,43 @@ class FeatureEffectiveSerializer(FeatureCompactSerializer):
     divergent = serializers.BooleanField(
         required=False,
         help_text=(
-            "Present and true when the children of this `chips` parent do "
-            "not agree on the feature; the config shown is the widest of "
-            "theirs. Absent means the children agree."
+            "Present and true when the children of this `chips` parent that "
+            "carry the feature do not agree on it; the config shown is the "
+            "widest of theirs. Absent means the carrying children agree."
+        ),
+    )
+    partial = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Present and true when only SOME children of this `chips` parent "
+            "carry the feature; `carried_by` names them and the config shown "
+            "is merged from them alone. Absent means every child carries it."
+        ),
+    )
+    carried_by = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Slugs of the children that carry this feature, in the order "
+            "`GET /children/` returns them. Present only beside "
+            "`partial: true`."
         ),
     )
 
     class Meta(FeatureCompactSerializer.Meta):
-        fields = FeatureCompactSerializer.Meta.fields + ["divergent"]
+        fields = FeatureCompactSerializer.Meta.fields + [
+            "divergent",
+            "partial",
+            "carried_by",
+        ]
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         if not data.get("divergent"):
             data.pop("divergent", None)
+        if not data.get("partial"):
+            data.pop("partial", None)
+            data.pop("carried_by", None)
         return data
 
 

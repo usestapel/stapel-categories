@@ -1,17 +1,19 @@
-"""The effective schema of a `chips` parent — the intersection of its children.
+"""The effective schema of a `chips` parent — the union of its children.
 
 A `chips` parent renders the feed and the chip row for the whole partition,
 so "what can be filtered here" is a question about the CHILDREN. Until this
 existed the parent answered with its own links, which on such a node are
-empty: the cars page offered no filters and the composer opened no fields
+empty: the parent page offered no filters and the composer opened no fields
 until a chip was picked.
 
-Four things are pinned here, against each other:
+Five things are pinned here, against each other:
 
-* what the intersection IS — every feature all children carry, in the order
-  the module already applies, and nothing a single child carries alone;
-* what happens where the children DISAGREE — the widest config of theirs and
-  a `divergent` flag, never a silent pick of one child's bounds;
+* what the union IS — every feature ANY child carries, the shared ones in
+  the order the module already applies and the rest appended after them;
+* what a feature only SOME children carry looks like — `partial: true` and
+  `carried_by` naming them, with a config merged from those children alone;
+* what happens where the carrying children DISAGREE — the widest config of
+  theirs and a `divergent` flag, never a silent pick of one child's bounds;
 * that nothing else moved — a leaf, a `tiles` parent and a `chips` parent
   that declares its own features answer exactly what they answered before;
 * that both readers (HTTP and the `categories.features` Function) answer the
@@ -85,7 +87,8 @@ def cars():
     """`Автомобили` (no own features) over `С пробегом` / `Новые`.
 
     The two children share :data:`SHARED_KEYS` slugs and each carries a few
-    of its own — the shape the live catalogue has (Jaccard 0.57).
+    of its own — the shape the live catalogue has (Jaccard 0.57). The
+    partition-only keys are what `partial` describes.
     """
     parent = Category.objects.create(name="Cars", slug="cars", children_as="chips")
     used = Category.objects.create(name="Used", slug="cars-used", tn_parent=parent)
@@ -100,26 +103,73 @@ def cars():
     return reload(parent), reload(used), reload(new)
 
 
-class TestIntersection:
-    def test_the_parent_answers_every_key_both_children_carry(self, cars):
+SHARED_SLUGS = [f"shared-{index:02d}" for index in range(SHARED_KEYS)]
+PARTITION_SLUGS = ["used-0", "used-1", "used-2", "new-0", "new-1"]
+
+
+class TestUnion:
+    def test_the_parent_answers_every_key_any_child_carries(self, cars):
         parent, _used, _new = cars
 
         features, source = effective_features(parent)
 
         assert source == EFFECTIVE_FROM_CHILDREN
-        assert [f.slug for f in features] == [
-            f"shared-{index:02d}" for index in range(SHARED_KEYS)
-        ]
+        assert [f.slug for f in features] == SHARED_SLUGS + PARTITION_SLUGS
 
-    def test_a_key_only_one_child_carries_is_not_in_it(self, cars):
+    def test_a_key_only_one_child_carries_is_carried_and_marked(self, cars):
+        """It is IN the schema, flagged, and says which chip has it.
+
+        A filter the partition offers on one chip is a filter the partition
+        offers; dropping it made the combined feed poorer than any chip
+        under it, which is the hole this rule closes.
+        """
         parent, _used, _new = cars
 
         features, _ = effective_features(parent)
 
-        slugs = {f.slug for f in features}
-        assert not slugs & {"used-0", "used-1", "used-2", "new-0", "new-1"}
+        by_slug = {f.slug: f for f in features}
+        assert by_slug["used-0"].partial is True
+        assert by_slug["used-0"].carried_by == ["cars-used"]
+        assert by_slug["new-1"].partial is True
+        assert by_slug["new-1"].carried_by == ["cars-new"]
 
-    def test_the_order_is_the_one_the_module_already_applies(self, cars):
+    def test_a_key_every_child_carries_is_not_partial(self, cars):
+        parent, _used, _new = cars
+
+        features, _ = effective_features(parent)
+
+        (shared,) = [f for f in features if f.slug == "shared-00"]
+        assert shared.partial is False
+        assert shared.carried_by == ["cars-used", "cars-new"]
+
+    def test_a_partial_config_merges_only_the_children_that_carry_it(self):
+        """The child without the key does not widen — or unbound — it.
+
+        Merging across all children would read the missing key as "no bound"
+        and hand the storefront an unbounded control nobody authored.
+        """
+        parent = Category.objects.create(
+            name="Vehicles", slug="vehicles", children_as="chips"
+        )
+        first = Category.objects.create(name="A", slug="vehicles-a", tn_parent=parent)
+        second = Category.objects.create(name="B", slug="vehicles-b", tn_parent=parent)
+        third = Category.objects.create(name="C", slug="vehicles-c", tn_parent=parent)
+        shared = make_feature("age")
+        distance = make_feature("distance", {"type": "int", "min": 0, "max": 100})
+        link(first, shared, override(distance, {"type": "int", "min": 10, "max": 100}))
+        link(second, shared, override(distance, {"type": "int", "min": 0, "max": 900}))
+        link(third, shared)
+
+        features, _ = effective_features(reload(parent))
+
+        (distance,) = [f for f in features if f.slug == "distance"]
+        assert distance.partial is True
+        assert distance.carried_by == ["vehicles-a", "vehicles-b"]
+        assert distance.config["min"] == 0
+        assert distance.config["max"] == 900
+        assert distance.divergent is True
+
+    def test_the_shared_keys_keep_the_reference_child_order(self, cars):
         """No second ordering: the reference child's own, filtered.
 
         The composer orders required-bearing blocks first and required first
@@ -131,8 +181,23 @@ class TestIntersection:
 
         features, _ = effective_features(parent)
 
-        common = {f.slug for f in features}
-        assert [f.slug for f in features] == [s for s in reference if s in common]
+        shared = [f.slug for f in features if not f.partial]
+        assert shared == [s for s in reference if s in set(shared)]
+
+    def test_the_subset_keys_follow_in_first_appearance_order(self, cars):
+        """Children in tree order, each child's own order inside.
+
+        `used` comes first in `GET /children/`, so its three land before the
+        two only `new` carries — and all five after everything shared.
+        """
+        parent, _used, _new = cars
+
+        features, _ = effective_features(parent)
+
+        slugs = [f.slug for f in features]
+        partial_slugs = [f.slug for f in features if f.partial]
+        assert partial_slugs == PARTITION_SLUGS
+        assert slugs.index(partial_slugs[0]) == len(slugs) - len(partial_slugs)
 
     def test_a_parent_with_no_children_left_falls_back_to_its_own(self, cars):
         parent, used, new = cars
@@ -180,6 +245,7 @@ class TestDivergence:
             "ev",
         ]
         assert fuel.divergent is True
+        assert fuel.partial is False
 
     def test_a_bound_unbounded_in_one_child_is_unbounded_here(self):
         merged, divergent = merge_configs(
@@ -272,7 +338,7 @@ class TestTransparentParent:
     closed for a chips parent.
     """
 
-    def test_it_answers_its_children_intersection(self):
+    def test_it_answers_its_children_union(self):
         wrapper = Category.objects.create(
             name="Offer", slug="offer", children_as="transparent"
         )
@@ -285,7 +351,7 @@ class TestTransparentParent:
         features, source = effective_features(reload(wrapper))
 
         assert source == EFFECTIVE_FROM_CHILDREN
-        assert [f.slug for f in features] == ["area"]
+        assert [f.slug for f in features] == ["area", "a-only", "b-only"]
 
     def test_a_single_child_wrapper_answers_that_child(self):
         """The census shape: one child, whose own children are the real level."""
@@ -324,9 +390,9 @@ class TestHttpRead:
 
         assert response.status_code == 200
         assert response["X-Effective-From"] == "children"
-        assert [item["slug"] for item in response.json()] == [
-            f"shared-{index:02d}" for index in range(SHARED_KEYS)
-        ]
+        assert [item["slug"] for item in response.json()] == (
+            SHARED_SLUGS + PARTITION_SLUGS
+        )
 
     def test_divergent_rides_on_the_feature_it_describes(self, api_client, cars):
         parent, used, new = cars
@@ -342,6 +408,20 @@ class TestHttpRead:
         # Absent, not false: an agreeing feature reads as it always did.
         assert "divergent" not in by_slug["shared-00"]
 
+    def test_partial_and_carried_by_ride_on_the_feature_they_describe(
+        self, api_client, cars
+    ):
+        parent, _used, _new = cars
+
+        payload = api_client.get(f"{BASE}/categories/{parent.pk}/features/").json()
+
+        by_slug = {item["slug"]: item for item in payload}
+        assert by_slug["used-0"]["partial"] is True
+        assert by_slug["used-0"]["carried_by"] == ["cars-used"]
+        # Absent, not false: a key every child carries reads as it always did.
+        assert "partial" not in by_slug["shared-00"]
+        assert "carried_by" not in by_slug["shared-00"]
+
     def test_a_leaf_reads_exactly_as_before(self, api_client):
         leaf = Category.objects.create(name="Leaf", slug="leaf-http")
         link(leaf, make_feature("colour"))
@@ -352,6 +432,8 @@ class TestHttpRead:
         (payload,) = response.json()
         assert payload["slug"] == "colour"
         assert "divergent" not in payload
+        assert "partial" not in payload
+        assert "carried_by" not in payload
 
 
 class TestFunctionRead:
@@ -401,3 +483,14 @@ class TestFunctionRead:
         assert by_slug["doors"]["divergent"] is True
         assert by_slug["doors"]["config"]["max"] == 5
         assert "divergent" not in by_slug["shared-00"]
+
+    def test_partial_crosses_the_comm_boundary(self, cars):
+        parent, _used, _new = cars
+
+        result = features_function({"category_id": parent.pk})
+
+        by_slug = {f["slug"]: f for f in result["features"]}
+        assert by_slug["new-0"]["partial"] is True
+        assert by_slug["new-0"]["carried_by"] == ["cars-new"]
+        assert "partial" not in by_slug["shared-00"]
+        assert "carried_by" not in by_slug["shared-00"]

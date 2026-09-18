@@ -205,14 +205,16 @@ def features_function(payload: dict) -> dict:
 
     ``effective_from`` is ``own`` for every node whose schema is its own
     (own + inherited), and ``children`` for a ``chips`` parent that declares
-    nothing itself: there the answer is the INTERSECTION of the children's
-    schemas, because the parent renders the feed and the chip row for all of
-    them. A feature only some children carry is absent until its chip is
-    picked; one whose children disagree carries ``divergent: true`` beside
-    the widest config of theirs (see :mod:`stapel_categories.effective`).
-    The ``revision`` on that path is the max over the parent and the children
-    it intersected — a child's edit bumps the child's number, and a consumer
-    caching on the parent's alone would hold a stale intersection forever.
+    nothing itself: there the answer is the UNION of the children's schemas,
+    because the parent renders the feed and the chip row for all of them. A
+    feature only some children carry is in it too, marked ``partial: true``
+    with ``carried_by`` naming those children and a config merged from them
+    alone; one whose carrying children disagree carries ``divergent: true``
+    beside the widest config of theirs (see
+    :mod:`stapel_categories.effective`). The ``revision`` on that path is the
+    max over the parent and the children it merged — a child's edit bumps the
+    child's number, and a consumer caching on the parent's alone would hold a
+    stale schema forever.
     """
     from .effective import (
         effective_feature_defs,

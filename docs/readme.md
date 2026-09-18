@@ -58,17 +58,19 @@ never emits it and never overwrites it.
 
 A `chips` **or `transparent`** parent that declares no features of its own
 answers the **effective
-schema** — the intersection of its children's — wherever features are read
+schema** — the UNION of its children's — wherever features are read
 (`GET /categories/<id>/features/`, the `categories.features` Function). It
 renders the feed and the chip row for the whole partition, so "what can be
 filtered here" is a question about the children. A feature only SOME children
-carry is not in it (it appears when its chip is picked); a feature the children
-disagree on carries `divergent: true` beside the WIDEST config of theirs, so a
-client may render it (it refuses nothing a child accepts) or hide it until a
-chip is picked. The HTTP read says which it did in the `X-Effective-From`
-header (`own` / `children`), the Function in `effective_from`. A parent with
-features of its own keeps them ALONE — own only, never own plus the
-intersection. A `transparent` node has no page of its own, but a composer
+carry is IN it, marked `partial: true` with `carried_by` naming those children
+and a config merged from them alone — a filter the partition offers on one
+chip is a filter the partition offers, and intersecting made the combined feed
+poorer than the leaf beside it. A feature the carrying children disagree on
+carries `divergent: true` beside the WIDEST config of theirs, so a client may
+render it (it refuses nothing a child accepts) or hide it until a chip is
+picked. The HTTP read says which it did in the `X-Effective-From` header
+(`own` / `children`), the Function in `effective_from`. A parent with features
+of its own keeps them ALONE — own only, never own plus the union. A `transparent` node has no page of its own, but a composer
 walking through it and every caller of `categories.features` still ask what it
 types, and a wrapper's own links are empty by construction — so it takes the
 same rule. That is the whole of the overlap: it draws no chip row and gets no

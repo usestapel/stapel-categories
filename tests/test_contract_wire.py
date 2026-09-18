@@ -381,8 +381,36 @@ def _categories_data_json(call):
 
 @recipe("GET", "/categories/{id}/features/")
 def _categories_features(call):
-    category, _feature = category_with_feature()
-    return call(anonymous(), params={"id": category.pk})
+    """A `chips` parent, so the effective-only keys are on the wire too.
+
+    A leaf drives the declared array but never `divergent`, `partial` or
+    `carried_by` — they exist only in a merged schema. A partition whose two
+    children disagree on one feature and differ by another drives all three
+    in a single body.
+    """
+    from stapel_categories.models import Feature
+
+    parent = make_category(name="Wire Partition", children_as="chips")
+    first = make_category(name="Wire Chip A", tn_parent=parent, tn_priority=5)
+    second = make_category(name="Wire Chip B", tn_parent=parent)
+
+    shared = make_feature(config={"type": "int", "min": 0, "max": 100})
+    first_variant = Feature.objects.create(
+        name=shared.name,
+        slug=shared.slug,
+        tn_parent=shared,
+        config={"type": "int", "min": 0, "max": 100},
+    )
+    second_variant = Feature.objects.create(
+        name=shared.name,
+        slug=shared.slug,
+        tn_parent=shared,
+        config={"type": "int", "min": 5, "max": 900},
+    )
+    attach(first, first_variant, order=0)
+    attach(first, make_feature(), order=1)
+    attach(second, second_variant, order=0)
+    return call(anonymous(), params={"id": parent.pk})
 
 
 @recipe("GET", "/categories/{id}/validate-configs/")
@@ -755,3 +783,29 @@ def test_the_wire_matches_the_declared_response(method, path, code, body_schema,
         assert body, f"{method} {path}: the declared list came back empty"
     if isinstance(body, dict) and isinstance(body.get("results"), list):
         assert body["results"], f"{method} {path}: the declared page came back empty"
+
+
+def test_the_effective_only_keys_are_both_sent_and_declared():
+    """`divergent`, `partial` and `carried_by` — driven AND in the document.
+
+    The gate above validates open-world: a key the wire sends and the
+    contract never mentions passes it. These three exist only in the merged
+    schema of a `chips` parent, so they are named here directly.
+    """
+    key = ("GET", V1 + "/categories/{id}/features/")
+    body = RECIPES[key](Call(*key)).json()
+
+    declared = SCHEMA["components"]["schemas"]["FeatureEffective"]["properties"]
+    assert {"divergent", "partial", "carried_by"} <= set(declared)
+
+    partial = [item for item in body if item.get("partial")]
+    assert [item for item in body if item.get("divergent")], (
+        "the recipe drove no feature the children disagree on"
+    )
+    assert partial, "the recipe drove no feature only some children carry"
+    assert all(item["carried_by"] for item in partial)
+
+    # Absent, not false, on a feature every child carries.
+    shared = [item for item in body if not item.get("partial")]
+    assert shared
+    assert all("carried_by" not in item and "partial" not in item for item in shared)

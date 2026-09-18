@@ -9,23 +9,35 @@ are empty: the feed rendered no filters and the composer opened no fields
 until a chip was picked.
 
 The rule this module implements: a chips parent that declares no features of
-its own has an effective schema equal to the INTERSECTION of its children's
-effective schemas — the features present in every child, with the config they
-agree on. Where the configs differ the bounds widen (the lower bound is the
-lowest, the upper bound the highest, an options list is the union) and the
-feature is marked ``divergent`` so a client may hide it until a chip is
-picked rather than showing a control that means something different per chip.
-A feature only SOME children carry is not in the parent's schema at all: it
-appears when its chip is chosen.
+its own has an effective schema equal to the UNION of its children's
+effective schemas. A feature every child carries is merged from all of them:
+where the configs differ the bounds widen (the lower bound is the lowest, the
+upper bound the highest, an options list is the union) and the feature is
+marked ``divergent`` so a client may hide it until a chip is picked rather
+than showing a control that means something different per chip. A feature
+only SOME children carry is in the schema too, marked ``partial`` and naming
+its ``carried_by`` children, and merged from THOSE children alone — a child
+that does not carry the key says nothing about it, and reading its silence as
+"no bound" would hand the storefront an unbounded control nobody authored.
+
+A filter the partition offers on one chip is a filter the partition offers.
+Intersecting made the combined feed poorer than the leaf under it: a key one
+chip lacks vanished from the parent, while a plain leaf beside it kept the
+same key. The flag is what lets a client treat the two differently without
+losing the filter.
+
+Order: the shared features first, in the order the module already applies
+(the reference child's), then the subset-only ones in the order they first
+appear across the children, children in tree order.
 
 Two deliberate limits:
 
-* the intersection is keyed by ``slug``, which is what the whole module
+* the union is keyed by ``slug``, which is what the whole module
   already means by "the same feature" (``get_all_features`` dedups by slug,
   and an ``inherit`` override is a new row sharing one). Slug-less rows (a
   ``header``) name nothing across children and are left out.
 * a parent that declares features of its OWN keeps them, alone — "own only",
-  never own + intersection. The two would be a third schema nobody authored,
+  never own + union. The two would be a third schema nobody authored,
   and a parent with own links has already had the decision made by hand.
 
 A ``transparent`` node (0.20.4) takes the same rule for the same reason. It
@@ -33,7 +45,7 @@ has no page of its own — browsing skips it — but it is still ASKED for a
 schema, by a composer walking through it and by any caller of
 ``categories.features``, and a wrapper's own links are empty by construction.
 So a transparent node with no own features answers with its children's
-intersection too. That is the whole of the overlap: it draws no chip row, gets
+union too. That is the whole of the overlap: it draws no chip row, gets
 no axis caption, and one authored feature on it makes it "own only" like any
 other node.
 """
@@ -47,7 +59,7 @@ from .models import (
 #: The schema is the parent's own (own + inherited) — every node but one of
 #: :data:`SCHEMA_FROM_CHILDREN` that declares nothing itself.
 EFFECTIVE_FROM_OWN = "own"
-#: The schema was intersected from the children.
+#: The schema was merged from the children.
 EFFECTIVE_FROM_CHILDREN = "children"
 
 #: Resolved ``children_as`` values whose node answers with its children's
@@ -153,11 +165,12 @@ def merge_configs(configs: list[dict]) -> tuple[dict, bool]:
 
 
 def _partition_children(category):
-    """The children an effective schema is intersected from.
+    """The children an effective schema is merged from.
 
     The same visibility rule and the same order as ``GET /children/`` — the
-    chip row a storefront draws IS that list, so the schema must be the
-    intersection of exactly what the reader can pick.
+    chip row a storefront draws IS that list, so the schema must be the union
+    of exactly what the reader can pick, and ``carried_by`` names rows the
+    reader can actually see.
     """
     from .views import visible_categories
 
@@ -186,15 +199,18 @@ def effective_features(category) -> tuple[list, str]:
     """Feature rows for a category's effective schema, and where they came from.
 
     Returns ``(features, source)``. On the children path the rows are the
-    reference child's own :class:`~stapel_categories.models.Feature` instances
-    with two IN-MEMORY overlays — ``config`` widened to what every child
-    accepts and ``mandatory`` true only where every child requires it — plus a
-    ``divergent`` attribute. They are never saved; nothing here writes.
+    carrying children's own :class:`~stapel_categories.models.Feature`
+    instances with IN-MEMORY overlays — ``config`` widened to what every
+    CARRYING child accepts and ``mandatory`` true only where every carrying
+    child requires it — plus
+    ``divergent``, ``partial`` and ``carried_by`` attributes. They are never
+    saved; nothing here writes.
 
     Order is the one the module already applies (``get_all_features`` on the
-    reference child: the category's own feature order first, then ancestors'),
-    restricted to the intersection. A composer that orders required-bearing
-    blocks first reads the same list it reads for a leaf.
+    reference child: the category's own feature order first, then ancestors')
+    for the shared features, then the subset-only ones in first-appearance
+    order across the children. A composer that orders required-bearing blocks
+    first reads the same list it reads for a leaf.
     """
     source = effective_source(category)
     if source == EFFECTIVE_FROM_OWN:
@@ -203,7 +219,7 @@ def effective_features(category) -> tuple[list, str]:
     children = _partition_children(category)
     if not children:
         # A node whose children are all retired presents nothing to
-        # intersect; its own (inherited) schema is the honest answer.
+        # merge; its own (inherited) schema is the honest answer.
         return list(category.get_all_features()), EFFECTIVE_FROM_OWN
 
     per_child = []
@@ -213,16 +229,26 @@ def effective_features(category) -> tuple[list, str]:
             slug = (feature.slug or "").strip()
             if slug:
                 by_slug.setdefault(slug, feature)
-        per_child.append(by_slug)
+        per_child.append((child, by_slug))
 
-    reference, others = per_child[0], per_child[1:]
-    common = [
-        slug for slug in reference if all(slug in sibling for sibling in others)
+    maps = [by_slug for _child, by_slug in per_child]
+    shared = [
+        slug for slug in maps[0] if all(slug in sibling for sibling in maps[1:])
     ]
+    seen = set(shared)
+    subset = []
+    for by_slug in maps:
+        for slug in by_slug:
+            if slug not in seen:
+                seen.add(slug)
+                subset.append(slug)
 
     features = []
-    for slug in common:
-        variants = [by_slug[slug] for by_slug in per_child]
+    for slug in shared + subset:
+        carriers = [
+            (child, by_slug[slug]) for child, by_slug in per_child if slug in by_slug
+        ]
+        variants = [variant for _child, variant in carriers]
         configs = [variant.get_config_with_defaults() for variant in variants]
         merged, config_diverged = merge_configs(configs)
 
@@ -237,6 +263,8 @@ def effective_features(category) -> tuple[list, str]:
             or any(value != mandatory[0] for value in mandatory[1:])
             or any(value != rules[0] for value in rules[1:])
         )
+        feature.carried_by = [child.slug for child, _variant in carriers]
+        feature.partial = len(carriers) < len(children)
         features.append(feature)
     return features, EFFECTIVE_FROM_CHILDREN
 
@@ -246,7 +274,10 @@ def effective_feature_defs(category) -> tuple[list[dict], str]:
 
     Same dicts ``feature_defs`` builds, so a consumer feeds them to
     ``coerce_feature_defs`` without knowing which node answered, plus
-    ``divergent: true`` on a feature whose children disagree.
+    ``divergent: true`` on a feature whose carrying children disagree and
+    ``partial: true`` + ``carried_by`` on one only some children carry. All
+    three are omitted rather than sent false or full, so a leaf answers
+    byte-for-byte what it answered before they existed.
     """
     features, source = effective_features(category)
     defs = []
@@ -254,6 +285,9 @@ def effective_feature_defs(category) -> tuple[list[dict], str]:
         item = feature_def_dict(feature)
         if getattr(feature, "divergent", False):
             item["divergent"] = True
+        if getattr(feature, "partial", False):
+            item["partial"] = True
+            item["carried_by"] = list(getattr(feature, "carried_by", None) or [])
         defs.append(item)
     return defs, source
 
@@ -264,8 +298,8 @@ def effective_revision(category, source: str) -> int:
     On the own path it is the category's own — unchanged. On the children
     path the schema is a fact about the CHILDREN, and a child's edit bumps
     the child's revision and not the parent's, so a consumer caching on the
-    parent's number alone would hold a stale intersection forever. The
-    number reported is the max over the parent and the rows it intersected —
+    parent's number alone would hold a stale schema forever. The
+    number reported is the max over the parent and the rows it merged —
     the same "revision names the state" fingerprint the roots and tree caches
     use, widened to the rows this read actually touched.
     """

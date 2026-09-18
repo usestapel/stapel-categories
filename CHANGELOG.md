@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.24.0] — 2026-09-18
+
+### A `chips` parent's effective schema is the UNION of its children's
+
+It was the INTERSECTION: a feature only some children carried was absent from
+the parent and appeared once its chip was picked. That made the combined feed
+of a partition poorer than any leaf beside it — a mileage filter that one chip
+lacks vanished from the whole node, while the plain leaf next to it kept it.
+A filter the partition offers on one chip is a filter the partition offers.
+
+The rule now:
+
+- a feature EVERY child carries behaves exactly as before — merged across all
+  of them, widened where they differ, `divergent: true` when they disagree;
+- a feature only SOME children carry is in the schema, marked `partial: true`
+  with `carried_by` listing the slugs of the children that have it, in
+  `GET /children/` order. Its config is merged from THOSE children only: a
+  child that does not carry the key says nothing about it, and reading its
+  silence as "no bound" would hand a storefront an unbounded control nobody
+  authored;
+- order is the shared features first, in the reference child's order, then the
+  subset-only ones in the order they first appear across the children
+  (children in tree order).
+
+Nothing changes for a plain leaf, for a parent that is not `chips` (or
+`transparent`), or for posting — posting is always per leaf. There is no
+setting: one rule.
+
+### Added
+
+- `partial` and `carried_by` on the effective feature, in both readers:
+  `GET /categories/<id>/features/` (`FeatureEffective`) and the
+  `categories.features` Function (`ResolvedFeature`). Like `divergent` they
+  are OMITTED rather than sent false and empty, so a leaf and a `tiles` parent
+  answer byte-for-byte what they answered before.
+
+### Changed
+
+- `docs/schema.json`, `docs/llms.txt`, `docs/capabilities.json` and
+  `README.md` re-emitted; `schemas/functions/categories.features.json`
+  declares the two new keys.
+
 ## [0.23.5] — 2026-09-18
 
 ### The four wire mismatches are closed upstream

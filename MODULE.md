@@ -106,15 +106,18 @@
   written, and it prints what changed.
 
   A `chips` or `transparent` parent that declares nothing itself answers the
-  INTERSECTION of
+  UNION of
   its children's schemas on every features read — it draws the feed for the
-  whole partition, so its filters are the ones every chip can answer. A
+  whole partition, so its filters are every filter the partition offers. A
   transparent node draws no page at all, but a composer walking through it
   still asks it what it types, and a wrapper's own links are empty by
   construction; for SCHEMA purposes only, it takes the chips rule.
-  Divergent configs widen (lowest lower bound, highest upper bound, union of
-  options) and carry `divergent: true`; `X-Effective-From` / `effective_from`
-  says the list was intersected. Own features win outright: own only.
+  A feature only some children carry is marked `partial: true` with
+  `carried_by` naming them, and its config is merged from those children
+  alone. Divergent configs widen (lowest lower bound, highest upper bound,
+  union of options) and carry `divergent: true`; `X-Effective-From` /
+  `effective_from` says the list came from the children. Own features win
+  outright: own only.
 
   The axis a chip row splits on has a name of its own — `children_axis_label`
   on the PARENT, because no chip can name the axis without the others. One
