@@ -3,11 +3,11 @@
     path("categories/", include("stapel_categories.urls"))
 """
 from django.urls import path
-from rest_framework.routers import DefaultRouter
+from rest_framework.routers import SimpleRouter
 
 from .views import CategoryTreeView, CategoryViewSet, FeatureViewSet
 
-router = DefaultRouter()
+router = SimpleRouter()
 router.register(r"categories", CategoryViewSet, basename="category")
 router.register(r"features", FeatureViewSet, basename="feature")
 

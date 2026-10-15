@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.1] — 2026-10-15
+
+Patch: the module's router no longer owns the bare `v1/` path. It was a DRF
+`DefaultRouter`, whose API root view answered `<prefix>/api/v1/` and so
+captured the list/create route of any module mounted under the same prefix.
+It is a `SimpleRouter` now; the routes and their names are unchanged.
+
 ## [0.24.0] — 2026-09-18
 
 ### A `chips` parent's effective schema is the UNION of its children's
