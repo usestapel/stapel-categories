@@ -121,3 +121,25 @@ def settings_kwargs(
 # Forced on the singleton by the harness so a single-module instance derives
 # the same operationIds.
 CODEGEN_SCHEMA_PATH_PREFIX = "/"
+
+
+def enum_name_overrides() -> dict:
+    """drf-spectacular ``ENUM_NAME_OVERRIDES`` for this module's contract.
+
+    Names the choice sets that more than one field carries, so the generated
+    client's type names do not depend on drf-spectacular's collision
+    resolution (``VisibilityD99Enum``, ``TypeE3eEnum``), which changes with
+    any other field of the same name and with the generator version. Each
+    name points at the model's own ``TextChoices``, so the schema and the
+    model cannot disagree. Called after ``django.setup()``.
+    """
+    from stapel_attributes.openapi import enum_name_overrides as type_names
+
+    from stapel_categories.models import Feature
+
+    return {
+        **type_names(),
+        "FeatureAxisRoleEnum": Feature.AxisRole,
+        "FeatureVisibilityEnum": Feature.Visibility,
+        "FeatureTranslateModeEnum": Feature.TranslateMode,
+    }

@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.25.0] — 2026-10-22
+
+Minor (pre-1.0: a minor is breaking) for generated clients only: enum
+component names in `docs/schema.json` change; the wire is unchanged.
+
+- **Named enums.** Three choice sets carried by several fields had
+  drf-spectacular collision names that changed with unrelated edits and with
+  the generator version (`VisibilityD99Enum`, `Translate2c2Enum`, the axis-role
+  set as `AxisRoleDerivedEnum`, the type discriminators as `TypeE3eEnum` …).
+  The contract harness pins them (`_codegen_settings.enum_name_overrides`):
+  `FeatureAxisRoleEnum`, `FeatureVisibilityEnum`, `FeatureTranslateModeEnum`
+  from the model's `TextChoices`, and `<Slug>TypeEnum` for every type
+  discriminator from `stapel_attributes.openapi` (floor `stapel-attributes>=0.9.5`).
+- **The editor payload follows the model.** `FeatureEditorFeatureSerializer`
+  declared `visibility`, `translate` and `axis_role_authored` with typed copies
+  of the model's choices (other labels, a blank entry in the list), which the
+  schema emitted as three more enums (`FeatureEditorFeature*Enum`) that
+  disagreed with the model's. They read `Feature.Visibility`,
+  `Feature.TranslateMode` and `Feature.AxisRole` now.
+
 ## [0.24.1] — 2026-10-15
 
 Patch: the module's router no longer owns the bare `v1/` path. It was a DRF

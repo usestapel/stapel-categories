@@ -1760,17 +1760,6 @@
         "type": "string",
         "description": "* `keep` - keep\n* `add` - add\n* `edit` - edit\n* `inherit` - inherit\n* `remove` - remove\n* `create` - create\n* `replace` - replace"
       },
-      "AxisRoleDerivedEnum": {
-        "enum": [
-          "make",
-          "model",
-          "generation",
-          "year",
-          "mileage"
-        ],
-        "type": "string",
-        "description": "* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
-      },
       "BlankEnum": {
         "enum": [
           ""
@@ -1781,7 +1770,7 @@
         "description": "Serializer for boolean feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/TypeE3eEnum"
+            "$ref": "#/components/schemas/BoolTypeEnum"
           },
           "trueLabel": {
             "type": "string",
@@ -1798,12 +1787,19 @@
         "description": "Serializer for boolean feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/TypeE3eEnum"
+            "$ref": "#/components/schemas/BoolTypeEnum"
           },
           "value": {
             "type": "boolean"
           }
         }
+      },
+      "BoolTypeEnum": {
+        "enum": [
+          "bool"
+        ],
+        "type": "string",
+        "description": "* `bool` - bool"
       },
       "BulkUpdateResponse": {
         "type": "object",
@@ -2579,7 +2575,7 @@
         "description": "Serializer for convertible-unit feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type104Enum"
+            "$ref": "#/components/schemas/ConvertibleUnitTypeEnum"
           },
           "unitType": {
             "type": "string",
@@ -2617,7 +2613,7 @@
         "description": "Serializer for convertible-unit feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type104Enum"
+            "$ref": "#/components/schemas/ConvertibleUnitTypeEnum"
           },
           "value": {
             "type": "number",
@@ -2630,12 +2626,19 @@
           }
         }
       },
+      "ConvertibleUnitTypeEnum": {
+        "enum": [
+          "convertible_unit"
+        ],
+        "type": "string",
+        "description": "* `convertible_unit` - convertible_unit"
+      },
       "DateConfig": {
         "type": "object",
         "description": "Serializer for date feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type37eEnum"
+            "$ref": "#/components/schemas/DateTypeEnum"
           },
           "precision": {
             "$ref": "#/components/schemas/PrecisionEnum"
@@ -2678,13 +2681,20 @@
         "description": "Serializer for date feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type37eEnum"
+            "$ref": "#/components/schemas/DateTypeEnum"
           },
           "value": {
             "type": "integer",
             "nullable": true
           }
         }
+      },
+      "DateTypeEnum": {
+        "enum": [
+          "date"
+        ],
+        "type": "string",
+        "description": "* `date` - date"
       },
       "ErrorEnum": {
         "enum": [
@@ -2752,7 +2762,7 @@
           "visibility": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/VisibilityD99Enum"
+                "$ref": "#/components/schemas/FeatureVisibilityEnum"
               }
             ],
             "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
@@ -2760,7 +2770,7 @@
           "translate": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/Translate2c2Enum"
+                "$ref": "#/components/schemas/FeatureTranslateModeEnum"
               }
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
@@ -2771,7 +2781,7 @@
             "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. Authored value first, then the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/FeatureAxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/NullEnum"
@@ -2782,7 +2792,7 @@
             "description": "The authoring column: blank leaves the role to `load_catalog`'s slug-table derivation, a value pins it. `axis_role` above is the RESOLVED read.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/FeatureAxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -2861,6 +2871,17 @@
           "tn_descendants_pks",
           "tn_siblings_pks"
         ]
+      },
+      "FeatureAxisRoleEnum": {
+        "enum": [
+          "make",
+          "model",
+          "generation",
+          "year",
+          "mileage"
+        ],
+        "type": "string",
+        "description": "* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage"
       },
       "FeatureBulk": {
         "type": "object",
@@ -2974,7 +2995,7 @@
           "visibility": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/VisibilityD99Enum"
+                "$ref": "#/components/schemas/FeatureVisibilityEnum"
               }
             ],
             "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
@@ -3007,7 +3028,7 @@
             "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/FeatureAxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -3017,7 +3038,7 @@
           "axis_role_derived": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/FeatureAxisRoleEnum"
               }
             ],
             "readOnly": true,
@@ -3026,7 +3047,7 @@
           "translate": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/Translate2c2Enum"
+                "$ref": "#/components/schemas/FeatureTranslateModeEnum"
               }
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
@@ -3109,7 +3130,7 @@
           "visibility": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/VisibilityD99Enum"
+                "$ref": "#/components/schemas/FeatureVisibilityEnum"
               }
             ],
             "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
@@ -3117,7 +3138,7 @@
           "translate": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/Translate2c2Enum"
+                "$ref": "#/components/schemas/FeatureTranslateModeEnum"
               }
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
@@ -3128,7 +3149,7 @@
             "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. It is what a storefront reads to build a «more of this make» link, or an AI descent to fill make before model, instead of matching slugs against a table of its own.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/FeatureAxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/NullEnum"
@@ -3366,7 +3387,7 @@
           "visibility": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/VisibilityD99Enum"
+                "$ref": "#/components/schemas/FeatureVisibilityEnum"
               }
             ],
             "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
@@ -3399,7 +3420,7 @@
             "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/FeatureAxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -3409,7 +3430,7 @@
           "translate": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/Translate2c2Enum"
+                "$ref": "#/components/schemas/FeatureTranslateModeEnum"
               }
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
@@ -3596,18 +3617,18 @@
           "visibility": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeatureEditorFeatureVisibilityEnum"
+                "$ref": "#/components/schemas/FeatureVisibilityEnum"
               }
             ],
             "default": "public",
-            "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way; a non-public feature is simply never a title and never a badge.\n\n* `public` - public\n* `owner` - owner\n* `staff` - staff"
+            "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way; a non-public feature is simply never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
           },
           "axis_role_authored": {
             "default": "",
-            "description": "Which classified axis this feature IS, when it is one. Blank (the default) leaves it to `load_catalog`'s slug-table derivation; a value pins it and wins over derivation. Named for the AUTHORING column on purpose: it lines up with the key `FeatureSerializer` reads it back under, so an editor round-trip cannot pin a role the derivation merely guessed.\n\n* `` - \n* `make` - make\n* `model` - model\n* `generation` - generation\n* `year` - year\n* `mileage` - mileage",
+            "description": "Which classified axis this feature IS, when it is one. Blank (the default) leaves it to `load_catalog`'s slug-table derivation; a value pins it and wins over derivation. Named for the AUTHORING column on purpose: it lines up with the key `FeatureSerializer` reads it back under, so an editor round-trip cannot pin a role the derivation merely guessed.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/FeatureEditorFeatureAxisRoleAuthoredEnum"
+                "$ref": "#/components/schemas/FeatureAxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -3617,11 +3638,11 @@
           "translate": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/FeatureEditorFeatureTranslateEnum"
+                "$ref": "#/components/schemas/FeatureTranslateModeEnum"
               }
             ],
             "default": "all",
-            "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - all\n* `title` - title\n* `none` - none"
+            "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
           },
           "rules": {
             "type": "array",
@@ -3665,35 +3686,6 @@
             "default": 0
           }
         }
-      },
-      "FeatureEditorFeatureAxisRoleAuthoredEnum": {
-        "enum": [
-          "make",
-          "model",
-          "generation",
-          "year",
-          "mileage"
-        ],
-        "type": "string",
-        "description": "* `` - \n* `make` - make\n* `model` - model\n* `generation` - generation\n* `year` - year\n* `mileage` - mileage"
-      },
-      "FeatureEditorFeatureTranslateEnum": {
-        "enum": [
-          "all",
-          "title",
-          "none"
-        ],
-        "type": "string",
-        "description": "* `all` - all\n* `title` - title\n* `none` - none"
-      },
-      "FeatureEditorFeatureVisibilityEnum": {
-        "enum": [
-          "public",
-          "owner",
-          "staff"
-        ],
-        "type": "string",
-        "description": "* `public` - public\n* `owner` - owner\n* `staff` - staff"
       },
       "FeatureEditorItem": {
         "type": "object",
@@ -3832,7 +3824,7 @@
           "visibility": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/VisibilityD99Enum"
+                "$ref": "#/components/schemas/FeatureVisibilityEnum"
               }
             ],
             "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
@@ -3840,7 +3832,7 @@
           "translate": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/Translate2c2Enum"
+                "$ref": "#/components/schemas/FeatureTranslateModeEnum"
               }
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
@@ -3851,7 +3843,7 @@
             "description": "Which classified axis this feature IS — `make`, `model`, `generation`, `year`, `mileage` — or null. It is what a storefront reads to build a «more of this make» link, or an AI descent to fill make before model, instead of matching slugs against a table of its own.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/FeatureAxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/NullEnum"
@@ -3904,6 +3896,15 @@
           "id",
           "name"
         ]
+      },
+      "FeatureTranslateModeEnum": {
+        "enum": [
+          "all",
+          "title",
+          "none"
+        ],
+        "type": "string",
+        "description": "* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
       },
       "FeatureValidationResult": {
         "type": "object",
@@ -3958,12 +3959,21 @@
           "status"
         ]
       },
+      "FeatureVisibilityEnum": {
+        "enum": [
+          "public",
+          "owner",
+          "staff"
+        ],
+        "type": "string",
+        "description": "* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
+      },
       "FloatConfig": {
         "type": "object",
         "description": "Serializer for float feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/TypeD7cEnum"
+            "$ref": "#/components/schemas/FloatTypeEnum"
           },
           "min": {
             "type": "number",
@@ -4012,7 +4022,7 @@
         "description": "Serializer for float feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/TypeD7cEnum"
+            "$ref": "#/components/schemas/FloatTypeEnum"
           },
           "value": {
             "type": "number",
@@ -4020,12 +4030,19 @@
           }
         }
       },
+      "FloatTypeEnum": {
+        "enum": [
+          "float"
+        ],
+        "type": "string",
+        "description": "* `float` - float"
+      },
       "GroupConfig": {
         "type": "object",
         "description": "Serializer for group feature configuration.\n\n``fields`` passes through as raw dicts on purpose: each child carries its\nown ``config`` discriminated by ``type``, parsed by that type's own strict\nserializer when the group validates its children.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type312Enum"
+            "$ref": "#/components/schemas/GroupTypeEnum"
           },
           "fields": {
             "type": "array",
@@ -4049,7 +4066,7 @@
         "description": "Serializer for group feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type312Enum"
+            "$ref": "#/components/schemas/GroupTypeEnum"
           },
           "value": {
             "type": "array",
@@ -4072,12 +4089,19 @@
           }
         }
       },
+      "GroupTypeEnum": {
+        "enum": [
+          "group"
+        ],
+        "type": "string",
+        "description": "* `group` - group"
+      },
       "HeaderConfig": {
         "type": "object",
         "description": "Serializer for header feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type3feEnum"
+            "$ref": "#/components/schemas/HeaderTypeEnum"
           },
           "style": {
             "$ref": "#/components/schemas/StyleEnum"
@@ -4089,7 +4113,7 @@
         "description": "Serializer for header feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type3feEnum"
+            "$ref": "#/components/schemas/HeaderTypeEnum"
           },
           "value": {
             "type": "string",
@@ -4097,12 +4121,19 @@
           }
         }
       },
+      "HeaderTypeEnum": {
+        "enum": [
+          "header"
+        ],
+        "type": "string",
+        "description": "* `header` - header"
+      },
       "HexColorConfig": {
         "type": "object",
         "description": "Serializer for hex color feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type515Enum"
+            "$ref": "#/components/schemas/HexColorTypeEnum"
           },
           "options": {
             "type": "array",
@@ -4128,7 +4159,7 @@
             "nullable": true
           },
           "type": {
-            "$ref": "#/components/schemas/Type515Enum"
+            "$ref": "#/components/schemas/HexColorTypeEnum"
           }
         }
       },
@@ -4150,6 +4181,13 @@
         "required": [
           "simple"
         ]
+      },
+      "HexColorTypeEnum": {
+        "enum": [
+          "hex_color"
+        ],
+        "type": "string",
+        "description": "* `hex_color` - hex_color"
       },
       "HexColorValue": {
         "type": "object",
@@ -4205,7 +4243,7 @@
         "description": "Serializer for hierarchical select feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type5beEnum"
+            "$ref": "#/components/schemas/HierarchicalSelectTypeEnum"
           },
           "options": {
             "type": "array",
@@ -4233,7 +4271,7 @@
         "description": "Serializer for hierarchical select feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type5beEnum"
+            "$ref": "#/components/schemas/HierarchicalSelectTypeEnum"
           },
           "value": {
             "type": "array",
@@ -4243,12 +4281,19 @@
           }
         }
       },
+      "HierarchicalSelectTypeEnum": {
+        "enum": [
+          "hierarchical_select"
+        ],
+        "type": "string",
+        "description": "* `hierarchical_select` - hierarchical_select"
+      },
       "IntConfig": {
         "type": "object",
         "description": "Serializer for integer feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/TypeC1bEnum"
+            "$ref": "#/components/schemas/IntTypeEnum"
           },
           "min": {
             "type": "integer",
@@ -4302,12 +4347,19 @@
         "description": "Serializer for integer feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/TypeC1bEnum"
+            "$ref": "#/components/schemas/IntTypeEnum"
           },
           "value": {
             "type": "integer"
           }
         }
+      },
+      "IntTypeEnum": {
+        "enum": [
+          "int"
+        ],
+        "type": "string",
+        "description": "* `int` - int"
       },
       "MaxRevision": {
         "type": "object",
@@ -4765,7 +4817,7 @@
           "visibility": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/VisibilityD99Enum"
+                "$ref": "#/components/schemas/FeatureVisibilityEnum"
               }
             ],
             "description": "Who may READ a stored value: 'public' = anyone (the default), 'owner' = the object's owner and staff, 'staff' = staff only. The value is still required, validated and stored either way. A non-public feature is never a title and never a badge.\n\n* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
@@ -4798,7 +4850,7 @@
             "description": "Which classified axis this feature IS, when it is one: `make`, `model`, `generation`, `year`, `mileage`. Blank (the default) for the overwhelming majority of features, which describe an object rather than organise it. An authored value wins over the loader's derivation.\n\n* `make` - Make (brand / vendor / manufacturer)\n* `model` - Model\n* `generation` - Generation\n* `year` - Year of manufacture\n* `mileage` - Mileage",
             "oneOf": [
               {
-                "$ref": "#/components/schemas/AxisRoleDerivedEnum"
+                "$ref": "#/components/schemas/FeatureAxisRoleEnum"
               },
               {
                 "$ref": "#/components/schemas/BlankEnum"
@@ -4808,7 +4860,7 @@
           "translate": {
             "allOf": [
               {
-                "$ref": "#/components/schemas/Translate2c2Enum"
+                "$ref": "#/components/schemas/FeatureTranslateModeEnum"
               }
             ],
             "description": "What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing\n\n* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
@@ -4839,7 +4891,7 @@
         "description": "Serializer for the ref_hierarchical_select feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type565Enum"
+            "$ref": "#/components/schemas/RefHierarchicalSelectTypeEnum"
           },
           "vocabulary": {
             "type": "string",
@@ -4865,7 +4917,7 @@
         "description": "Serializer for the ref_hierarchical_select feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type565Enum"
+            "$ref": "#/components/schemas/RefHierarchicalSelectTypeEnum"
           },
           "value": {
             "type": "array",
@@ -4875,12 +4927,19 @@
           }
         }
       },
+      "RefHierarchicalSelectTypeEnum": {
+        "enum": [
+          "ref_hierarchical_select"
+        ],
+        "type": "string",
+        "description": "* `ref_hierarchical_select` - ref_hierarchical_select"
+      },
       "RefSelectConfig": {
         "type": "object",
         "description": "Serializer for the ref_select feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/TypeCcbEnum"
+            "$ref": "#/components/schemas/RefSelectTypeEnum"
           },
           "optionsRef": {
             "allOf": [
@@ -4923,7 +4982,7 @@
         "description": "Serializer for the ref_select feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/TypeCcbEnum"
+            "$ref": "#/components/schemas/RefSelectTypeEnum"
           },
           "value": {
             "type": "array",
@@ -4933,12 +4992,19 @@
           }
         }
       },
+      "RefSelectTypeEnum": {
+        "enum": [
+          "ref_select"
+        ],
+        "type": "string",
+        "description": "* `ref_select` - ref_select"
+      },
       "SelectConfig": {
         "type": "object",
         "description": "Serializer for select feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type63eEnum"
+            "$ref": "#/components/schemas/SelectTypeEnum"
           },
           "options": {
             "type": "array",
@@ -4978,7 +5044,7 @@
         "description": "Serializer for select feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type63eEnum"
+            "$ref": "#/components/schemas/SelectTypeEnum"
           },
           "value": {
             "type": "array",
@@ -5010,6 +5076,13 @@
           "value"
         ]
       },
+      "SelectTypeEnum": {
+        "enum": [
+          "select"
+        ],
+        "type": "string",
+        "description": "* `select` - select"
+      },
       "StatusEnum": {
         "enum": [
           "ok",
@@ -5023,7 +5096,7 @@
         "description": "Serializer for string feature configuration.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type839Enum"
+            "$ref": "#/components/schemas/StringTypeEnum"
           },
           "minLength": {
             "type": "integer",
@@ -5072,12 +5145,19 @@
         "description": "Serializer for string feature DTO.",
         "properties": {
           "type": {
-            "$ref": "#/components/schemas/Type839Enum"
+            "$ref": "#/components/schemas/StringTypeEnum"
           },
           "value": {
             "type": "string"
           }
         }
+      },
+      "StringTypeEnum": {
+        "enum": [
+          "string"
+        ],
+        "type": "string",
+        "description": "* `string` - string"
       },
       "StyleEnum": {
         "enum": [
@@ -5086,106 +5166,6 @@
         ],
         "type": "string",
         "description": "* `l` - l\n* `m` - m"
-      },
-      "Translate2c2Enum": {
-        "enum": [
-          "all",
-          "title",
-          "none"
-        ],
-        "type": "string",
-        "description": "* `all` - All (title + options)\n* `title` - Title only\n* `none` - None"
-      },
-      "Type104Enum": {
-        "enum": [
-          "convertible_unit"
-        ],
-        "type": "string",
-        "description": "* `convertible_unit` - convertible_unit"
-      },
-      "Type312Enum": {
-        "enum": [
-          "group"
-        ],
-        "type": "string",
-        "description": "* `group` - group"
-      },
-      "Type37eEnum": {
-        "enum": [
-          "date"
-        ],
-        "type": "string",
-        "description": "* `date` - date"
-      },
-      "Type3feEnum": {
-        "enum": [
-          "header"
-        ],
-        "type": "string",
-        "description": "* `header` - header"
-      },
-      "Type515Enum": {
-        "enum": [
-          "hex_color"
-        ],
-        "type": "string",
-        "description": "* `hex_color` - hex_color"
-      },
-      "Type565Enum": {
-        "enum": [
-          "ref_hierarchical_select"
-        ],
-        "type": "string",
-        "description": "* `ref_hierarchical_select` - ref_hierarchical_select"
-      },
-      "Type5beEnum": {
-        "enum": [
-          "hierarchical_select"
-        ],
-        "type": "string",
-        "description": "* `hierarchical_select` - hierarchical_select"
-      },
-      "Type63eEnum": {
-        "enum": [
-          "select"
-        ],
-        "type": "string",
-        "description": "* `select` - select"
-      },
-      "Type839Enum": {
-        "enum": [
-          "string"
-        ],
-        "type": "string",
-        "description": "* `string` - string"
-      },
-      "TypeC1bEnum": {
-        "enum": [
-          "int"
-        ],
-        "type": "string",
-        "description": "* `int` - int"
-      },
-      "TypeCcbEnum": {
-        "enum": [
-          "ref_select"
-        ],
-        "type": "string",
-        "description": "* `ref_select` - ref_select"
-      },
-      "TypeD7cEnum": {
-        "enum": [
-          "float"
-        ],
-        "type": "string",
-        "description": "* `float` - float"
-      },
-      "TypeE3eEnum": {
-        "enum": [
-          "bool"
-        ],
-        "type": "string",
-        "description": "* `bool` - bool"
       },
       "UndeleteResponse": {
         "type": "object",
@@ -5242,15 +5222,6 @@
           "results",
           "valid"
         ]
-      },
-      "VisibilityD99Enum": {
-        "enum": [
-          "public",
-          "owner",
-          "staff"
-        ],
-        "type": "string",
-        "description": "* `public` - Public — anyone may read the value\n* `owner` - Owner (and staff)\n* `staff` - Staff only"
       }
     },
     "securitySchemes": {

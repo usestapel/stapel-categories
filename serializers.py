@@ -704,9 +704,9 @@ class FeatureEditorFeatureSerializer(serializers.Serializer):
     show_as_badge = serializers.BooleanField(required=False, default=False)
     show_at_title = serializers.BooleanField(required=False, default=False)
     visibility = serializers.ChoiceField(
-        choices=["public", "owner", "staff"],
+        choices=Feature.Visibility.choices,
         required=False,
-        default="public",
+        default=Feature.Visibility.PUBLIC,
         help_text=(
             "Who may READ a stored value: 'public' = anyone (the default), "
             "'owner' = the object's owner and staff, 'staff' = staff only. The "
@@ -715,7 +715,7 @@ class FeatureEditorFeatureSerializer(serializers.Serializer):
         ),
     )
     axis_role_authored = serializers.ChoiceField(
-        choices=["", "make", "model", "generation", "year", "mileage"],
+        choices=Feature.AxisRole.choices,
         required=False,
         allow_blank=True,
         default="",
@@ -729,9 +729,9 @@ class FeatureEditorFeatureSerializer(serializers.Serializer):
         ),
     )
     translate = serializers.ChoiceField(
-        choices=["all", "title", "none"],
+        choices=Feature.TranslateMode.choices,
         required=False,
-        default="all",
+        default=Feature.TranslateMode.ALL,
         help_text="What to translate: 'all' = title + options, 'title' = title only, 'none' = nothing",
     )
     rules = serializers.ListField(

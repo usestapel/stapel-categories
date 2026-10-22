@@ -58,6 +58,14 @@ def _configure() -> None:
 
     spectacular_settings.SCHEMA_PATH_PREFIX = CODEGEN_SCHEMA_PATH_PREFIX
 
+    # Stable enum component names (stapel-schema-lint SCH004).
+    from drf_spectacular.plumbing import _load_enum_name_overrides
+
+    from stapel_categories._codegen_settings import enum_name_overrides
+
+    spectacular_settings.ENUM_NAME_OVERRIDES = enum_name_overrides()
+    _load_enum_name_overrides.cache_clear()
+
     # A real all-modules deployment registers drf-spectacular's JWT-cookie
     # security-scheme extension as a side effect of its dev-only Swagger
     # URLs. A single-module harness has no co-mounted sibling to trigger it,

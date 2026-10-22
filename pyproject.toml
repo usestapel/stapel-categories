@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.24.1"
+version = "0.25.0"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -148,8 +148,9 @@ dependencies = [
     # would be an `error`-level `foreign` issue in core's catalogue gate and a
     # second, drifting version of somebody else's wording. (0.9.3 itself
     # requires `stapel-core>=0.60.8`, so the two floors above are one decision;
-    # both are stated because the reason differs.)
-    "stapel-attributes>=0.9.3,<0.10",
+    # both are stated because the reason differs.) 0.9.5: the contract
+    # harness names the type discriminators with `stapel_attributes.openapi`.
+    "stapel-attributes>=0.9.5,<0.10",
     "django-treenode>=0.23,<0.24",
     "drf-spectacular>=0.27",
 ]
