@@ -387,12 +387,12 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
             # example value in the list itself, so a value is ONE item.
             OpenApiExample(
                 "Bulk add a root category",
-                value={"id": 1, "name": "Electronics", "slug": "electronics", "features": [], "tn_priority": 10},
+                value={"id": 1, "name": "Electronics", "slug": "electronics", "tn_priority": 10},
                 request_only=True,
             ),
             OpenApiExample(
                 "Bulk add a child category",
-                value={"id": 2, "name": "Vehicles", "slug": "vehicles", "features": [], "tn_parent": 1},
+                value={"id": 2, "name": "Vehicles", "slug": "vehicles", "tn_parent": 1},
                 request_only=True,
             ),
         ],

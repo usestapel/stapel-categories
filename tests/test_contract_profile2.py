@@ -14,7 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from stapel_tools.contract_gates import dead_action_declarations, invalid_examples, viewset_routes
+from stapel_tools.contract_gates import dead_action_declarations, viewset_routes
+
+# Request examples are checked against the request direction of their schema
+# (a readOnly field fails); the stapel-tools release carrying it is pending.
+from tests._contract_gates_next import invalid_examples
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 PREFIX = "/categories/api/"
@@ -82,3 +86,16 @@ def test_no_action_declares_what_its_mount_ignores():
     seen = {cls.__name__ for _r, _c, cls, _a in viewset_routes()}
     assert seen == VIEWSETS, f"roster saw {sorted(seen)}"
     assert dead_action_declarations() == []
+
+
+def test_inversion_a_read_only_field_in_a_request_example_is_caught():
+    """`features` is readOnly on CategoryBulk: a client copying an example that
+    carries it sends a field the server ignores."""
+    schema = _doc("schema.v2.json")
+    media = schema["paths"]["/categories/api/v1/categories/bulk_add/"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]
+    media["examples"]["BulkAddARootCategory"]["value"][0]["features"] = []
+    bad, _ = invalid_examples(schema)
+    key = ("post", "/categories/api/v1/categories/bulk_add/", "request", "BulkAddARootCategory")
+    assert bad[key] == ["[0, 'features']: a readOnly field has no place in a request"]

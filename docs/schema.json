@@ -970,7 +970,6 @@
                       "id": 1,
                       "name": "Electronics",
                       "slug": "electronics",
-                      "features": [],
                       "tn_priority": 10
                     }
                   ],
@@ -982,7 +981,6 @@
                       "id": 2,
                       "name": "Vehicles",
                       "slug": "vehicles",
-                      "features": [],
                       "tn_parent": 1
                     }
                   ],

@@ -176,6 +176,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       },
@@ -234,6 +247,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       },
@@ -291,6 +317,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       },
@@ -322,6 +361,19 @@
         "responses": {
           "204": {
             "description": "No response body"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -366,6 +418,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -410,6 +475,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -450,6 +528,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -524,6 +615,19 @@
               "error.400.categories_database_error",
               "error.400.categories_duplicate_slug",
               "error.400.categories_feature_editor_invalid"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
             ]
           },
           "409": {
@@ -604,6 +708,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -660,6 +777,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -703,6 +833,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       },
@@ -761,6 +904,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -812,7 +968,10 @@
                 }
               }
             },
-            "description": ""
+            "description": "",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -897,6 +1056,19 @@
             "x-stapel-errors": [
               "error.400.categories_not_deleted"
             ]
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -938,6 +1110,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -998,6 +1183,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -1086,7 +1284,6 @@
                       "id": 1,
                       "name": "Electronics",
                       "slug": "electronics",
-                      "features": [],
                       "tn_priority": 10
                     }
                   ],
@@ -1098,7 +1295,6 @@
                       "id": 2,
                       "name": "Vehicles",
                       "slug": "vehicles",
-                      "features": [],
                       "tn_parent": 1
                     }
                   ],
@@ -1548,6 +1744,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       },
@@ -1606,6 +1815,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       },
@@ -1663,6 +1885,19 @@
               }
             },
             "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       },
@@ -1694,6 +1929,19 @@
         "responses": {
           "204": {
             "description": "No response body"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
+            ]
           }
         }
       }
@@ -1767,6 +2015,19 @@
             "x-stapel-errors": [
               "error.400.categories_config_required",
               "error.400.categories_invalid_conversion"
+            ]
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StapelError"
+                }
+              }
+            },
+            "description": "Not Found",
+            "x-stapel-errors": [
+              "error.404.not_found"
             ]
           }
         }

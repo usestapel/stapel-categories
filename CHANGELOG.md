@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.25.3] — 2026-11-20
+
+Patch. No migration, no consumer edit. Requires stapel-core 0.99.3.
+
+- **The bulk-add request examples carried `features`**, a readOnly field of
+  `CategoryBulk`: a client copying them sends a field the server ignores.
+  Removed. The example gate now checks request examples against the request
+  direction of their schema (`tests/_contract_gates_next.py`, a verbatim copy
+  of the stapel-tools gate until it is released); seen red on 0.25.2 for both
+  examples in both documents.
+- **Wire gate on every caller state** (`tests/test_contract_wire.py`): each
+  recipe request is replayed with no session, as a guest and as a stranger,
+  and every answer is validated against `schema.json` and `schema.v2.json`.
+  No finding.
+- `docs/schema.v2.json` binds `error.404.not_found` on the generic-lookup
+  operations (stapel-core 0.99.3).
+
 ## [0.25.2] — 2026-11-20
 
 Patch. No migration, no consumer edit. Requires stapel-core 0.99.2.

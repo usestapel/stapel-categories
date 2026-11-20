@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stapel-categories"
-version = "0.25.2"
+version = "0.25.3"
 description = "Category tree for the Stapel framework"
 readme = "README.md"
 license = { text = "MIT" }
@@ -51,7 +51,7 @@ dependencies = [
     # it was lower than what this library's own suite asserts.
     # 0.99.0: falsy docstring examples reach the contract (the committed
     # examples rely on it) and errors.json carries declared param_types.
-    "stapel-core>=0.99.2,<1.0",
+    "stapel-core>=0.99.3,<1.0",
     # Floor: 0.5.0 brings the rule grammar + evaluator (parse_rules,
     # rule_warnings, evaluate_rules), the FeatureDef v2 fields this module
     # stores, validate_configs_structured(known_slugs=...) and
