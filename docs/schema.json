@@ -520,9 +520,7 @@
                 "examples": {
                   "FeatureEditorDraftResponse": {
                     "value": {
-                      "draft": {
-                        "features": []
-                      }
+                      "draft": "{\"features\": []}"
                     }
                   }
                 }
@@ -966,22 +964,29 @@
                 }
               },
               "examples": {
-                "BulkAddCategories": {
+                "BulkAddARootCategory": {
                   "value": [
-                    [
-                      {
-                        "id": 1,
-                        "name": "Electronics",
-                        "tn_priority": 10
-                      },
-                      {
-                        "id": 2,
-                        "name": "Vehicles",
-                        "tn_parent": 1
-                      }
-                    ]
+                    {
+                      "id": 1,
+                      "name": "Electronics",
+                      "slug": "electronics",
+                      "features": [],
+                      "tn_priority": 10
+                    }
                   ],
-                  "summary": "Bulk add categories"
+                  "summary": "Bulk add a root category"
+                },
+                "BulkAddAChildCategory": {
+                  "value": [
+                    {
+                      "id": 2,
+                      "name": "Vehicles",
+                      "slug": "vehicles",
+                      "features": [],
+                      "tn_parent": 1
+                    }
+                  ],
+                  "summary": "Bulk add a child category"
                 }
               }
             },
@@ -2732,6 +2737,7 @@
           },
           "slug": {
             "type": "string",
+            "default": "",
             "maxLength": 100
           },
           "icon": {
@@ -2973,6 +2979,7 @@
           },
           "slug": {
             "type": "string",
+            "default": "",
             "maxLength": 100
           },
           "icon": {
@@ -3100,6 +3107,7 @@
           },
           "slug": {
             "type": "string",
+            "default": "",
             "maxLength": 100
           },
           "icon": {
@@ -3365,6 +3373,7 @@
           },
           "slug": {
             "type": "string",
+            "default": "",
             "maxLength": 100
           },
           "icon": {
@@ -3566,9 +3575,7 @@
             "type": "string",
             "nullable": true,
             "description": "JSON-encoded draft string, null if no draft saved",
-            "example": {
-              "features": []
-            }
+            "example": "{\"features\": []}"
           }
         },
         "required": [
@@ -3794,6 +3801,7 @@
           },
           "slug": {
             "type": "string",
+            "default": "",
             "maxLength": 100
           },
           "icon": {
@@ -4795,6 +4803,7 @@
           },
           "slug": {
             "type": "string",
+            "default": "",
             "maxLength": 100
           },
           "icon": {

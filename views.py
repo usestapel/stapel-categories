@@ -383,12 +383,16 @@ class CategoryViewSet(RevisionViewSetMixin, viewsets.ModelViewSet):
         request=CategoryBulkSerializer(many=True),
         responses={200: BulkUpdateResponseSerializer, 400: OpenApiTypes.OBJECT},
         examples=[
+            # The request is a list serializer: drf-spectacular wraps each
+            # example value in the list itself, so a value is ONE item.
             OpenApiExample(
-                "Bulk add categories",
-                value=[
-                    {"id": 1, "name": "Electronics", "tn_priority": 10},
-                    {"id": 2, "name": "Vehicles", "tn_parent": 1},
-                ],
+                "Bulk add a root category",
+                value={"id": 1, "name": "Electronics", "slug": "electronics", "features": [], "tn_priority": 10},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Bulk add a child category",
+                value={"id": 2, "name": "Vehicles", "slug": "vehicles", "features": [], "tn_parent": 1},
                 request_only=True,
             ),
         ],

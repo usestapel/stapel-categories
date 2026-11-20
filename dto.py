@@ -19,7 +19,7 @@ class FeatureEditorDraftResponse:
     """Feature editor draft state.
 
     Attributes:
-        draft: JSON-encoded draft string, null if no draft saved. Example: {"features": []}
+        draft: JSON-encoded draft string, null if no draft saved. Example: "{\\"features\\": []}"
     """
 
     draft: Optional[str]

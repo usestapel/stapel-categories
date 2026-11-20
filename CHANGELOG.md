@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.25.1] — 2026-11-20
+
+Patch. No migration, no consumer edit. Requires stapel-core 0.99.0.
+
+- **Contract profile 2:** `docs/schema.v2.json` (stapel_tools.codegen
+  `contract_profile=2`) beside the unchanged-profile `docs/schema.json`, for a
+  native client generator: bearer scheme, public operations from the running
+  permission stack, error codes bound per response (`x-stapel-errors`).
+  `make contract-check` diffs it with the rest.
+- **Examples:** 2 of 3 examples did not validate. `FeatureEditorDraftResponse.draft`
+  is a JSON-encoded *string* and its example was an object; the bulk-add
+  request example was a list inside drf-spectacular's own list wrapper and
+  lacked the required `slug` and `features`. Now one valid item per example
+  (a root and a child category).
+- Gates (`tests/test_contract_profile2.py`, on stapel-tools 0.84.0's
+  `contract_gates`): `schema.v2.json` is profile 2 of the same surface with
+  bound codes drawn from `errors.json`; every example in both documents
+  validates against its schema (inversion included); no `@action` declares a
+  permission, authenticator or throttle its mount never runs.
+
 ## [0.25.0] — 2026-10-22
 
 Minor (pre-1.0: a minor is breaking) for generated clients only: enum
