@@ -24,13 +24,13 @@ pip install stapel-categories
 
 | Fact | Value |
 |---|---|
-| Version | `0.25.1` |
+| Version | `0.25.2` |
 | Python | `>=3.11` (3.11, 3.12, 3.13, 3.14) |
 | HTTP operations | 37 |
 | Config axes | 1 |
 | Usage surface | 23 |
 | Extension points | 4 |
-| Error codes | 64 |
+| Error codes | 65 |
 | Fleet dependencies | [`stapel-attributes`](https://github.com/usestapel/stapel-attributes) · [`stapel-core`](https://github.com/usestapel/stapel-core) |
 
 ## Documentation

@@ -4629,27 +4629,33 @@
             "properties": {
               "page": {
                 "type": "integer",
-                "description": "Current page number"
+                "description": "Current page number",
+                "example": 1
               },
               "page_size": {
                 "type": "integer",
-                "description": "Number of items per page"
+                "description": "Number of items per page",
+                "example": 20
               },
               "total_pages": {
                 "type": "integer",
-                "description": "Total number of pages"
+                "description": "Total number of pages",
+                "example": 1
               },
               "total_count": {
                 "type": "integer",
-                "description": "Total number of items"
+                "description": "Total number of items",
+                "example": 1
               },
               "has_next": {
                 "type": "boolean",
-                "description": "Whether there is a next page"
+                "description": "Whether there is a next page",
+                "example": false
               },
               "has_previous": {
                 "type": "boolean",
-                "description": "Whether there is a previous page"
+                "description": "Whether there is a previous page",
+                "example": false
               }
             },
             "required": [
@@ -4667,23 +4673,27 @@
               "min": {
                 "type": "integer",
                 "nullable": true,
-                "description": "Minimum revision in current response"
+                "description": "Minimum revision in current response",
+                "example": 1
               },
               "max": {
                 "type": "integer",
                 "nullable": true,
-                "description": "Maximum revision in current response"
+                "description": "Maximum revision in current response",
+                "example": 1
               },
               "global_max": {
                 "type": "integer",
-                "description": "Global maximum revision in the table"
+                "description": "Global maximum revision in the table",
+                "example": 1
               },
               "deleted_ids": {
                 "type": "array",
                 "items": {
                   "type": "integer"
                 },
-                "description": "IDs of soft-deleted items since min_revision"
+                "description": "IDs of soft-deleted items since min_revision",
+                "example": []
               }
             },
             "required": [
@@ -4718,27 +4728,33 @@
             "properties": {
               "page": {
                 "type": "integer",
-                "description": "Current page number"
+                "description": "Current page number",
+                "example": 1
               },
               "page_size": {
                 "type": "integer",
-                "description": "Number of items per page"
+                "description": "Number of items per page",
+                "example": 20
               },
               "total_pages": {
                 "type": "integer",
-                "description": "Total number of pages"
+                "description": "Total number of pages",
+                "example": 1
               },
               "total_count": {
                 "type": "integer",
-                "description": "Total number of items"
+                "description": "Total number of items",
+                "example": 1
               },
               "has_next": {
                 "type": "boolean",
-                "description": "Whether there is a next page"
+                "description": "Whether there is a next page",
+                "example": false
               },
               "has_previous": {
                 "type": "boolean",
-                "description": "Whether there is a previous page"
+                "description": "Whether there is a previous page",
+                "example": false
               }
             },
             "required": [
@@ -4756,23 +4772,27 @@
               "min": {
                 "type": "integer",
                 "nullable": true,
-                "description": "Minimum revision in current response"
+                "description": "Minimum revision in current response",
+                "example": 1
               },
               "max": {
                 "type": "integer",
                 "nullable": true,
-                "description": "Maximum revision in current response"
+                "description": "Maximum revision in current response",
+                "example": 1
               },
               "global_max": {
                 "type": "integer",
-                "description": "Global maximum revision in the table"
+                "description": "Global maximum revision in the table",
+                "example": 1
               },
               "deleted_ids": {
                 "type": "array",
                 "items": {
                   "type": "integer"
                 },
-                "description": "IDs of soft-deleted items since min_revision"
+                "description": "IDs of soft-deleted items since min_revision",
+                "example": []
               }
             },
             "required": [

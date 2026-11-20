@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.25.2] — 2026-11-20
+
+Patch. No migration, no consumer edit. Requires stapel-core 0.99.2.
+
+- Contracts regenerated under stapel-core 0.99.2: `Paginated*` envelope
+  properties carry examples (so a list's item example documents the page),
+  and `errors.json` lists core's `error.400.too_many_ids`.
+- CI: `make contract-check` runs on the 3.12 leg (the byte-level drift gate
+  for every emitted artifact was a dev-loop step only).
+
 ## [0.25.1] — 2026-11-20
 
 Patch. No migration, no consumer edit. Requires stapel-core 0.99.0.
