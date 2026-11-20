@@ -14,11 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from stapel_tools.contract_gates import dead_action_declarations, viewset_routes
-
-# Request examples are checked against the request direction of their schema
-# (a readOnly field fails); the stapel-tools release carrying it is pending.
-from tests._contract_gates_next import invalid_examples
+from stapel_tools.contract_gates import dead_action_declarations, invalid_examples, viewset_routes
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 PREFIX = "/categories/api/"

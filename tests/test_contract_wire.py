@@ -857,7 +857,7 @@ def test_every_caller_state_is_answered_as_declared(method, path):
     schema.v2.json; a refusal is a 4xx; an operation open to callers without
     a session does not refuse them 401.
     """
-    from tests._contract_gates_next import AuthStateReplay
+    from stapel_tools.contract_gates import AuthStateReplay
 
     # The first document's `security` is the claim: profile 2 derives it from the
     # running permission stack, profile 1 does not.

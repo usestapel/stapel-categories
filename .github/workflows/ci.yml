@@ -45,7 +45,7 @@ jobs:
         # (hidden ordering); pin it explicitly here too so this step doesn't
         # silently stop covering the gate if migration-lint is ever reordered
         # or dropped.
-        run: pip install pytest pytest-django pytest-cov "stapel-tools>=0.84.0,<1"
+        run: pip install pytest pytest-django pytest-cov "stapel-tools>=0.86.0,<1"
 
       - name: Contract drift (make contract-check, emitted on 3.12)
         if: matrix.python-version == '3.12'
@@ -120,7 +120,7 @@ jobs:
         # (hidden ordering); pin it explicitly here too so this step doesn't
         # silently stop covering the gate if migration-lint is ever reordered
         # or dropped.
-        run: pip install pytest pytest-django pytest-cov "stapel-tools>=0.84.0,<1"
+        run: pip install pytest pytest-django pytest-cov "stapel-tools>=0.86.0,<1"
 
       - name: Tests with coverage
         run: |
